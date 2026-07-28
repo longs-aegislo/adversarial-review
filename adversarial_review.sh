@@ -225,6 +225,12 @@ collect_source_code() {
 
     log_verbose "Collecting source code from $target_dir"
 
+    # Directories that never contain first-party source (deps, build output, vendored assets)
+    local exclude_paths=(! -path "*/\.*" ! -path "*/node_modules/*" ! -path "*/vendor/*" \
+        ! -path "*/public/*" ! -path "*/storage/*" ! -path "*/bootstrap/cache/*" \
+        ! -path "*/dist/*" ! -path "*/build/*" ! -path "*/__pycache__/*" \
+        ! -path "*/venv/*" ! -path "*/.venv/*")
+
     # Python files
     count=0
     while IFS= read -r file && [[ $count -lt $max_files ]]; do
@@ -235,7 +241,31 @@ collect_source_code() {
 $(head -$max_lines "$file" 2>/dev/null)
 "
         ((count++))
-    done < <(find "$target_dir" -name "*.py" -type f ! -path "*/\.*" ! -path "*/__pycache__/*" ! -path "*/venv/*" ! -path "*/.venv/*" 2>/dev/null | sort)
+    done < <(find "$target_dir" -name "*.py" -type f "${exclude_paths[@]}" 2>/dev/null | sort)
+
+    # PHP files
+    count=0
+    while IFS= read -r file && [[ $count -lt $max_files ]]; do
+        [[ -z "$file" ]] && continue
+        local rel="${file#$target_dir/}"
+        output+="
+=== FILE: $rel ===
+$(head -$max_lines "$file" 2>/dev/null)
+"
+        ((count++))
+    done < <(find "$target_dir" -name "*.php" -type f "${exclude_paths[@]}" ! -name "*.blade.php" 2>/dev/null | sort)
+
+    # Blade templates
+    count=0
+    while IFS= read -r file && [[ $count -lt $max_files ]]; do
+        [[ -z "$file" ]] && continue
+        local rel="${file#$target_dir/}"
+        output+="
+=== FILE: $rel ===
+$(head -$max_lines "$file" 2>/dev/null)
+"
+        ((count++))
+    done < <(find "$target_dir" -name "*.blade.php" -type f "${exclude_paths[@]}" 2>/dev/null | sort)
 
     # TypeScript/JavaScript
     count=0
@@ -247,7 +277,7 @@ $(head -$max_lines "$file" 2>/dev/null)
 $(head -$max_lines "$file" 2>/dev/null)
 "
         ((count++))
-    done < <(find "$target_dir" \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \) -type f ! -path "*/node_modules/*" ! -path "*/\.*" 2>/dev/null | sort)
+    done < <(find "$target_dir" \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \) -type f "${exclude_paths[@]}" 2>/dev/null | sort)
 
     # Shell scripts
     count=0
@@ -259,7 +289,7 @@ $(head -$max_lines "$file" 2>/dev/null)
 $(head -300 "$file" 2>/dev/null)
 "
         ((count++))
-    done < <(find "$target_dir" -name "*.sh" -type f ! -path "*/\.*" 2>/dev/null | sort)
+    done < <(find "$target_dir" -name "*.sh" -type f "${exclude_paths[@]}" 2>/dev/null | sort)
 
     echo "$output"
 }
@@ -322,9 +352,9 @@ run_codex() {
 
     local exit_code=0
     if [[ -n "$timeout_cmd" ]]; then
-        (cd "$working_dir" && $timeout_cmd ${timeout_secs}s codex -q --full-auto --prompt "$prompt") > "$output_file" 2>&1 || exit_code=$?
+        (cd "$working_dir" && echo "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s read-only --skip-git-repo-check) > "$output_file" 2>&1 || exit_code=$?
     else
-        (cd "$working_dir" && codex -q --full-auto --prompt "$prompt") > "$output_file" 2>&1 || exit_code=$?
+        (cd "$working_dir" && echo "$prompt" | codex exec -s read-only --skip-git-repo-check) > "$output_file" 2>&1 || exit_code=$?
     fi
 
     if [[ $exit_code -eq 0 ]]; then
