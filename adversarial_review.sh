@@ -17,6 +17,7 @@
 #   -p, --prompt FILE       Custom review prompt file
 #   -v, --verbose           Verbose output
 #   -t, --timeout MIN       Timeout per agent call in minutes (default: 10)
+#   -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
 #   --status                Show current status
 #   --reset                 Reset artifacts and tracking
 #   --reset-circuit         Reset circuit breaker
@@ -46,6 +47,7 @@ MAX_ITERATIONS="${MAX_ITERATIONS:-3}"
 VERBOSE="${VERBOSE:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-10}"
+FIXER="${FIXER:-}"
 
 # Colors
 RED='\033[0;31m'
@@ -173,9 +175,18 @@ parse_status_block() {
         return 1
     fi
 
-    # Extract the status block
+    # Extract the status block. Agent output can contain the status block
+    # markers more than once (e.g. echoed prompt instructions/examples, or
+    # multiple reasoning turns) - only the LAST complete block is real, so
+    # scan for the last START..END pair instead of a naive sed range (which
+    # would concatenate every block it finds into one broken JSON blob).
     local content=$(cat "$file")
-    local block=$(echo "$content" | sed -n "/---${block_name}---/,/---END_${block_name}---/p" | grep -v "^---")
+    local block=$(echo "$content" | awk -v start="---${block_name}---" -v end="---END_${block_name}---" '
+        index($0, start) { capture=1; buf=""; next }
+        index($0, end) { capture=0; last=buf }
+        capture { buf = buf $0 "\n" }
+        END { printf "%s", last }
+    ')
 
     if [[ -z "$block" ]]; then
         # No status block found, try to detect NO_ISSUES
@@ -338,9 +349,10 @@ run_codex() {
     local prompt="$1"
     local output_file="$2"
     local working_dir="${3:-$PWD}"
+    local sandbox_mode="${4:-read-only}"
 
     if [[ "$DRY_RUN" == "1" ]]; then
-        log_codex "[DRY RUN] Would run Codex (${#prompt} chars) -> $output_file"
+        log_codex "[DRY RUN] Would run Codex (${#prompt} chars, sandbox=$sandbox_mode) -> $output_file"
         echo "DRY RUN: Codex output" > "$output_file"
         return 0
     fi
@@ -352,9 +364,9 @@ run_codex() {
 
     local exit_code=0
     if [[ -n "$timeout_cmd" ]]; then
-        (cd "$working_dir" && echo "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s read-only --skip-git-repo-check) > "$output_file" 2>&1 || exit_code=$?
+        (cd "$working_dir" && echo "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s "$sandbox_mode" --skip-git-repo-check) > "$output_file" 2>&1 || exit_code=$?
     else
-        (cd "$working_dir" && echo "$prompt" | codex exec -s read-only --skip-git-repo-check) > "$output_file" 2>&1 || exit_code=$?
+        (cd "$working_dir" && echo "$prompt" | codex exec -s "$sandbox_mode" --skip-git-repo-check) > "$output_file" 2>&1 || exit_code=$?
     fi
 
     if [[ $exit_code -eq 0 ]]; then
@@ -419,9 +431,11 @@ $source_code
 
     local claude_issues=$(echo "$claude_status" | jq -r '.issues_found // 0')
     local codex_issues=$(echo "$codex_status" | jq -r '.issues_found // 0')
+    local claude_summary=$(echo "$claude_status" | jq -r '.summary // "(no summary)"')
+    local codex_summary=$(echo "$codex_status" | jq -r '.summary // "(no summary)"')
 
-    log_info "Claude found: $claude_issues issues"
-    log_info "Codex found: $codex_issues issues"
+    log_info "Claude found: $claude_issues issues - $claude_summary"
+    log_info "Codex found: $codex_issues issues - $codex_summary"
 
     return 1  # Continue to next phase
 }
@@ -475,6 +489,12 @@ $(cat "$claude_review")
     add_to_history "$iteration" "phase_2" "claude" "$claude_status"
     add_to_history "$iteration" "phase_2" "codex" "$codex_status"
 
+    local claude_summary=$(echo "$claude_status" | jq -r '.summary // "(no summary)"')
+    local codex_summary=$(echo "$codex_status" | jq -r '.summary // "(no summary)"')
+
+    log_info "Claude on Codex's review: $claude_summary"
+    log_info "Codex on Claude's review: $codex_summary"
+
     log_success "Cross-review complete"
 }
 
@@ -488,23 +508,63 @@ run_phase_3() {
 
     local codex_on_claude="$ARTIFACTS_DIR/iter${iteration}_2_codex_on_claude.md"
     local claude_on_codex="$ARTIFACTS_DIR/iter${iteration}_2_claude_on_codex.md"
+    local claude_review="$ARTIFACTS_DIR/iter${iteration}_1_claude_review.md"
+    local codex_review="$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md"
 
     local meta_prompt=$(cat "$PROMPTS_DIR/meta_review.md")
 
-    # Claude responds to Codex's feedback
+    # Each phase runs as a fresh, stateless CLI invocation with no memory of
+    # earlier phases, so the meta-review prompt has to re-supply everything
+    # needed to reach a full consensus: both agents' original Phase 1
+    # findings AND this agent's own Phase 2 verdicts on the other agent's
+    # findings - not just the feedback the other agent gave back. Without
+    # this, an agent has no way to rule on the other side's issues at all in
+    # Phase 3, and they silently vanish from the consensus list.
+
+    # Claude responds to Codex's feedback, with full context restored
     local claude_prompt="$meta_prompt
 
 ---
-# FEEDBACK ON YOUR ORIGINAL REVIEW
+# YOUR ORIGINAL REVIEW (Phase 1)
+
+$(cat "$claude_review")
+
+---
+# THE OTHER AGENT'S ORIGINAL REVIEW (Phase 1)
+
+$(cat "$codex_review")
+
+---
+# YOUR OWN CROSS-REVIEW OF THEIR FINDINGS (Phase 2)
+
+$(cat "$claude_on_codex")
+
+---
+# FEEDBACK ON YOUR ORIGINAL REVIEW (Phase 2)
 
 $(cat "$codex_on_claude")
 "
 
-    # Codex responds to Claude's feedback
+    # Codex responds to Claude's feedback, with full context restored
     local codex_prompt="$meta_prompt
 
 ---
-# FEEDBACK ON YOUR ORIGINAL REVIEW
+# YOUR ORIGINAL REVIEW (Phase 1)
+
+$(cat "$codex_review")
+
+---
+# THE OTHER AGENT'S ORIGINAL REVIEW (Phase 1)
+
+$(cat "$claude_review")
+
+---
+# YOUR OWN CROSS-REVIEW OF THEIR FINDINGS (Phase 2)
+
+$(cat "$codex_on_claude")
+
+---
+# FEEDBACK ON YOUR ORIGINAL REVIEW (Phase 2)
 
 $(cat "$claude_on_codex")
 "
@@ -526,6 +586,12 @@ $(cat "$claude_on_codex")
 
     add_to_history "$iteration" "phase_3" "claude" "$claude_status"
     add_to_history "$iteration" "phase_3" "codex" "$codex_status"
+
+    local claude_summary=$(echo "$claude_status" | jq -r '.summary // "(no summary)"')
+    local codex_summary=$(echo "$codex_status" | jq -r '.summary // "(no summary)"')
+
+    log_info "Claude meta-review: $claude_summary"
+    log_info "Codex meta-review: $codex_summary"
 
     log_success "Meta-review complete"
 }
@@ -577,13 +643,23 @@ Working directory: $target_dir
 
     local output_file="$ARTIFACTS_DIR/iter${iteration}_4_synthesis.md"
 
-    run_claude "$context" "$output_file" "$target_dir" "true"
+    local fixer_agent="claude"
+    if [[ "$FIXER" == "codex" ]]; then
+        fixer_agent="codex"
+        log_info "Implementing fixes with Codex (workspace-write)"
+        run_codex "$context" "$output_file" "$target_dir" "workspace-write"
+    else
+        run_claude "$context" "$output_file" "$target_dir" "true"
+    fi
 
     local status=$(parse_status_block "$output_file" "SYNTHESIS_STATUS")
     local exit_signal=$(echo "$status" | jq -r '.exit_signal // false')
     local files_modified=$(echo "$status" | jq -r '.files_modified // 0')
 
-    add_to_history "$iteration" "phase_4" "claude" "$status"
+    add_to_history "$iteration" "phase_4" "$fixer_agent" "$status"
+
+    local synthesis_summary=$(echo "$status" | jq -r '.summary // "(no summary)"')
+    log_info "Synthesis ($fixer_agent): $synthesis_summary"
 
     # Record for circuit breaker
     local agents_agree=0
@@ -743,6 +819,9 @@ OPTIONS:
     -p, --prompt FILE       Custom initial review prompt
     -v, --verbose           Verbose output
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
+    -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
+                            (if omitted, prompts interactively on a TTY;
+                            defaults to claude when non-interactive)
     --status                Show current status
     --reset                 Reset all state
     --reset-circuit         Reset circuit breaker only
@@ -753,7 +832,7 @@ PHASES:
     1. Independent Review   Claude and Codex review code in parallel
     2. Cross-Review         Each reviews the other's findings
     3. Meta-Review          Each reviews feedback on their review
-    4. Synthesis            Claude synthesizes and implements fixes
+    4. Synthesis            Claude or Codex synthesizes and implements fixes
 
 CIRCUIT BREAKER:
     Prevents runaway loops by detecting:
@@ -803,6 +882,10 @@ main() {
                 ;;
             -t|--timeout)
                 TIMEOUT_MINUTES="$2"
+                shift 2
+                ;;
+            -f|--fixer)
+                FIXER="$2"
                 shift 2
                 ;;
             --status)
@@ -857,6 +940,26 @@ main() {
         cp "$custom_prompt" "$PROMPTS_DIR/initial_review.md"
         log_info "Using custom prompt: $custom_prompt"
     fi
+
+    if [[ -z "$FIXER" ]]; then
+        if [[ "$DRY_RUN" == "1" || ! -t 0 ]]; then
+            FIXER="claude"
+        else
+            local choice
+            read -r -p "$(echo -e "${BLUE}[INFO]${NC} Which agent should implement fixes in Phase 4? [c]laude / [x]codex (default: claude): ")" choice
+            case "$choice" in
+                x|X|codex) FIXER="codex" ;;
+                *) FIXER="claude" ;;
+            esac
+        fi
+    fi
+
+    if [[ "$FIXER" != "claude" && "$FIXER" != "codex" ]]; then
+        log_error "Invalid --fixer value: $FIXER (must be 'claude' or 'codex')"
+        exit 1
+    fi
+
+    log_info "Phase 4 fixes will be implemented by: $FIXER"
 
     run_review_loop "$target_dir"
 }

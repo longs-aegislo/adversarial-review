@@ -12,19 +12,37 @@ Your task is to validate, challenge, or expand upon their analysis.
 
 ## Analysis Guidelines
 
-For each finding in the other agent's review:
+The other agent numbered their findings (ISSUE-1, ISSUE-2, ...). You MUST
+address every single one of their IDs individually - do not summarize
+several of them together in prose and do not silently skip any. Missing
+an ID here means it will look unresolved to whoever synthesizes the final
+fixes, even if you privately agree with it.
+
+For EACH of their numbered findings:
 
 ### If you AGREE:
-- State "VALID" and explain why
+- State "ISSUE-N: VALID" and explain why
 - Optionally suggest a better fix if you have one
 
 ### If you DISAGREE:
-- State "INVALID" or "FALSE POSITIVE" and explain why
+- State "ISSUE-N: INVALID" or "ISSUE-N: FALSE POSITIVE" and explain why
 - Provide evidence (code context, documentation, etc.)
 
 ### If you have CONCERNS:
-- State "UNCLEAR" or "NEEDS MORE CONTEXT"
+- State "ISSUE-N: UNCLEAR" or "ISSUE-N: NEEDS MORE CONTEXT"
 - Explain what additional information is needed
+
+## Verdict Ledger (REQUIRED, before the status block)
+
+Immediately before the status block, list every one of their IDs with your
+one-word verdict, so it can be cross-checked mechanically:
+
+```
+VERDICTS: ISSUE-1=VALID, ISSUE-2=INVALID, ISSUE-3=UNCLEAR, ...
+```
+
+The count of entries in VERDICTS MUST equal the number of findings the
+other agent reported.
 
 ## Additional Findings
 
