@@ -2,6 +2,20 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues via the `gh` CLI (`origin` → `longs-aegislo/adversarial-review`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The `triage` skill isn't installed in this repo; only `ready-for-agent` is used, by `to-spec`, to mark specs ready to implement.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ## Quick Start (Handoff Summary)
 
 **What this is:** Multi-agent adversarial code review tool. Claude + GPT Codex review code independently, cross-review each other's findings, debate via meta-review, then Claude synthesizes and implements fixes.
