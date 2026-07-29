@@ -181,20 +181,26 @@ test_recent_diff_respects_base_scope_filters() {
     pass "recent diff composes with base-scoped file filtering"
 }
 
-test_recent_diff_default_mode_is_unchanged() {
+test_recent_diff_default_mode_filters_untracked_files() {
     local repo="$TEST_ROOT/default-recent-diff"
     init_repo "$repo"
     echo 'echo base' > "$repo/app.sh"
     git -C "$repo" add .
     git -C "$repo" commit -qm "base"
-    echo 'print("legacy default behavior")' > "$repo/.hidden.py"
+    echo 'echo in-progress' > "$repo/work.sh"
+    echo 'not source code' > "$repo/random-notes.md"
+    echo 'print("hidden source")' > "$repo/.hidden.py"
 
     local actual
     actual="$(collect_recent_diff "$repo" 2 "")"
 
-    assert_contains "$actual" '=== NEW FILE: .hidden.py ===' \
-        "default recent diff should preserve its pre-existing untracked-file behavior"
-    pass "recent diff default mode remains unchanged"
+    assert_contains "$actual" '=== NEW FILE: work.sh ===' \
+        "default recent diff should include reviewable untracked source files"
+    assert_not_contains "$actual" 'random-notes.md' \
+        "default recent diff should exclude untracked files with disallowed extensions"
+    assert_not_contains "$actual" '.hidden.py' \
+        "default recent diff should apply the same hidden-path exclusion as source collection"
+    pass "recent diff default mode filters untracked files like source collection"
 }
 
 run_cli() {
@@ -295,7 +301,7 @@ test_base_scope_includes_deleted_source_files
 test_resolved_base_stays_stable_when_ref_moves
 test_base_scope_stays_within_git_subdirectory_target
 test_recent_diff_respects_base_scope_filters
-test_recent_diff_default_mode_is_unchanged
+test_recent_diff_default_mode_filters_untracked_files
 test_cli_rejects_non_git_target
 test_cli_rejects_unknown_base
 test_cli_rejects_empty_base_scope

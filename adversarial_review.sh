@@ -395,12 +395,9 @@ collect_recent_diff() {
                 done
         )
     else
-        # Preserve the original whole-directory behavior when no base is set.
         (cd "$target_dir" && git status --porcelain --untracked-files=all 2>/dev/null | while read -r status file; do
             [[ "$status" != "??" ]] && continue
-            case "$file" in
-                */.*|node_modules/*|vendor/*|public/*|storage/*|bootstrap/cache/*|dist/*|build/*|__pycache__/*|venv/*|.venv/*) continue ;;
-            esac
+            is_reviewable_source_file "$file" || continue
             emit_untracked_file_diff "$file"
         done)
     fi
