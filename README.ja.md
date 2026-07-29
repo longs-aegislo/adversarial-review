@@ -205,6 +205,13 @@ SUMMARY: Found critical type mixing bug
 - `iter{N}_3_codex_meta.md` - Codex のメタレビュー
 - `iter{N}_4_synthesis.md` - 最終的な統合結果と修正内容
 
+上記の Codex 生成ファイルにはそれぞれ対応する `iter{N}_*_*.raw.log` も出力され
+ます。`codex exec` の標準出力は最終回答だけでなく、推論サマリーや shell/ツール
+呼び出し、ファイルダンプを含む完全な実行トランスクリプトです。そのため `.md`
+ファイルは `codex exec -o`（`--output-last-message`）で最終回答のみを抽出した
+ものにし、後続フェーズへ渡す際に肥大化しないようにしています。完全な記録は
+デバッグ用に `.raw.log` に残ります。
+
 ## 研究背景
 
 このアプローチは以下の研究に基づいています：

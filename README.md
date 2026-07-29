@@ -204,6 +204,13 @@ Each iteration produces:
 - `iter{N}_3_codex_meta.md` - Codex's meta-review
 - `iter{N}_4_synthesis.md` - Final synthesis and fixes
 
+For each Codex-generated file above, a companion `iter{N}_*_*.raw.log` is also
+written. `codex exec`'s stdout is the full agent transcript (reasoning
+summaries, shell/tool calls, file dumps) - not just its final answer - so the
+`.md` file is extracted via `codex exec -o` (`--output-last-message`) to hold
+only the final reply, keeping it small when fed into later phases. The
+`.raw.log` keeps the full transcript around for debugging.
+
 ## Research Background
 
 This approach is based on:

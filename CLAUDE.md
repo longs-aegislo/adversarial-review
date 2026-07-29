@@ -122,6 +122,14 @@ Examples:
 - iter1_4_synthesis.md          # Phase 4, Claude's synthesis
 ```
 
+Every Codex-produced `.md` file also has a companion `iter{N}_*_*.raw.log`.
+`codex exec`'s stdout is the full agent transcript (reasoning summaries,
+exec/tool calls, file dumps), not just the final answer, so `run_codex()`
+uses `codex exec -o <file>` (`--output-last-message`) to write only the
+final reply to the `.md` file - that's what gets fed into later phases'
+prompts. The raw transcript goes to `.raw.log` for debugging only and is
+never concatenated into subsequent prompts.
+
 ## Dependencies
 
 - **claude CLI**: `npm install -g @anthropic-ai/claude-code`
@@ -135,6 +143,11 @@ Examples:
 2. **No tests yet**: Should add bats tests following ralph's pattern
 3. **Codex CLI flags**: May need adjustment based on actual codex CLI behavior
 4. **Cost tracking**: Not implemented - each iteration is ~6 API calls
+5. **Prompt bloat from Codex transcripts** (fixed): earlier versions fed each
+   phase's raw `codex exec` stdout (full reasoning/tool-call transcript,
+   sometimes 100s of KB) into every later phase's prompt, snowballing context
+   size iteration over iteration. `run_codex()` now extracts only the final
+   reply via `-o`/`--output-last-message`; see Artifacts Naming Convention.
 
 ## Development Notes
 

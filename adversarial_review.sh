@@ -323,15 +323,29 @@ run_codex() {
     local timeout_cmd=$(get_timeout_cmd)
     local timeout_secs=$((TIMEOUT_MINUTES * 60))
 
+    # codex exec's stdout is the full agent transcript (reasoning summaries,
+    # exec/tool calls, file dumps) - not just the final answer. Feeding that
+    # raw transcript back into later phases balloons prompt size by orders of
+    # magnitude, so capture it separately and use --output-last-message to
+    # get only the agent's final reply for $output_file, which is what
+    # downstream phases actually cat into their prompts.
+    local raw_log="${output_file%.md}.raw.log"
+
     local exit_code=0
     if [[ -n "$timeout_cmd" ]]; then
-        (cd "$working_dir" && echo "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s "$sandbox_mode" --skip-git-repo-check) > "$output_file" 2>&1 || exit_code=$?
+        (cd "$working_dir" && echo "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s "$sandbox_mode" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
     else
-        (cd "$working_dir" && echo "$prompt" | codex exec -s "$sandbox_mode" --skip-git-repo-check) > "$output_file" 2>&1 || exit_code=$?
+        (cd "$working_dir" && echo "$prompt" | codex exec -s "$sandbox_mode" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
+    fi
+
+    # If codex failed before writing a final message (crash, timeout), fall
+    # back to the raw transcript so callers still have something to parse.
+    if [[ ! -s "$output_file" ]]; then
+        cp "$raw_log" "$output_file"
     fi
 
     if [[ $exit_code -eq 0 ]]; then
-        log_codex "Complete ($(wc -l < "$output_file" | tr -d ' ') lines)"
+        log_codex "Complete ($(wc -l < "$output_file" | tr -d ' ') lines, raw transcript $(wc -l < "$raw_log" | tr -d ' ') lines)"
     elif [[ $exit_code -eq 124 ]]; then
         log_warning "Codex timed out after ${TIMEOUT_MINUTES}m"
     else
