@@ -17,6 +17,7 @@ This repo is a fork of [alecnielsen/adversarial-review](https://github.com/alecn
 - **Added `-f/--fixer`**: lets you choose whether Claude or Codex implements Phase 4 fixes (interactively on a TTY, or via flag/env var), so you can route the most expensive step to whichever agent has more quota.
 - **Reworked Phase 1 to stop inlining full file contents**: agents now get a file path list (plus a `git diff` against `HEAD` from the second iteration onward) and read whatever files they need themselves, instead of having the whole codebase pasted into the prompt - see the Cost Considerations section below.
 - **Added per-phase issue summaries to terminal output**: each phase now prints the agents' one-line summaries, not just issue counts.
+- **Scoped all state per target directory**: `tracking.json`, the circuit breaker, and `artifacts/` used to live at the repo root and were shared across every target you ever ran against - review a second project and its Phase 1 findings could land next to (or trip a circuit breaker left over from) the first one's runs. State now lives under `state/<slug>/`, keyed by the target directory's path, so projects can't cross-contaminate each other's history.
 
 ## Concept
 
@@ -105,12 +106,17 @@ OPTIONS:
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
                             (if omitted, prompts interactively on a TTY;
                             defaults to codex when non-interactive)
-    --status                Show current status
-    --reset                 Reset all state
-    --reset-circuit         Reset circuit breaker only
-    --circuit-status        Show circuit breaker status
+    --status [DIR]          Show current status (for DIR if given)
+    --reset [DIR]           Reset all state (for DIR if given)
+    --reset-circuit [DIR]   Reset circuit breaker only (for DIR if given)
+    --circuit-status [DIR]  Show circuit breaker status (for DIR if given)
     --dry-run               Show what would happen without executing
 ```
+
+State is scoped per target directory (see State Directory below), so pass
+the same `<target_directory>` you reviewed to `--status`/`--reset`/etc. to
+inspect or reset that project's history specifically. Omitting it falls
+back to a shared/global bucket kept only for backward compatibility.
 
 ## Project Structure
 
@@ -126,10 +132,28 @@ adversarial-review/
 │   ├── cross_review.md      # Phase 2: Cross-review prompt
 │   ├── meta_review.md       # Phase 3: Meta-review prompt
 │   └── synthesis.md         # Phase 4: Synthesis prompt
-├── artifacts/               # Agent outputs per iteration
-├── logs/                    # Execution logs
-└── tracking.json            # State tracking
+└── state/                   # Per-target-directory state (gitignored)
+    └── <project-slug>-<hash>/
+        ├── artifacts/        # Agent outputs per iteration
+        ├── logs/             # Execution logs
+        ├── tracking.json     # State tracking
+        └── .circuit_breaker.json
 ```
+
+## State Directory
+
+Each target directory you run against gets its own state folder under
+`state/`, named from its basename plus a short hash of its full path (so
+two differently-located folders that happen to share a name don't collide).
+This means:
+
+- Reviewing project A and then project B never mixes their `tracking.json`
+  history, artifacts, or circuit breaker counters.
+- An OPEN circuit breaker (or a leftover `--dry-run`) from one project can't
+  block or pollute a run against a different one.
+- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` all take an
+  optional target directory argument to scope to that project's state
+  specifically.
 
 ## Circuit Breaker
 
@@ -140,11 +164,11 @@ Prevents runaway loops by detecting:
 - **Same issues**: 3+ iterations finding the same unfixable issues
 
 ```bash
-# Check circuit breaker status
-./adversarial_review.sh --circuit-status
+# Check circuit breaker status for a specific project
+./adversarial_review.sh --circuit-status ../my-project
 
 # Reset if stuck
-./adversarial_review.sh --reset-circuit
+./adversarial_review.sh --reset-circuit ../my-project
 ```
 
 ## Customization

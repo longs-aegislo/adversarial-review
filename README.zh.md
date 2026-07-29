@@ -17,6 +17,7 @@
 - **新增了 `-f/--fixer` 选项**：可以选择由 Claude 还是 Codex 来实施阶段四的修复（可以在交互式终端中被询问，也可以通过参数或环境变量指定），这样就能把最贵的一步交给额度更充裕的那个智能体。
 - **重构了阶段一，不再内联完整文件内容**：智能体现在只拿到一份文件路径清单（从第二轮起还会附上相对于 `HEAD` 的 `git diff`），需要什么文件就自己去读，而不是把整个代码库都贴进 prompt——详见下方"成本考量"一节。
 - **在终端输出中加入了每个阶段的具体问题摘要**：现在每个阶段都会打印智能体给出的一句话摘要，而不仅仅是问题数量。
+- **按目标目录隔离了所有状态**：原来 `tracking.json`、断路器状态、`artifacts/` 都放在仓库根目录，所有跑过的目标项目共用同一份——审查完项目 A 再审查项目 B，两边的 Phase 1 发现会混在一起，甚至项目 A 留下的 OPEN 断路器会直接把项目 B 的运行拦下来。现在状态统一放到 `state/<slug>/` 下，按目标目录路径区分，不同项目之间不会再互相污染。
 
 ## 核心理念
 
@@ -102,12 +103,14 @@ cd adversarial-review
     -f, --fixer AGENT       阶段四由谁来实施修复：claude | codex
                             （省略时，在交互终端会询问；
                             非交互场景默认使用 codex）
-    --status                显示当前状态
-    --reset                 重置所有状态
-    --reset-circuit         仅重置断路器
-    --circuit-status        显示断路器状态
+    --status [目录]          显示当前状态（给定目录时按该项目查看）
+    --reset [目录]           重置所有状态（给定目录时只重置该项目）
+    --reset-circuit [目录]   仅重置断路器（给定目录时只重置该项目）
+    --circuit-status [目录]  显示断路器状态（给定目录时只看该项目）
     --dry-run               只展示会执行什么，不真正运行
 ```
+
+状态是按目标目录隔离的（见下方"状态目录"一节），所以想查看或重置某个项目的历史，把当初审查它时用的 `<目标目录>` 原样传给 `--status`/`--reset` 等命令即可。不传目录时会退回一个共享/全局的兜底位置，仅为向后兼容保留。
 
 ## 项目结构
 
@@ -123,10 +126,21 @@ adversarial-review/
 │   ├── cross_review.md      # 阶段二：交叉审查 prompt
 │   ├── meta_review.md       # 阶段三：元审查 prompt
 │   └── synthesis.md         # 阶段四：综合 prompt
-├── artifacts/               # 每轮迭代的智能体输出
-├── logs/                    # 执行日志
-└── tracking.json            # 状态追踪
+└── state/                   # 按目标目录隔离的状态（已加入 .gitignore）
+    └── <项目 slug>-<hash>/
+        ├── artifacts/        # 每轮迭代的智能体输出
+        ├── logs/             # 执行日志
+        ├── tracking.json     # 状态追踪
+        └── .circuit_breaker.json
 ```
+
+## 状态目录
+
+每个被审查过的目标目录都会在 `state/` 下拥有自己独立的状态文件夹，命名规则是"目录名 + 完整路径的短 hash"（这样两个不同位置但同名的目录也不会撞在一起）。这意味着：
+
+- 审查完项目 A 再审查项目 B，两者的 `tracking.json` 历史、产出文件、断路器计数都不会混在一起。
+- 项目 A 留下的 OPEN 断路器（或者一次遗留的 `--dry-run`）不会拦下或污染项目 B 的运行。
+- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` 都支持传入一个可选的目标目录参数，用来精确定位到该项目的状态。
 
 ## 断路器（Circuit Breaker）
 
@@ -137,11 +151,11 @@ adversarial-review/
 - **重复问题**：连续 3 轮以上发现同样但无法修复的问题
 
 ```bash
-# 查看断路器状态
-./adversarial_review.sh --circuit-status
+# 查看某个项目的断路器状态
+./adversarial_review.sh --circuit-status ../my-project
 
 # 卡住时重置
-./adversarial_review.sh --reset-circuit
+./adversarial_review.sh --reset-circuit ../my-project
 ```
 
 ## 自定义

@@ -18,11 +18,14 @@
 #   -v, --verbose           Verbose output
 #   -t, --timeout MIN       Timeout per agent call in minutes (default: 10)
 #   -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
-#   --status                Show current status
-#   --reset                 Reset artifacts and tracking
-#   --reset-circuit         Reset circuit breaker
-#   --circuit-status        Show circuit breaker status
+#   --status [DIR]          Show current status (scoped to DIR if given)
+#   --reset [DIR]           Reset artifacts and tracking (scoped to DIR if given)
+#   --reset-circuit [DIR]   Reset circuit breaker (scoped to DIR if given)
+#   --circuit-status [DIR]  Show circuit breaker status (scoped to DIR if given)
 #   --dry-run               Show what would be done without executing
+#
+# State (tracking.json, circuit breaker, artifacts/) is scoped per target
+# directory under state/<slug>/ - see resolve_state_dir() below.
 
 set -euo pipefail
 
@@ -30,9 +33,59 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 PROMPTS_DIR="$SCRIPT_DIR/prompts"
+STATE_ROOT="$SCRIPT_DIR/state"
+
+# Tracking/circuit-breaker/artifacts state is scoped per target directory so
+# that running against one project can't leave stale history or an OPEN
+# circuit breaker that then blocks (or silently pollutes) a run against a
+# different, unrelated project. Find the target dir positional argument
+# with a lightweight pre-scan (mirroring main()'s option arities) BEFORE
+# sourcing the lib files below, since circuit_breaker.sh/response_analyzer.sh
+# compute their state file paths from AR_DIR at source time.
+resolve_state_dir() {
+    local dir="$1"
+    if [[ -z "$dir" ]]; then
+        echo "$SCRIPT_DIR"
+        return
+    fi
+    local abs_dir
+    abs_dir="$(cd "$dir" 2>/dev/null && pwd || echo "$dir")"
+    local slug
+    slug="$(basename "$abs_dir" | tr -c 'A-Za-z0-9._-' '_')"
+    local hash
+    hash="$(echo -n "$abs_dir" | shasum -a 1 | cut -c1-8)"
+    echo "$STATE_ROOT/${slug}-${hash}"
+}
+
+_prescan_target_dir=""
+_prescan_args=("$@")
+_prescan_i=0
+while [[ $_prescan_i -lt ${#_prescan_args[@]} ]]; do
+    _arg="${_prescan_args[$_prescan_i]}"
+    case "$_arg" in
+        -m|--max-iters|-p|--prompt|-t|--timeout|-f|--fixer)
+            ((_prescan_i+=2)) || true
+            ;;
+        -h|--help|-v|--verbose|--status|--reset|--reset-circuit|--circuit-status|--dry-run)
+            ((_prescan_i+=1)) || true
+            ;;
+        -*)
+            ((_prescan_i+=1)) || true
+            ;;
+        *)
+            _prescan_target_dir="$_arg"
+            break
+            ;;
+    esac
+done
+unset _prescan_args _prescan_i _arg
+
+AR_STATE_DIR="$(resolve_state_dir "$_prescan_target_dir")"
+unset _prescan_target_dir
+mkdir -p "$AR_STATE_DIR"
 
 # Export AR_DIR for lib scripts
-export AR_DIR="$SCRIPT_DIR"
+export AR_DIR="$AR_STATE_DIR"
 ARTIFACTS_DIR="$AR_DIR/artifacts"
 LOGS_DIR="$AR_DIR/logs"
 TRACKING_FILE="$AR_DIR/tracking.json"
@@ -760,10 +813,11 @@ run_review_loop() {
 show_status() {
     echo ""
     log_info "=== Adversarial Review Status ==="
+    log_info "State dir: $AR_DIR"
     echo ""
 
     if [[ ! -f "$TRACKING_FILE" ]]; then
-        echo "No tracking file found. Run a review first."
+        echo "No tracking file found for this target. Run a review against it first."
         return
     fi
 
@@ -791,7 +845,7 @@ show_status() {
 }
 
 reset_all() {
-    log_info "Resetting all state..."
+    log_info "Resetting all state for: $AR_DIR"
     rm -rf "$ARTIFACTS_DIR"/* "$TRACKING_FILE"
     rm -f "$AR_DIR/.circuit_breaker.json" "$AR_DIR/.circuit_breaker_history.json"
     rm -f "$AR_DIR/.response_analysis.json"
@@ -817,11 +871,17 @@ OPTIONS:
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
                             (if omitted, prompts interactively on a TTY;
                             defaults to codex when non-interactive)
-    --status                Show current status
-    --reset                 Reset all state
-    --reset-circuit         Reset circuit breaker only
-    --circuit-status        Show circuit breaker status
+    --status [DIR]          Show current status (scoped to DIR if given)
+    --reset [DIR]           Reset all state (scoped to DIR if given)
+    --reset-circuit [DIR]   Reset circuit breaker only (scoped to DIR if given)
+    --circuit-status [DIR]  Show circuit breaker status (scoped to DIR if given)
     --dry-run               Show what would happen without executing
+
+STATE:
+    All state (tracking.json, circuit breaker, artifacts/) is scoped per
+    target directory under state/<slug>/, so reviewing one project can't
+    pollute or trip a circuit breaker for another. Pass the same target
+    directory to --status/--reset/etc. to scope to that project.
 
 PHASES:
     1. Independent Review   Claude and Codex review code in parallel

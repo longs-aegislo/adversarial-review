@@ -1,13 +1,12 @@
-# State files (regenerated on run)
+# Per-target-directory state (regenerated on run, scoped under state/<slug>/)
+state/
+
+# Legacy unscoped state files (pre-isolation; regenerated on run)
 tracking.json
 .circuit_breaker.json
 .circuit_breaker_history.json
 .response_analysis.json
-
-# Artifacts (can be large, regenerated)
 artifacts/
-
-# Logs
 logs/
 
 # macOS
