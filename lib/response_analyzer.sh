@@ -103,6 +103,15 @@ parse_status_block() {
           [[ "$block_name" == "META_REVIEW_STATUS" ]]; }; then
         scope_errors="$(jq -c '. + ["missing ISSUE_SCOPES"]' <<< "$scope_errors")"
     fi
+    if [[ "$block_name" == "REVIEW_STATUS" && "$issue_scopes_seen" == "true" ]]; then
+        local scope_count
+        scope_count="$(jq 'length' <<< "$issue_scopes")"
+        if [[ "$scope_count" -ne "$issues_found" ]]; then
+            scope_errors="$(jq -c \
+                --arg error "expected $issues_found ISSUE_SCOPES entries, found $scope_count" \
+                '. + [$error]' <<< "$scope_errors")"
+        fi
+    fi
 
     jq -c \
         --argjson issue_scopes "$issue_scopes" \

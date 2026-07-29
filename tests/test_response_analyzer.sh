@@ -71,7 +71,8 @@ EOF
 
     assert_eq '{"CODEX-1":"IN_SCOPE"}' "$(jq -c '.issue_scopes' <<< "$malformed_result")" \
         "invalid scope entries should not contaminate the structured scope map"
-    assert_eq '["CODEX-2=UNKNOWN","BROKEN"]' "$(jq -c '.scope_errors' <<< "$malformed_result")" \
+    assert_eq '["CODEX-2=UNKNOWN","BROKEN","expected 3 ISSUE_SCOPES entries, found 1"]' \
+        "$(jq -c '.scope_errors' <<< "$malformed_result")" \
         "malformed scope entries should remain visible to callers"
 
     local missing="$TEST_ROOT/missing.md"
@@ -90,6 +91,40 @@ EOF
         "a missing scope field should produce an empty scope map"
     assert_eq '["missing ISSUE_SCOPES"]' "$(jq -c '.scope_errors' <<< "$missing_result")" \
         "a missing scope field for reported issues should be explicit"
+
+    local partial="$TEST_ROOT/partial.md"
+    cat > "$partial" <<'EOF'
+---REVIEW_STATUS---
+ISSUES_FOUND: 2
+ISSUE_SCOPES: CODEX-1=IN_SCOPE
+EXIT_SIGNAL: false
+SUMMARY: One issue is missing a scope tag
+---END_REVIEW_STATUS---
+EOF
+
+    local partial_result
+    partial_result="$(parse_status_block "$partial" REVIEW_STATUS)"
+
+    assert_eq '["expected 2 ISSUE_SCOPES entries, found 1"]' \
+        "$(jq -c '.scope_errors' <<< "$partial_result")" \
+        "a partially missing per-issue scope tag should be explicit"
+
+    local none_with_findings="$TEST_ROOT/none-with-findings.md"
+    cat > "$none_with_findings" <<'EOF'
+---REVIEW_STATUS---
+ISSUES_FOUND: 1
+ISSUE_SCOPES: NONE
+EXIT_SIGNAL: false
+SUMMARY: Invalid NONE marker
+---END_REVIEW_STATUS---
+EOF
+
+    local none_result
+    none_result="$(parse_status_block "$none_with_findings" REVIEW_STATUS)"
+
+    assert_eq '["expected 1 ISSUE_SCOPES entries, found 0"]' \
+        "$(jq -c '.scope_errors' <<< "$none_result")" \
+        "NONE should be rejected when findings were reported"
     pass "malformed and missing scope tags are visible"
 }
 
@@ -99,6 +134,7 @@ test_meta_review_can_represent_resolved_scope_disagreements() {
 ---META_REVIEW_STATUS---
 REMAINING_DISAGREEMENTS: 0
 CONSENSUS_REACHED: YES
+SCOPE_DISAGREEMENTS: 1
 ISSUE_SCOPES: CLAUDE-1=PRE_EXISTING, CODEX-ADD-1=IN_SCOPE
 SUMMARY: Resolved both validity and scope
 ---END_META_REVIEW_STATUS---
@@ -110,6 +146,8 @@ EOF
     assert_eq '{"CLAUDE-1":"PRE_EXISTING","CODEX-ADD-1":"IN_SCOPE"}' \
         "$(jq -c '.issue_scopes' <<< "$actual")" \
         "meta-review output should preserve the resolved scope for every issue"
+    assert_eq "1" "$(jq -r '.scope_disagreements' <<< "$actual")" \
+        "meta-review output should expose how many scope disagreements were reconciled"
     pass "meta-review can represent resolved scope disagreements"
 }
 

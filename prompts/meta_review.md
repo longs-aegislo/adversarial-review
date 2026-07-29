@@ -57,6 +57,19 @@ classification and evidence. If the affected code predates the reviewed
 change, or the evidence remains ambiguous, resolve it as `PRE_EXISTING` with
 a short note. Do not invent a third scope tier.
 
+## Scope Reconciliation Ledger (REQUIRED)
+
+Before the status block, make every scope disagreement visible. For each issue
+whose Phase 1 scope differs from the Phase 2 scope verdict, write:
+
+```
+SCOPE_RECONCILIATION: <ID> <PHASE_1_SCOPE> vs <PHASE_2_SCOPE> -> <RESOLVED_SCOPE> — <one-line reason>
+```
+
+If there were no scope disagreements, write `SCOPE_RECONCILIATION: NONE`.
+`SCOPE_DISAGREEMENTS` in the status block must equal the number of
+reconciliation entries.
+
 ## Status Block (REQUIRED)
 
 ```
@@ -67,6 +80,7 @@ NEW_ISSUES_ACCEPTED: <number of their new findings you accept>
 NEW_ISSUES_REJECTED: <number of their new findings you reject>
 REMAINING_DISAGREEMENTS: <number of issues still disputed>
 CONSENSUS_REACHED: YES | PARTIAL | NO
+SCOPE_DISAGREEMENTS: <number reconciled above>
 ISSUE_SCOPES: <ID>=IN_SCOPE | PRE_EXISTING, ... (or NONE)
 SUMMARY: <one line summary of where things stand>
 ---END_META_REVIEW_STATUS---
@@ -81,6 +95,7 @@ NEW_ISSUES_ACCEPTED: 2
 NEW_ISSUES_REJECTED: 0
 REMAINING_DISAGREEMENTS: 0
 CONSENSUS_REACHED: YES
+SCOPE_DISAGREEMENTS: 1
 ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CODEX-1=PRE_EXISTING, CODEX-ADD-1=IN_SCOPE
 SUMMARY: Agreed on 6 issues, withdrew 1 false positive
 ---END_META_REVIEW_STATUS---
@@ -95,6 +110,7 @@ NEW_ISSUES_ACCEPTED: 1
 NEW_ISSUES_REJECTED: 2
 REMAINING_DISAGREEMENTS: 2
 CONSENSUS_REACHED: PARTIAL
+SCOPE_DISAGREEMENTS: 1
 ISSUE_SCOPES: CLAUDE-1=PRE_EXISTING, CODEX-1=IN_SCOPE
 SUMMARY: Agree on 4 issues, dispute severity of 2 others
 ---END_META_REVIEW_STATUS---
