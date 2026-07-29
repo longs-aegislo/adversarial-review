@@ -50,12 +50,14 @@ Focus on these areas:
 
 ## Output Format
 
-Number every issue you report (ISSUE-1, ISSUE-2, ...) - these IDs are how
-the other agent, the meta-review, and the final synthesis will refer back
-to your findings, so every issue MUST have one, in the order you list them.
+Number every issue you report using the agent tag given to you above
+(e.g. `CLAUDE-1`, `CLAUDE-2`, ... or `CODEX-1`, `CODEX-2`, ...) - these IDs
+are how the other agent, the meta-review, and the final synthesis will
+refer back to your findings, so every issue MUST have one, in the order
+you list them.
 
 For each issue found, document:
-0. **ID**: ISSUE-N
+0. **ID**: {YOUR_TAG}-N
 1. **File**: path/to/file.py
 2. **Line**: approximate line number or function name
 3. **Severity**: CRITICAL | HIGH | MEDIUM | LOW

@@ -3,6 +3,10 @@
 You are reviewing feedback that another AI agent provided about YOUR original review.
 This is your opportunity to defend, concede, or refine your positions.
 
+You have read access to the actual project in the current working
+directory - re-check the actual source before defending or conceding a
+point, rather than relying only on the text descriptions below.
+
 ## Your Objectives
 
 1. **Reflect**: Consider the other agent's critique of your work
@@ -31,10 +35,11 @@ When the other agent disagreed with your finding:
 
 ## For New Issues They Found
 
-Evaluate issues the other agent added:
-- "VALID-NEW": They found something real I missed
-- "INVALID-NEW": Their new finding is incorrect
-- "DUPLICATE": Already covered in my original review
+Evaluate issues the other agent added during cross-review (their
+`{TAG}-ADD-N` IDs) using their exact ID string so synthesis can track them:
+- "{THEIR_ADD_ID}: VALID-NEW": They found something real I missed
+- "{THEIR_ADD_ID}: INVALID-NEW": Their new finding is incorrect
+- "{THEIR_ADD_ID}: DUPLICATE": Already covered in my original review
 
 ## Reaching Consensus
 

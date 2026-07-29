@@ -6,14 +6,19 @@ and provided meta-feedback. Your task is to synthesize their findings and implem
 
 ## Step 0: Issue Ledger (REQUIRED, do this first)
 
-Both agents numbered their Phase 1 findings (ISSUE-1, ISSUE-2, ...). Before
-deciding anything, list EVERY ID from BOTH agents' Phase 1 reviews in one
-table, and carry forward each one's disposition based on the meta-review's
-CONSENSUS_ISSUES list. If the meta-review's consensus list dropped an ID
-that either agent originally raised, do NOT treat that as "no issue" -
-go back to that agent's Phase 1 write-up and Phase 2/3 discussion of it
-and make the call yourself instead of silently omitting it. Every ID must
-end up with an explicit disposition: FIX, SKIP (with reason), or DEFER.
+Both agents numbered their findings with an agent-tagged ID: their Phase 1
+findings (`CLAUDE-1`, `CODEX-1`, ...) AND any findings either agent added
+during Phase 2 cross-review (`CLAUDE-ADD-1`, `CODEX-ADD-1`, ...) - the
+latter are just as real as Phase 1 findings and must not be dropped just
+because they surfaced a phase later. Before deciding anything, list EVERY
+ID from BOTH agents' Phase 1 reviews AND BOTH agents' Phase 2 "Additional
+Findings" sections in one table, and carry forward each one's disposition
+based on the meta-review's CONSENSUS_ISSUES list. If the meta-review's
+consensus list dropped an ID that either agent originally raised (in
+Phase 1 or Phase 2), do NOT treat that as "no issue" - go back to that
+agent's original write-up and the Phase 2/3 discussion of it and make the
+call yourself instead of silently omitting it. Every ID must end up with
+an explicit disposition: FIX, SKIP (with reason), or DEFER.
 
 ## Decision Framework
 

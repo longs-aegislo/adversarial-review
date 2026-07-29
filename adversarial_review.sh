@@ -298,9 +298,12 @@ collect_file_list() {
         -type f "${exclude_paths[@]}" 2>/dev/null | sed 's|^\./||' | sort)
 }
 
-# Diff of what changed since the previous iteration's fixes, so re-review
-# passes can focus on what actually moved instead of rescanning everything.
-# Empty on iteration 1 or when the target isn't a git repo.
+# Uncommitted diff (tracked changes + new files) against HEAD, so re-review
+# passes can focus on what Phase 4 actually touched instead of rescanning
+# the whole tree. Since this tool never commits, the diff is cumulative
+# across every iteration run so far, not just the latest one - see the
+# caller's prompt framing. Empty on iteration 1 or when the target isn't a
+# git repo.
 collect_recent_diff() {
     local target_dir="$1"
     local iteration="$2"
@@ -309,8 +312,23 @@ collect_recent_diff() {
     (cd "$target_dir" && git rev-parse --is-inside-work-tree) >/dev/null 2>&1 || return 0
 
     (cd "$target_dir" && git diff HEAD 2>/dev/null)
+
+    # New (untracked) files: same directory exclusions as source collection,
+    # plus a secret-filename denylist and per-file size/binary guards, so
+    # this can't leak unignored credentials or dump large/binary blobs into
+    # the prompt (git status includes untracked files regardless of size or
+    # content, unlike the tracked diff above).
     (cd "$target_dir" && git status --porcelain --untracked-files=all 2>/dev/null | while read -r status file; do
-        [[ "$status" == "??" ]] && { echo "=== NEW FILE: $file ==="; cat "$file" 2>/dev/null; }
+        [[ "$status" != "??" ]] && continue
+        case "$file" in
+            */.*|node_modules/*|vendor/*|public/*|storage/*|bootstrap/cache/*|dist/*|build/*|__pycache__/*|venv/*|.venv/*) continue ;;
+            .env|.env.*|*.pem|*.key|*_rsa|*_rsa.pub|*.p12|*.pfx|*credential*|*secret*) continue ;;
+        esac
+        [[ -f "$file" ]] || continue
+        grep -Iq . "$file" 2>/dev/null || continue
+        echo "=== NEW FILE: $file ==="
+        head -c 20000 "$file" 2>/dev/null
+        echo ""
     done)
 }
 
@@ -408,6 +426,22 @@ run_codex() {
     return $exit_code
 }
 
+# Both agents number their issues starting from 1 in every phase; without
+# telling each one which agent it is, their IDs collide (both produce
+# ISSUE-1, ISSUE-2, ...) once merged in cross-review/meta-review/synthesis.
+# Prepended to each agent's own prompt variant so it prefixes its IDs with
+# a globally-unique agent tag instead.
+agent_id_header() {
+    local agent_tag="$1"
+    echo "# YOUR AGENT ID: ${agent_tag}
+
+Prefix every issue ID you produce in this response with this tag, e.g.
+\`${agent_tag}-1\`, \`${agent_tag}-2\`, ... The other agent is reviewing the
+same code independently and will use a different tag, so these IDs must
+stay globally unique once both of your findings are merged together in
+later phases."
+}
+
 # ============================================================================
 # PHASE 1: Independent Reviews
 # ============================================================================
@@ -425,13 +459,18 @@ run_phase_1() {
     if [[ -n "$recent_diff" ]]; then
         diff_section="
 ---
-# CHANGES SINCE THE LAST REVIEW ITERATION (diff against HEAD)
+# UNCOMMITTED CHANGES (diff against HEAD)
+
+This tool does not commit between iterations, so this is every uncommitted
+change accumulated across ALL review iterations so far in this run, not
+just the most recent one - treat it as the full working-tree diff, not an
+incremental delta.
 
 $recent_diff
 "
     fi
 
-    local full_prompt="$prompt_template
+    local common_prompt="$prompt_template
 
 ---
 # WORKING DIRECTORY
@@ -448,14 +487,21 @@ file contents.
 $file_list
 $diff_section"
 
+    local claude_prompt="$(agent_id_header "CLAUDE")
+
+$common_prompt"
+    local codex_prompt="$(agent_id_header "CODEX")
+
+$common_prompt"
+
     local claude_out="$ARTIFACTS_DIR/iter${iteration}_1_claude_review.md"
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md"
 
     # Run in parallel
-    run_claude "$full_prompt" "$claude_out" "$target_dir" "false" "Read Glob Grep" &
+    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" "Read Glob Grep" &
     local claude_pid=$!
 
-    run_codex "$full_prompt" "$codex_out" "$target_dir" &
+    run_codex "$codex_prompt" "$codex_out" "$target_dir" &
     local codex_pid=$!
 
     wait $claude_pid || true
@@ -492,7 +538,8 @@ $diff_section"
 # PHASE 2: Cross-Review
 # ============================================================================
 run_phase_2() {
-    local iteration="$1"
+    local target_dir="$1"
+    local iteration="$2"
 
     log_info "=== Phase 2: Cross-Review ==="
 
@@ -502,7 +549,9 @@ run_phase_2() {
     local cross_prompt=$(cat "$PROMPTS_DIR/cross_review.md")
 
     # Claude reviews Codex
-    local claude_prompt="$cross_prompt
+    local claude_prompt="$(agent_id_header "CLAUDE")
+
+$cross_prompt
 
 ---
 # THE OTHER AGENT'S REVIEW TO ANALYZE
@@ -511,7 +560,9 @@ $(cat "$codex_review")
 "
 
     # Codex reviews Claude
-    local codex_prompt="$cross_prompt
+    local codex_prompt="$(agent_id_header "CODEX")
+
+$cross_prompt
 
 ---
 # THE OTHER AGENT'S REVIEW TO ANALYZE
@@ -522,10 +573,10 @@ $(cat "$claude_review")
     local claude_out="$ARTIFACTS_DIR/iter${iteration}_2_claude_on_codex.md"
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_2_codex_on_claude.md"
 
-    run_claude "$claude_prompt" "$claude_out" &
+    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" "Read Glob Grep" &
     local claude_pid=$!
 
-    run_codex "$codex_prompt" "$codex_out" &
+    run_codex "$codex_prompt" "$codex_out" "$target_dir" &
     local codex_pid=$!
 
     wait $claude_pid || true
@@ -550,7 +601,8 @@ $(cat "$claude_review")
 # PHASE 3: Meta-Review
 # ============================================================================
 run_phase_3() {
-    local iteration="$1"
+    local target_dir="$1"
+    local iteration="$2"
 
     log_info "=== Phase 3: Meta-Review ==="
 
@@ -570,7 +622,9 @@ run_phase_3() {
     # Phase 3, and they silently vanish from the consensus list.
 
     # Claude responds to Codex's feedback, with full context restored
-    local claude_prompt="$meta_prompt
+    local claude_prompt="$(agent_id_header "CLAUDE")
+
+$meta_prompt
 
 ---
 # YOUR ORIGINAL REVIEW (Phase 1)
@@ -594,7 +648,9 @@ $(cat "$codex_on_claude")
 "
 
     # Codex responds to Claude's feedback, with full context restored
-    local codex_prompt="$meta_prompt
+    local codex_prompt="$(agent_id_header "CODEX")
+
+$meta_prompt
 
 ---
 # YOUR ORIGINAL REVIEW (Phase 1)
@@ -620,10 +676,10 @@ $(cat "$claude_on_codex")
     local claude_out="$ARTIFACTS_DIR/iter${iteration}_3_claude_meta.md"
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_3_codex_meta.md"
 
-    run_claude "$claude_prompt" "$claude_out" &
+    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" "Read Glob Grep" &
     local claude_pid=$!
 
-    run_codex "$codex_prompt" "$codex_out" &
+    run_codex "$codex_prompt" "$codex_out" "$target_dir" &
     local codex_pid=$!
 
     wait $claude_pid || true
@@ -783,11 +839,11 @@ run_review_loop() {
         echo ""
 
         # Phase 2
-        run_phase_2 "$iteration"
+        run_phase_2 "$target_dir" "$iteration"
         echo ""
 
         # Phase 3
-        run_phase_3 "$iteration"
+        run_phase_3 "$target_dir" "$iteration"
         echo ""
 
         # Phase 4

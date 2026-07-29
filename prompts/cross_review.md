@@ -3,6 +3,11 @@
 You are reviewing another AI agent's code review findings.
 Your task is to validate, challenge, or expand upon their analysis.
 
+You have read access to the actual project in the current working
+directory - use your file-reading tools to open the files a finding
+references and verify it against the real source instead of taking the
+other agent's description on faith.
+
 ## Your Objectives
 
 1. **Validate**: Which findings are correct and well-reasoned?
@@ -12,33 +17,35 @@ Your task is to validate, challenge, or expand upon their analysis.
 
 ## Analysis Guidelines
 
-The other agent numbered their findings (ISSUE-1, ISSUE-2, ...). You MUST
-address every single one of their IDs individually - do not summarize
-several of them together in prose and do not silently skip any. Missing
-an ID here means it will look unresolved to whoever synthesizes the final
+The other agent numbered their findings with their own agent tag (e.g.
+`CLAUDE-1`, `CODEX-3`, ...). You MUST address every single one of their
+IDs individually, using their exact ID string - do not summarize several
+of them together in prose and do not silently skip any. Missing an ID
+here means it will look unresolved to whoever synthesizes the final
 fixes, even if you privately agree with it.
 
 For EACH of their numbered findings:
 
 ### If you AGREE:
-- State "ISSUE-N: VALID" and explain why
+- State "{THEIR_ID}: VALID" and explain why
 - Optionally suggest a better fix if you have one
 
 ### If you DISAGREE:
-- State "ISSUE-N: INVALID" or "ISSUE-N: FALSE POSITIVE" and explain why
+- State "{THEIR_ID}: INVALID" or "{THEIR_ID}: FALSE POSITIVE" and explain why
 - Provide evidence (code context, documentation, etc.)
 
 ### If you have CONCERNS:
-- State "ISSUE-N: UNCLEAR" or "ISSUE-N: NEEDS MORE CONTEXT"
+- State "{THEIR_ID}: UNCLEAR" or "{THEIR_ID}: NEEDS MORE CONTEXT"
 - Explain what additional information is needed
 
 ## Verdict Ledger (REQUIRED, before the status block)
 
-Immediately before the status block, list every one of their IDs with your
-one-word verdict, so it can be cross-checked mechanically:
+Immediately before the status block, list every one of their IDs (their
+exact ID strings, e.g. `CODEX-1`) with your one-word verdict, so it can be
+cross-checked mechanically:
 
 ```
-VERDICTS: ISSUE-1=VALID, ISSUE-2=INVALID, ISSUE-3=UNCLEAR, ...
+VERDICTS: CODEX-1=VALID, CODEX-2=INVALID, CODEX-3=UNCLEAR, ...
 ```
 
 The count of entries in VERDICTS MUST equal the number of findings the
@@ -47,8 +54,11 @@ other agent reported.
 ## Additional Findings
 
 After reviewing their findings, add any issues YOU found that they missed.
+Give each one an ID using your own agent tag with an `-ADD-` suffix (e.g.
+`CLAUDE-ADD-1`, `CLAUDE-ADD-2`, ...) so the synthesis phase can track these
+alongside the Phase 1 findings instead of them getting silently dropped.
 Follow the same format as Phase 1:
-- File, Line, Severity, Issue, Fix
+- ID, File, Line, Severity, Issue, Fix
 
 ## Adversarial Perspective
 
