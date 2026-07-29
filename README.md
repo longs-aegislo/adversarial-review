@@ -1,8 +1,22 @@
+**English** | [中文](README.zh.md) | [日本語](README.ja.md)
+
 # Adversarial Review
 
 Multi-agent code review with Claude and GPT Codex in an adversarial debate loop.
 
 Based on patterns from [asimov-ralph](https://github.com/frankbria/ralph-claude-code) and research on [AI Debate](https://arxiv.org/abs/2410.04663).
+
+## Fork Notes
+
+This repo is a fork of [alecnielsen/adversarial-review](https://github.com/alecnielsen/adversarial-review) (kept as the `upstream` remote). Since forking, this fork has fixed a number of bugs found by running the tool against a real Laravel project and has diverged from upstream in these ways:
+
+- **Fixed `codex` invocation**: the original `run_codex()` used a stale CLI syntax (`-q --full-auto --prompt`) that no longer matches the current `codex` CLI. It now uses `codex exec -s <sandbox_mode> --skip-git-repo-check` with the prompt piped via stdin instead of passed as a positional argument (which was hitting `ARG_MAX`/ `timeout: Argument list too long` on large prompts).
+- **Fixed source collection for non-JS/Python stacks**: `collect_source_code`/`collect_file_list` didn't exclude `vendor/`, `public/`, `storage/`, `bootstrap/cache/`, `dist/`, or `build/`, and had no PHP/Blade support - so on a Laravel project it was stuffing third-party vendored/minified JS into the prompt instead of the project's own source, which also blew past Claude's context limit.
+- **Fixed Phase 3 losing the other agent's findings**: the meta-review prompt only re-supplied the feedback the other agent gave back, not that agent's original Phase 1 findings or your own Phase 2 cross-review of them. Since every phase is a fresh, stateless CLI call with no memory of earlier phases, this silently dropped one agent's entire set of findings from the final consensus. `run_phase_3()` now reconstructs full context for both agents.
+- **Fixed `parse_status_block`'s "last block" extraction**: it used to concatenate every occurrence of a `---STATUS---...---END_STATUS---` marker pair in the text (including the prompt template's own baked-in EXAMPLE blocks), producing garbled/duplicate JSON. It's now an awk-based scanner that keeps only the last real block.
+- **Added `-f/--fixer`**: lets you choose whether Claude or Codex implements Phase 4 fixes (interactively on a TTY, or via flag/env var), so you can route the most expensive step to whichever agent has more quota.
+- **Reworked Phase 1 to stop inlining full file contents**: agents now get a file path list (plus a `git diff` against `HEAD` from the second iteration onward) and read whatever files they need themselves, instead of having the whole codebase pasted into the prompt - see the Cost Considerations section below.
+- **Added per-phase issue summaries to terminal output**: each phase now prints the agents' one-line summaries, not just issue counts.
 
 ## Concept
 
@@ -20,6 +34,10 @@ Two AI agents (Claude and GPT Codex) independently review code, then critique ea
 │  Phase 1: Independent Reviews                               │
 │    Claude reviews code → claude_review.md                   │
 │    Codex reviews code  → codex_review.md                    │
+│    Agents are given a file path list (+ a git diff of what  │
+│    changed since the last iteration) and read whichever     │
+│    files they need themselves - full file contents are no   │
+│    longer dumped into the prompt                             │
 │    (runs in parallel)                                       │
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 2: Cross-Review                                      │
@@ -30,12 +48,16 @@ Two AI agents (Claude and GPT Codex) independently review code, then critique ea
 │  Phase 3: Meta-Review                                       │
 │    Claude responds to Codex's critique → claude_meta.md     │
 │    Codex responds to Claude's critique → codex_meta.md      │
+│    Each agent gets its own Phase 1 review, the other        │
+│    agent's Phase 1 review, its own Phase 2 cross-review,    │
+│    and the feedback it received - full context every time,  │
+│    so findings can't silently drop out of consensus         │
 │    (runs in parallel)                                       │
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 4: Synthesis                                         │
-│    Claude reviews all debate artifacts                      │
-│    Decides which issues are valid                           │
-│    Implements fixes with high/medium confidence             │
+│    Claude or Codex (your choice via --fixer) reviews all     │
+│    debate artifacts, decides which issues are valid, and    │
+│    implements fixes with high/medium confidence              │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -49,13 +71,16 @@ Two AI agents (Claude and GPT Codex) independently review code, then critique ea
 # Clone or copy to your workspace
 cd adversarial-review
 
-# Run on a target project
+# Run on a target project (prompts interactively for which agent
+# implements Phase 4 fixes, if stdin is a TTY)
 ./adversarial_review.sh ../my-project
 
 # With options
-./adversarial_review.sh -m 5 -v ../my-project  # 5 iterations, verbose
+./adversarial_review.sh -m 5 -v ../my-project        # 5 iterations, verbose
+./adversarial_review.sh -f codex ../my-project        # Codex implements fixes
+./adversarial_review.sh -f claude ../my-project       # Claude implements fixes
 
-# Dry run (see what would happen)
+# Dry run (see what would happen, no API calls)
 ./adversarial_review.sh --dry-run ../my-project
 ```
 
@@ -77,6 +102,9 @@ OPTIONS:
     -p, --prompt FILE       Custom initial review prompt
     -v, --verbose           Verbose output
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
+    -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
+                            (if omitted, prompts interactively on a TTY;
+                            defaults to codex when non-interactive)
     --status                Show current status
     --reset                 Reset all state
     --reset-circuit         Reset circuit breaker only
@@ -134,7 +162,8 @@ Prevents runaway loops by detecting:
 MAX_ITERATIONS=5      # Override max iterations
 TIMEOUT_MINUTES=15    # Timeout per agent call
 VERBOSE=1             # Enable verbose output
-DRY_RUN=1            # Show what would happen
+DRY_RUN=1             # Show what would happen
+FIXER=codex           # Who implements Phase 4 fixes: claude | codex
 ```
 
 ## How It Works
@@ -194,9 +223,20 @@ Each iteration makes 6 API calls (3 parallel pairs):
 - Phase 1: 2 calls (Claude + Codex)
 - Phase 2: 2 calls (Claude + Codex)
 - Phase 3: 2 calls (Claude + Codex)
-- Phase 4: 1 call (Claude only)
+- Phase 4: 1 call (whichever agent `--fixer` selects)
 
 With 3 iterations max, worst case is ~21 API calls per review.
+
+Two things keep individual calls cheap:
+- **Phase 1 no longer inlines full file contents.** Agents get a file path
+  list (plus a `git diff` of what changed since the last iteration, from
+  the second iteration onward) and read whatever files they actually need
+  with their own tools, instead of having the whole codebase pasted into
+  the prompt.
+- **`--fixer` lets you route the heaviest step (Phase 4, which re-supplies
+  the full Phase 1-3 debate history) to whichever agent has more quota
+  available.** It defaults to Codex in non-interactive runs so Claude's
+  usage isn't the one absorbing that cost by default.
 
 ## Contributing
 

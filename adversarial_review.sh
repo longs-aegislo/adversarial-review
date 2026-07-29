@@ -226,83 +226,39 @@ parse_status_block() {
     echo "$json"
 }
 
-# Collect source code from target directory
-collect_source_code() {
+# List reviewable source files (paths only - agents read file contents
+# themselves via their own file tools instead of having everything dumped
+# into the prompt, which is what was blowing up prompt size/usage).
+collect_file_list() {
     local target_dir="$1"
-    local max_files="${2:-30}"
-    local max_lines="${3:-500}"
-    local output=""
-    local count=0
 
-    log_verbose "Collecting source code from $target_dir"
+    log_verbose "Listing source files in $target_dir"
 
-    # Directories that never contain first-party source (deps, build output, vendored assets)
     local exclude_paths=(! -path "*/\.*" ! -path "*/node_modules/*" ! -path "*/vendor/*" \
         ! -path "*/public/*" ! -path "*/storage/*" ! -path "*/bootstrap/cache/*" \
         ! -path "*/dist/*" ! -path "*/build/*" ! -path "*/__pycache__/*" \
         ! -path "*/venv/*" ! -path "*/.venv/*")
 
-    # Python files
-    count=0
-    while IFS= read -r file && [[ $count -lt $max_files ]]; do
-        [[ -z "$file" ]] && continue
-        local rel="${file#$target_dir/}"
-        output+="
-=== FILE: $rel ===
-$(head -$max_lines "$file" 2>/dev/null)
-"
-        ((count++))
-    done < <(find "$target_dir" -name "*.py" -type f "${exclude_paths[@]}" 2>/dev/null | sort)
+    (cd "$target_dir" && find . \
+        \( -name "*.py" -o -name "*.php" -o -name "*.ts" -o -name "*.tsx" \
+           -o -name "*.js" -o -name "*.jsx" -o -name "*.sh" \) \
+        -type f "${exclude_paths[@]}" 2>/dev/null | sed 's|^\./||' | sort)
+}
 
-    # PHP files
-    count=0
-    while IFS= read -r file && [[ $count -lt $max_files ]]; do
-        [[ -z "$file" ]] && continue
-        local rel="${file#$target_dir/}"
-        output+="
-=== FILE: $rel ===
-$(head -$max_lines "$file" 2>/dev/null)
-"
-        ((count++))
-    done < <(find "$target_dir" -name "*.php" -type f "${exclude_paths[@]}" ! -name "*.blade.php" 2>/dev/null | sort)
+# Diff of what changed since the previous iteration's fixes, so re-review
+# passes can focus on what actually moved instead of rescanning everything.
+# Empty on iteration 1 or when the target isn't a git repo.
+collect_recent_diff() {
+    local target_dir="$1"
+    local iteration="$2"
 
-    # Blade templates
-    count=0
-    while IFS= read -r file && [[ $count -lt $max_files ]]; do
-        [[ -z "$file" ]] && continue
-        local rel="${file#$target_dir/}"
-        output+="
-=== FILE: $rel ===
-$(head -$max_lines "$file" 2>/dev/null)
-"
-        ((count++))
-    done < <(find "$target_dir" -name "*.blade.php" -type f "${exclude_paths[@]}" 2>/dev/null | sort)
+    [[ "$iteration" -le 1 ]] && return 0
+    (cd "$target_dir" && git rev-parse --is-inside-work-tree) >/dev/null 2>&1 || return 0
 
-    # TypeScript/JavaScript
-    count=0
-    while IFS= read -r file && [[ $count -lt $max_files ]]; do
-        [[ -z "$file" ]] && continue
-        local rel="${file#$target_dir/}"
-        output+="
-=== FILE: $rel ===
-$(head -$max_lines "$file" 2>/dev/null)
-"
-        ((count++))
-    done < <(find "$target_dir" \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \) -type f "${exclude_paths[@]}" 2>/dev/null | sort)
-
-    # Shell scripts
-    count=0
-    while IFS= read -r file && [[ $count -lt 10 ]]; do
-        [[ -z "$file" ]] && continue
-        local rel="${file#$target_dir/}"
-        output+="
-=== FILE: $rel ===
-$(head -300 "$file" 2>/dev/null)
-"
-        ((count++))
-    done < <(find "$target_dir" -name "*.sh" -type f "${exclude_paths[@]}" 2>/dev/null | sort)
-
-    echo "$output"
+    (cd "$target_dir" && git diff HEAD 2>/dev/null)
+    (cd "$target_dir" && git status --porcelain --untracked-files=all 2>/dev/null | while read -r status file; do
+        [[ "$status" == "??" ]] && { echo "=== NEW FILE: $file ==="; cat "$file" 2>/dev/null; }
+    done)
 }
 
 # Run Claude
@@ -311,6 +267,7 @@ run_claude() {
     local output_file="$2"
     local working_dir="${3:-$PWD}"
     local with_permissions="${4:-false}"
+    local allowed_tools="${5:-}"
 
     if [[ "$DRY_RUN" == "1" ]]; then
         log_claude "[DRY RUN] Would run Claude (${#prompt} chars) -> $output_file"
@@ -324,7 +281,11 @@ run_claude() {
     local timeout_secs=$((TIMEOUT_MINUTES * 60))
 
     local cmd_args=(--print)
-    [[ "$with_permissions" == "true" ]] && cmd_args+=(--dangerously-skip-permissions)
+    if [[ "$with_permissions" == "true" ]]; then
+        cmd_args+=(--dangerously-skip-permissions)
+    elif [[ -n "$allowed_tools" ]]; then
+        cmd_args+=(--allowedTools "$allowed_tools")
+    fi
 
     local exit_code=0
     if [[ -n "$timeout_cmd" ]]; then
@@ -389,22 +350,42 @@ run_phase_1() {
 
     log_info "=== Phase 1: Independent Reviews ==="
 
-    local source_code=$(collect_source_code "$target_dir")
+    local file_list=$(collect_file_list "$target_dir")
+    local recent_diff=$(collect_recent_diff "$target_dir" "$iteration")
     local prompt_template=$(cat "$PROMPTS_DIR/initial_review.md")
+
+    local diff_section=""
+    if [[ -n "$recent_diff" ]]; then
+        diff_section="
+---
+# CHANGES SINCE THE LAST REVIEW ITERATION (diff against HEAD)
+
+$recent_diff
+"
+    fi
 
     local full_prompt="$prompt_template
 
 ---
-# SOURCE CODE TO REVIEW
+# WORKING DIRECTORY
 
-$source_code
-"
+$target_dir
+
+# FILES IN SCOPE
+
+You have NOT been given file contents here - only paths. Use your own
+file-reading tools to open whichever of these files you need directly in
+the working directory above before reporting any finding. Do not guess at
+file contents.
+
+$file_list
+$diff_section"
 
     local claude_out="$ARTIFACTS_DIR/iter${iteration}_1_claude_review.md"
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md"
 
     # Run in parallel
-    run_claude "$full_prompt" "$claude_out" "$target_dir" &
+    run_claude "$full_prompt" "$claude_out" "$target_dir" "false" "Read Glob Grep" &
     local claude_pid=$!
 
     run_codex "$full_prompt" "$codex_out" "$target_dir" &
@@ -821,7 +802,7 @@ OPTIONS:
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
                             (if omitted, prompts interactively on a TTY;
-                            defaults to claude when non-interactive)
+                            defaults to codex when non-interactive)
     --status                Show current status
     --reset                 Reset all state
     --reset-circuit         Reset circuit breaker only
@@ -943,13 +924,13 @@ main() {
 
     if [[ -z "$FIXER" ]]; then
         if [[ "$DRY_RUN" == "1" || ! -t 0 ]]; then
-            FIXER="claude"
+            FIXER="codex"
         else
             local choice
-            read -r -p "$(echo -e "${BLUE}[INFO]${NC} Which agent should implement fixes in Phase 4? [c]laude / [x]codex (default: claude): ")" choice
+            read -r -p "$(echo -e "${BLUE}[INFO]${NC} Which agent should implement fixes in Phase 4? [c]laude / [x]codex (default: codex): ")" choice
             case "$choice" in
-                x|X|codex) FIXER="codex" ;;
-                *) FIXER="claude" ;;
+                c|C|claude) FIXER="claude" ;;
+                *) FIXER="codex" ;;
             esac
         fi
     fi
