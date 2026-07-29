@@ -1,0 +1,57 @@
+diff --git a/src/allocation.js b/src/allocation.js
+index 8f55ab0..78ec54b 100644
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,7 +1,16 @@
++function assertNonNegativeInteger(value, name) {
++  if (!Number.isInteger(value) || value < 0) {
++    throw new TypeError(`${name} must be a finite, non-negative integer`);
++  }
++}
++
+ export function allocate(requested, capacity) {
+-  const accepted = Math.max(requested, capacity);
++  assertNonNegativeInteger(requested, "requested");
++  assertNonNegativeInteger(capacity, "capacity");
++
++  const accepted = Math.min(requested, capacity);
+   return {
+     accepted,
+-    rejected: requested - capacity,
++    rejected: requested - accepted,
+   };
+ }
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 7294fc8..5b83598 100644
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -3,6 +3,27 @@ import test from "node:test";
+ 
+ import { allocate } from "../src/allocation.js";
+ 
+-test("returns the documented result shape", () => {
+-  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++test("allocates no more than the requested amount", () => {
++  assert.deepEqual(allocate(3, 5), { accepted: 3, rejected: 0 });
++});
++
++test("allocates no more than capacity", () => {
++  assert.deepEqual(allocate(7, 5), { accepted: 5, rejected: 2 });
++});
++
++test("supports zero and equal values", () => {
++  assert.deepEqual(allocate(0, 0), { accepted: 0, rejected: 0 });
++  assert.deepEqual(allocate(4, 4), { accepted: 4, rejected: 0 });
++});
++
++test("rejects invalid requested values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "3"]) {
++    assert.throws(() => allocate(value, 5), TypeError);
++  }
++});
++
++test("rejects invalid capacity values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "5"]) {
++    assert.throws(() => allocate(3, value), TypeError);
++  }
+ });

@@ -23,3 +23,20 @@
   classification carried through Phases 1-4. Phase 4 fixes `IN_SCOPE`
   findings by default and reports `PRE_EXISTING` findings without modifying
   them unless the caller explicitly passes `--include-pre-existing`.
+
+## Evaluation and proposed extension terminology
+
+- **Reviewer slot** — one configurable position in a future review team. A
+  slot selects an agent backend and may select a model and persona. The current
+  runtime has two fixed slots, Claude and Codex; it does not expose reviewer
+  slots as configuration yet.
+- **Agent backend** — the local CLI adapter used to execute a reviewer slot,
+  such as Claude Code, Codex CLI, or Gemini CLI. A backend is distinct from the
+  model selected through that CLI.
+- **Heterogeneous review** — reviewer slots use different backend/model
+  lineages. This is the preferred mode because it offers more independent
+  failure modes.
+- **Same-model redundancy** — two independent reviewer slots use the same
+  backend and model. It is a supported future fallback for users with one
+  subscription, but should be described as lower-diversity review rather than
+  equivalent to heterogeneous review.

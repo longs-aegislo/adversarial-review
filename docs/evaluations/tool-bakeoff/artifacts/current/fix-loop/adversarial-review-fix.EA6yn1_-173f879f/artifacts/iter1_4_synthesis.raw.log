@@ -1,0 +1,1170 @@
+Reading prompt from stdin...
+OpenAI Codex v0.145.0
+--------
+workdir: /tmp/adversarial-review-fix.EA6yn1
+model: gpt-5.6-sol
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR] (network access enabled)
+reasoning effort: medium
+reasoning summaries: none
+session id: 019fad27-00a5-7e40-a33b-dcbec0dd5af3
+--------
+user
+# Adversarial Code Review - Phase 4: Synthesis & Implementation
+
+You are the final arbiter in an adversarial review process.
+Two AI agents (Claude and Codex) have reviewed code, cross-reviewed each other's findings,
+and provided meta-feedback. Your task is to synthesize their findings and implement fixes.
+
+## Step 0: Issue Ledger (REQUIRED, do this first)
+
+Both agents numbered their findings with an agent-tagged ID: their Phase 1
+findings (`CLAUDE-1`, `CODEX-1`, ...) AND any findings either agent added
+during Phase 2 cross-review (`CLAUDE-ADD-1`, `CODEX-ADD-1`, ...) - the
+latter are just as real as Phase 1 findings and must not be dropped just
+because they surfaced a phase later. Before deciding anything, list EVERY
+ID from BOTH agents' Phase 1 reviews AND BOTH agents' Phase 2 "Additional
+Findings" sections in one table, and carry forward each one's disposition
+based on the meta-review's CONSENSUS_ISSUES list. If the meta-review's
+consensus list dropped an ID that either agent originally raised (in
+Phase 1 or Phase 2), do NOT treat that as "no issue" - go back to that
+agent's original write-up and the Phase 2/3 discussion of it and make the
+call yourself instead of silently omitting it. Every ID must end up with
+an explicit resolved scope (`IN_SCOPE` or `PRE_EXISTING`) and disposition:
+FIX, SKIP (with reason), FLAG (reported but not fixed), or DEFER.
+
+Phase 3's resolved `ISSUE_SCOPES` map is the default source of truth. If an
+ID is missing or malformed there, inspect the Phase 1/2 classification and
+repository history yourself; default ambiguity to `PRE_EXISTING`.
+
+## Decision Framework
+
+### High Confidence Fixes (Implement Immediately)
+Issues where BOTH agents agreed:
+- Both found the same issue independently
+- One found it, the other validated it
+- Neither raised objections in meta-review
+
+### Medium Confidence Fixes (Use Judgment)
+Issues where agents PARTIALLY agreed:
+- One found it, the other raised concerns but didn't reject
+- Disagreement on severity but not existence
+- Valid concern but implementation unclear
+
+### Low Confidence / Skip
+Issues where agents DISAGREED:
+- One called it invalid/false positive
+- Persistent disagreement through meta-review
+- Insufficient evidence from either side
+
+## Scope Gate
+
+A run-specific Phase 4 scope policy is injected below this template. Follow
+it exactly:
+
+- Without explicit opt-in, implement only `IN_SCOPE` findings. Do not edit
+  code for `PRE_EXISTING` findings, even when they are high confidence.
+- With explicit opt-in, valid findings in both categories may be implemented.
+- Always keep category counts separate.
+
+When pre-existing findings are not being fixed, include a distinct
+`Pre-existing issues noticed, not fixed` section containing each issue's ID,
+file, line, severity, and suggested fix.
+
+## Implementation Guidelines
+
+1. **Start with high-confidence fixes** - These have consensus
+2. **Evaluate medium-confidence carefully** - Use your own judgment
+3. **Document skipped issues** - Explain why you didn't fix them
+4. **Test after fixing** - Ensure changes don't break anything
+
+## Working Directory
+
+You will be working in the target project directory.
+Edit files directly using whatever file-editing tool you have available.
+
+## Output Format
+
+For each fix you implement:
+```
+### Fix #N: [Filename]
+**Issue**: What was wrong
+**Scope**: IN_SCOPE | PRE_EXISTING
+**Confidence**: HIGH | MEDIUM
+**Source**: Both agents | Claude | Codex
+**Change**: Description of what you changed
+```
+
+For issues you skip:
+```
+### Skipped: [Filename]
+**Issue**: What was reported
+**Scope**: IN_SCOPE | PRE_EXISTING
+**Reason**: Why you're not fixing it
+```
+
+## Status Block (REQUIRED)
+
+```
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: <number implemented>
+MEDIUM_CONFIDENCE_FIXES: <number implemented>
+ISSUES_SKIPPED: <number not fixed>
+IN_SCOPE_FIXED: <number of IN_SCOPE findings implemented>
+PRE_EXISTING_FIXED: <number of PRE_EXISTING findings implemented>
+PRE_EXISTING_FLAGGED: <number of PRE_EXISTING findings reported but not implemented>
+TESTS_RUN: YES | NO
+TESTS_PASSING: YES | NO | N/A
+FILES_MODIFIED: <number>
+EXIT_SIGNAL: true | false
+SUMMARY: <one line summary>
+---END_SYNTHESIS_STATUS---
+```
+
+### When to set EXIT_SIGNAL: true
+- All high-confidence issues are fixed
+- Medium-confidence issues are either fixed or documented as skipped
+- No more actionable items remain
+- OR: No valid issues were found by either agent
+
+### When to set EXIT_SIGNAL: false
+- Fixes were made but more issues remain
+- Need another iteration to verify fixes
+- Blocked on something
+
+## Example: Successful Synthesis
+```
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 4
+MEDIUM_CONFIDENCE_FIXES: 2
+ISSUES_SKIPPED: 1
+IN_SCOPE_FIXED: 6
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 2
+TESTS_RUN: YES
+TESTS_PASSING: YES
+FILES_MODIFIED: 3
+EXIT_SIGNAL: true
+SUMMARY: Fixed 6 issues, skipped 1 disputed item, all tests pass
+---END_SYNTHESIS_STATUS---
+```
+
+## Example: No Issues Found
+```
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 0
+MEDIUM_CONFIDENCE_FIXES: 0
+ISSUES_SKIPPED: 0
+IN_SCOPE_FIXED: 0
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+TESTS_RUN: YES
+TESTS_PASSING: YES
+FILES_MODIFIED: 0
+EXIT_SIGNAL: true
+SUMMARY: Both agents agreed no issues exist, code is clean
+---END_SYNTHESIS_STATUS---
+```
+
+## Important Notes
+
+- **Be conservative**: Only fix things you're confident about
+- **Document everything**: Future iterations will see your reasoning
+- **Don't over-fix**: If agents disagreed, err on the side of not changing working code
+- **Test changes**: Run relevant tests after making changes
+
+If both agents reported NO_ISSUES in Phase 1, respond with:
+NO_ISSUES
+
+And set EXIT_SIGNAL: true
+
+---
+# PHASE 4 SCOPE POLICY
+
+Implement only valid `IN_SCOPE` findings. Do not modify files to address
+`PRE_EXISTING` findings. Report those findings under a distinct
+"Pre-existing issues noticed, not fixed" heading with their ID, file, line,
+severity, and suggested fix.
+
+---
+# ADVERSARIAL REVIEW CHAIN
+
+## Phase 1: Independent Reviews
+
+### Claude's Review
+Bash 工具在本次会话中被持续阻止执行（多次尝试均返回 "This command requires approval"），无法在此环境中运行 `node --test`。以下是基于人工审查完成的修复。
+
+## 发现的 REQUIREMENTS.md 违规（均已修复于 `src/allocation.js`）
+
+- **CLAUDE-1**：`accepted` 使用了 `Math.max(requested, capacity)`，与要求「`accepted` 是 `requested` 和 `capacity` 中较小者」相反 → 已改为 `Math.min`。
+- **CLAUDE-2**：`rejected` 计算为 `requested - capacity`，当 `capacity > requested` 时会产生负数，违反「`rejected` 永不为负」的要求 → 已改为 `requested - accepted`（`accepted` 取 min 后必然 ≤ requested，结果非负）。
+- **CLAUDE-3**：完全没有对输入做校验，违反「两个参数必须是有限非负整数，否则抛出 `TypeError`」的要求 → 新增 `assertValid` 校验，对非整数（含 `NaN`/`Infinity`/小数）或负数抛出 `TypeError`。
+
+修复后的实现：
+
+```js
+function assertValid(value, name) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(`${name} must be a finite, non-negative integer`);
+  }
+}
+
+export function allocate(requested, capacity) {
+  assertValid(requested, "requested");
+  assertValid(capacity, "capacity");
+
+  const accepted = Math.min(requested, capacity);
+  return {
+    accepted,
+    rejected: requested - accepted,
+  };
+}
+```
+
+`test/allocation.test.js` 未做修改——它只校验返回对象的 key 集合，不构成需求违规（只是覆盖较弱），因此未纳入修复范围。
+
+## 复查
+
+再次比对 `src/allocation.js` 与 REQUIREMENTS.md 的每一条：形状 `{accepted, rejected}` ✓、`accepted` 取较小值 ✓、`rejected` 非负 ✓、输入校验 ✓、未对入参做原地修改（原语值不可变，函数内也未修改原变量）✓。未发现新的违规。
+
+**注意**：由于沙箱阻止了 Bash 命令执行，我无法实际运行 `node --test test/allocation.test.js` 来做最终验证，只能通过代码走查确认逻辑正确。建议你在允许执行命令的环境中手动跑一下测试确认。
+
+### Codex's Review
+The corrected worktree satisfies `REQUIREMENTS.md`; the final re-review found no remaining contract violations.
+
+## Standards
+
+- `CODEX-1` — Judgment-only naming smell: [`assertValid`](/tmp/adversarial-review-fix.EA6yn1/src/allocation.js:1) is less specific than `assertNonNegativeInteger`. This is not a requirements violation or correctness issue.
+- No documented-standard violations.
+
+## Spec
+
+The implementation commit originally contained three violations, all now corrected in [`allocation.js`](/tmp/adversarial-review-fix.EA6yn1/src/allocation.js:7):
+
+- `CODEX-2` — Missing finite, non-negative integer validation.
+- `CODEX-3` — `accepted` used `Math.max` instead of `Math.min`.
+- `CODEX-4` — `rejected` could be negative because it subtracted capacity rather than accepted quantity.
+
+Validation completed:
+
+- `npm test`: 1/1 passed.
+- Additional contract matrix: valid allocations, zero values, invalid inputs, `TypeError`, and input preservation all passed.
+- `git diff --check`: passed.
+- Final Spec review: 0 remaining violations or scope creep.
+
+Summary: Standards — 1 low-severity judgment call; Spec — 3 original violations corrected, 0 remaining.
+
+## Phase 2: Cross-Reviews
+
+### Claude's Analysis of Codex
+## 交叉审查
+
+### CODEX 逐条核验
+
+**CODEX-1** (`assertValid` 命名不够具体，应为 `assertNonNegativeInteger`)
+CODEX-1: VALID — 确实是个合理的风格建议，`assertValid` 语义模糊（"valid" 相对于什么？），而 `assertNonNegativeInteger` 更精确地描述了校验内容。但这纯属命名品味问题，不违反 `REQUIREMENTS.md` 中任何硬性条款，严重性应为 low/nit。
+范围：我同意标记为 IN_SCOPE——`assertValid` 函数是本次未提交的修复 diff（`git diff HEAD -- src/allocation.js`）新引入的代码，不存在于 `fa59c7e`（该提交里完全没有校验逻辑），因此这是本次改动引入的命名，非历史遗留问题。
+
+**CODEX-2** (缺少 finite/非负整数校验)
+CODEX-2: VALID — 对照 `fa59c7e` 的实现（`git diff 038df33 fa59c7e`），确认原实现完全没有对 `requested`/`capacity` 做任何校验，违反 `REQUIREMENTS.md` "Both arguments must be finite, non-negative integers; otherwise throw `TypeError`" 的要求。当前工作树中 `assertValid`（第1-5行）用 `Number.isInteger(value) || value < 0` 正确修复了这一点（`Number.isInteger` 隐含了 finite 检查，`NaN`/`Infinity`/非整数/负数均会被拒绝）。
+范围：IN_SCOPE，该缺陷由 `fa59c7e`（"fixture: add flawed implementation"）引入，baseline commit `038df33` 中该文件只是一个占位注释，无实现可言。
+
+**CODEX-3** (`accepted` 用了 `Math.max` 应为 `Math.min`)
+CODEX-3: VALID — `fa59c7e` 第2行确实是 `Math.max(requested, capacity)`，明显与 spec "`accepted` is the smaller of `requested` and `capacity`" 矛盾。当前代码第11行已改为 `Math.min`，修复正确。
+范围：IN_SCOPE，同上，由 `fa59c7e` 引入。
+
+**CODEX-4** (`rejected` 可能为负，因为用 capacity 而非 accepted 相减)
+CODEX-4: VALID — 原代码 `requested - capacity`：当 `requested < capacity` 时，若同时叠加 CODEX-3 的 bug（`accepted = max(...)  = capacity`），会导致负的 `rejected`，违反 "never a negative number" 的要求。当前代码改为 `requested - accepted`，由于 `accepted = min(requested, capacity) <= requested`，该差值恒 ≥ 0，正确满足契约。
+范围：IN_SCOPE，同上。
+
+我逐一手动验证了当前 `allocate` 的四种典型输入（`requested<capacity`、`requested>capacity`、`requested===capacity`、非法输入如负数/小数/字符串/NaN），行为均与 `REQUIREMENTS.md` 完全一致，`npm test` 通过（尽管测试本身覆盖很浅，见下方新增发现）。
+
+## 我新增的发现
+
+- **CLAUDE-ADD-1** — File: `test/allocation.test.js` — Line: 6-8 — Severity: Medium — Scope: PRE_EXISTING（该文件在本次 diff 中未被修改，`git log` 显示自 `fa59c7e` 以来无变更）
+  Issue: 测试套件只断言返回对象的 key 集合（`["accepted", "rejected"]`），完全不校验数值是否正确，也没有覆盖非法输入应抛出 `TypeError` 的路径。事实上，如果有人把 `Math.min` 改回 `Math.max`（即重新引入 CODEX-3 描述的原始 bug），或让 `assertValid` 失效，现有测试仍会全部通过——这套测试无法防止本次修复的回归。
+  Fix: 建议补充断言具体数值（例如 `allocate(3,5)` 应得到 `{accepted:3, rejected:0}`，`allocate(7,5)` 应得到 `{accepted:5, rejected:2}`），并加一条测试验证对非整数/负数/NaN 输入抛出 `TypeError`。这不属于本次修复 diff 的责任范围（测试文件本身未被触碰），但值得在后续任务中补上。
+
+## VERDICTS
+
+```
+VERDICTS: CODEX-1=VALID, CODEX-2=VALID, CODEX-3=VALID, CODEX-4=VALID
+SCOPE_VERDICTS: CODEX-1=IN_SCOPE, CODEX-2=IN_SCOPE, CODEX-3=IN_SCOPE, CODEX-4=IN_SCOPE
+```
+
+```
+---CROSS_REVIEW_STATUS---
+FINDINGS_VALIDATED: 4
+FINDINGS_CHALLENGED: 0
+FINDINGS_ADDED: 1
+ISSUE_SCOPES: CODEX-1=IN_SCOPE, CODEX-2=IN_SCOPE, CODEX-3=IN_SCOPE, CODEX-4=IN_SCOPE, CLAUDE-ADD-1=PRE_EXISTING
+AGREEMENT_LEVEL: FULL
+CONFIDENCE: HIGH
+SUMMARY: 对方的三处 spec 违规和一处命名建议全部核实无误、且已被当前工作树正确修复；额外发现测试套件本身覆盖不足，无法防止本类 bug 的回归。
+---END_CROSS_REVIEW_STATUS---
+```
+
+### Codex's Analysis of Claude
+CLAUDE-1: VALID  
+`Math.max(requested, capacity)` directly contradicted the requirement that `accepted` be the smaller value. Changing it to `Math.min` is correct. Scope agrees: `IN_SCOPE`; the faulty line was introduced by commit `fa59c7e`, after `benchmark-base`.
+
+CLAUDE-2: VALID  
+`requested - capacity` becomes negative when capacity exceeds demand. Computing `requested - accepted` correctly represents the unallocated remainder and guarantees a non-negative result after validation. Scope agrees: `IN_SCOPE`; the calculation was introduced in the reviewed implementation commit.
+
+CLAUDE-3: VALID  
+The original implementation accepted negative, fractional, infinite, `NaN`, and non-number inputs. `Number.isInteger(value) && value >= 0` accurately enforces the stated contract; `Number.isInteger` also rejects `NaN` and infinities. Scope agrees: `IN_SCOPE`; validation was required by the requirements added with the implementation but was omitted entirely.
+
+No additional implementation defects found. The unchanged visible test has weak coverage, but adding regression tests was not itself an explicit contract requirement. I successfully ran `node --test` and additional contract spot checks covering both allocation directions, zero values, and invalid inputs; all passed.
+
+VERDICTS: CLAUDE-1=VALID, CLAUDE-2=VALID, CLAUDE-3=VALID  
+SCOPE_VERDICTS: CLAUDE-1=IN_SCOPE, CLAUDE-2=IN_SCOPE, CLAUDE-3=IN_SCOPE  
+---CROSS_REVIEW_STATUS---
+FINDINGS_VALIDATED: 3
+FINDINGS_CHALLENGED: 0
+FINDINGS_ADDED: 0
+ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=IN_SCOPE, CLAUDE-3=IN_SCOPE
+AGREEMENT_LEVEL: FULL
+CONFIDENCE: HIGH
+SUMMARY: All three findings and fixes are supported by the requirements and diff history; tests and additional contract checks pass.
+---END_CROSS_REVIEW_STATUS---
+
+## Phase 3: Meta-Reviews
+
+### Claude's Response
+## 元审查
+
+对方针对我 Phase 1 的三项发现（CLAUDE-1/2/3）逐一给出反馈,结论是全部 **VALID**、且范围判定与我一致（`IN_SCOPE`）。我复核了当前 `src/allocation.js`（如上）以及 `fa59c7e` 的原始实现,确认:
+
+- `fa59c7e` 中确实是 `Math.max(requested, capacity)` 和 `rejected: requested - capacity`,且完全没有校验逻辑,`038df33` baseline 中该文件根本没有实现。三处缺陷均由 `fa59c7e` 引入,不存在于 baseline 之前,因此确属本次改动范围。
+
+### CLAUDE-1 — MAINTAIN
+对方确认 VALID/IN_SCOPE。无异议,继续维持。
+
+### CLAUDE-2 — MAINTAIN
+对方确认 VALID/IN_SCOPE,并补充了一个我未明确写出的推理细节（`requested - accepted` 之所以非负,是因为 `accepted` 校验后必然 `<= requested`）。这个补充是对的,采纳进最终描述,但不改变结论。
+
+### CLAUDE-3 — MAINTAIN
+对方确认 VALID/IN_SCOPE,并指出 `Number.isInteger` 天然会拒绝 `NaN`/`Infinity`,这与我原文的推理一致。维持。
+
+对方也提到自己成功跑通了 `node --test` 及额外的契约用例（双方向分配、零值、非法输入），这弥补了我在沙盒里无法执行 Bash 的验证缺口，可以采信作为动态验证证据。
+
+## 关于对方的原始发现 (CODEX-1~4) 与我方 Phase 2 交叉审查
+
+我在 Phase 2 已经逐条核验过 CODEX-1（命名建议,low severity,IN_SCOPE）、CODEX-2/3/4（三处 spec 违规,均 VALID/IN_SCOPE，与我自己发现的 CLAUDE-2/1/3 本质上是同一组 bug 的对应描述）。对方未在本轮反馈中对我的交叉审查提出异议,视为无争议。
+
+需要说明:CODEX-2/3/4 与 CLAUDE-3/1/2 描述的是同一套底层缺陷（校验缺失、`max`→`min`、负数 `rejected`），双方独立发现、互相印证，在合并 CONSENSUS 列表时应去重，以 CLAUDE 的 ID 为准列出（因为它们指向完全相同的代码位置和修复）,同时保留 CODEX-1（命名建议）作为独立的额外项。
+
+## CLAUDE-ADD-1（测试覆盖不足）
+本轮对方反馈中未提及，视为无异议保留：PRE_EXISTING、medium/low，不阻塞本次修复的验收，仅作为后续改进建议记录在案。
+
+## Scope Reconciliation Ledger
+
+SCOPE_RECONCILIATION: NONE
+
+（双方对 CLAUDE-1/2/3 及 CODEX-1/2/3/4 的范围判定完全一致，均为 `IN_SCOPE`；CLAUDE-ADD-1 双方一致视为 `PRE_EXISTING`，无需调解。）
+
+```
+---META_REVIEW_STATUS---
+POSITIONS_DEFENDED: 3
+POSITIONS_CONCEDED: 0
+NEW_ISSUES_ACCEPTED: 0
+NEW_ISSUES_REJECTED: 0
+REMAINING_DISAGREEMENTS: 0
+CONSENSUS_REACHED: YES
+SCOPE_DISAGREEMENTS: 0
+ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=IN_SCOPE, CLAUDE-3=IN_SCOPE, CODEX-1=IN_SCOPE, CODEX-2=IN_SCOPE, CODEX-3=IN_SCOPE, CODEX-4=IN_SCOPE, CLAUDE-ADD-1=PRE_EXISTING
+SUMMARY: 双方对三项核心 spec 违规（校验缺失、max→min、负数rejected）及一项命名建议完全达成一致，无遗留争议；测试覆盖不足作为非阻塞性后续建议保留。
+---END_META_REVIEW_STATUS---
+```
+
+```
+---CONSENSUS_ISSUES---
+1. [AGREED] [IN_SCOPE] CLAUDE-1/CODEX-3 src/allocation.js:11 - accepted 原用 Math.max，应为 Math.min（已修复） (HIGH)
+2. [AGREED] [IN_SCOPE] CLAUDE-2/CODEX-4 src/allocation.js:14 - rejected 原用 requested-capacity 可能为负，应为 requested-accepted（已修复） (HIGH)
+3. [AGREED] [IN_SCOPE] CLAUDE-3/CODEX-2 src/allocation.js:1-5 - 缺少 finite/非负整数校验，应抛 TypeError（已修复） (HIGH)
+4. [AGREED] [IN_SCOPE] CODEX-1 src/allocation.js:1 - assertValid 命名不够具体，建议改为 assertNonNegativeInteger (LOW/nit)
+5. [AGREED] [PRE_EXISTING] CLAUDE-ADD-1 test/allocation.test.js:6-8 - 测试仅校验 key 集合，未覆盖数值正确性及 TypeError 路径，无法防止本类 bug 回归 (MEDIUM, 后续改进建议，非本次修复责任范围)
+---END_CONSENSUS_ISSUES---
+```
+
+### Codex's Response
+All findings survive review. The only refinement is scope: `CLAUDE-ADD-1` is `IN_SCOPE`, because the weak test was introduced after `benchmark-base`, the same boundary used for the implementation defects.
+
+- `CODEX-1: MAINTAIN` — Valid low-severity naming observation. It remains non-blocking and is not a contract violation.
+- `CODEX-2: MAINTAIN` — The missing validation violated the explicit input contract; now fixed.
+- `CODEX-3: MAINTAIN` — `Math.max` contradicted the required minimum; now fixed.
+- `CODEX-4: MAINTAIN` — Subtracting capacity produced negative rejection counts; now fixed.
+- `CLAUDE-ADD-1: VALID-NEW` — The test only checks object keys, so all three original behavioral defects could regress undetected. Medium severity is reasonable.
+
+The Phase 2 `PRE_EXISTING` classification for `CLAUDE-ADD-1` used the narrower unstaged-worktree diff. However, the established review boundary is `benchmark-base` (`038df33`), and `fa59c7e` introduced both the flawed implementation and the inadequate test. Consistent use of that boundary resolves it as `IN_SCOPE`. Because this was a newly added Phase 2 issue with no Phase 1 scope, it does not constitute a Phase 1-versus-Phase 2 reconciliation entry.
+
+Current verification confirms `npm test` passes, the corrected allocations and invalid-input handling behave properly, and `git diff --check` passes.
+
+SCOPE_RECONCILIATION: NONE
+
+---META_REVIEW_STATUS---
+POSITIONS_DEFENDED: 4
+POSITIONS_CONCEDED: 0
+NEW_ISSUES_ACCEPTED: 1
+NEW_ISSUES_REJECTED: 0
+REMAINING_DISAGREEMENTS: 0
+CONSENSUS_REACHED: YES
+SCOPE_DISAGREEMENTS: 0
+ISSUE_SCOPES: CODEX-1=IN_SCOPE, CODEX-2=IN_SCOPE, CODEX-3=IN_SCOPE, CODEX-4=IN_SCOPE, CLAUDE-1=IN_SCOPE, CLAUDE-2=IN_SCOPE, CLAUDE-3=IN_SCOPE, CLAUDE-ADD-1=IN_SCOPE
+SUMMARY: Agreed on five distinct findings: three corrected contract defects, one non-blocking naming nit, and one remaining regression-test gap.
+---END_META_REVIEW_STATUS---
+
+---CONSENSUS_ISSUES---
+1. [AGREED] [IN_SCOPE] CODEX-1 src/allocation.js:1 - `assertValid` is less descriptive than `assertNonNegativeInteger`; optional non-blocking naming improvement (LOW/NIT)
+2. [AGREED] [IN_SCOPE] CODEX-2 / CLAUDE-3 src/allocation.js:1 - Required finite, non-negative integer validation was missing; now fixed (MEDIUM)
+3. [AGREED] [IN_SCOPE] CODEX-3 / CLAUDE-1 src/allocation.js:11 - `accepted` used `Math.max` instead of the required `Math.min`; now fixed (MEDIUM)
+4. [AGREED] [IN_SCOPE] CODEX-4 / CLAUDE-2 src/allocation.js:14 - `rejected` used `requested - capacity` and could become negative; now fixed (MEDIUM)
+5. [AGREED] [IN_SCOPE] CLAUDE-ADD-1 test/allocation.test.js:6 - Tests verify only result keys and provide no regression coverage for values or invalid inputs (MEDIUM)
+---END_CONSENSUS_ISSUES---
+
+---
+Working directory: /tmp/adversarial-review-fix.EA6yn1
+
+
+codex
+先完成强制 Issue Ledger。Phase 3 对 `CLAUDE-ADD-1` 的范围判定互相冲突，因此我暂按规则标为“待历史核验”，核验后只会在 `IN_SCOPE` 时修改测试。
+
+| ID | 对应问题 | Phase 3 状态 | 初始范围 | 拟定处置 |
+|---|---|---|---|---|
+| CLAUDE-1 | `accepted` 错用 `Math.max` | 共识有效，已修复 | IN_SCOPE | FIX（核验现有修复） |
+| CLAUDE-2 | `rejected` 可能为负 | 共识有效，已修复 | IN_SCOPE | FIX（核验现有修复） |
+| CLAUDE-3 | 缺少输入校验 | 共识有效，已修复 | IN_SCOPE | FIX（核验现有修复） |
+| CODEX-1 | `assertValid` 命名不具体 | 共识有效、低优先级 | IN_SCOPE | FIX（保守重命名） |
+| CODEX-2 | 缺少输入校验（同 CLAUDE-3） | 共识有效，已修复 | IN_SCOPE | FIX（与 CLAUDE-3 合并实现） |
+| CODEX-3 | `accepted` 错用 `Math.max`（同 CLAUDE-1） | 共识有效，已修复 | IN_SCOPE | FIX（与 CLAUDE-1 合并实现） |
+| CODEX-4 | `rejected` 可能为负（同 CLAUDE-2） | 共识有效，已修复 | IN_SCOPE | FIX（与 CLAUDE-2 合并实现） |
+| CLAUDE-ADD-1 | 测试只检查 key，缺少行为回归覆盖 | 共识有效；范围冲突 | 待核验 | FIX 若 IN_SCOPE；否则 FLAG |
+
+我现在核验 review boundary、工作树和测试配置，再实施剩余修复并运行测试。
+  → Inspect repository history, requirements, and current worktree to resolve scope
+  • Implement valid in-scope fixes without touching pre-existing findings
+  • Run relevant tests and diff validation
+  • Report complete ledger dispositions and synthesis status
+exec
+/bin/bash -lc "pwd && rg --files -g '"'!*node_modules*'"' && git status --short && git log --oneline --decorate -5 && git diff -- src/allocation.js test/allocation.test.js && git diff 038df33..fa59c7e -- src/allocation.js test/allocation.test.js && sed -n '1,200p' REQUIREMENTS.md && sed -n '1,200p' src/allocation.js && sed -n '1,240p' test/allocation.test.js && sed -n '1,200p' package.json" in /tmp/adversarial-review-fix.EA6yn1
+ succeeded in 176ms:
+fa59c7e (HEAD -> master) fixture: add flawed implementation
+038df33 (tag: benchmark-base) fixture: establish baseline
+diff --git a/src/allocation.js b/src/allocation.js
+index 8f55ab0..99ec72b 100644
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,7 +1,16 @@
++function assertValid(value, name) {
++  if (!Number.isInteger(value) || value < 0) {
++    throw new TypeError(`${name} must be a finite, non-negative integer`);
++  }
++}
++
+ export function allocate(requested, capacity) {
+-  const accepted = Math.max(requested, capacity);
++  assertValid(requested, "requested");
++  assertValid(capacity, "capacity");
++
++  const accepted = Math.min(requested, capacity);
+   return {
+     accepted,
+-    rejected: requested - capacity,
++    rejected: requested - accepted,
+   };
+ }
+diff --git a/src/allocation.js b/src/allocation.js
+index 5a16dfe..8f55ab0 100644
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1 +1,7 @@
+-// Allocation helper will be implemented in the next change.
++export function allocate(requested, capacity) {
++  const accepted = Math.max(requested, capacity);
++  return {
++    accepted,
++    rejected: requested - capacity,
++  };
++}
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 6e14a16..7294fc8 100644
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -1,3 +1,8 @@
++import assert from "node:assert/strict";
+ import test from "node:test";
+ 
+-test("fixture baseline", () => {});
++import { allocate } from "../src/allocation.js";
++
++test("returns the documented result shape", () => {
++  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++});
+# Allocation API
+
+`allocate(requested, capacity)` allocates up to the available capacity.
+
+- Both arguments must be finite, non-negative integers; otherwise throw
+  `TypeError`.
+- Return `{ accepted, rejected }`.
+- `accepted` is the smaller of `requested` and `capacity`.
+- `rejected` is the unallocated remainder, never a negative number.
+- Inputs are values and must not be mutated.
+function assertValid(value, name) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new TypeError(`${name} must be a finite, non-negative integer`);
+  }
+}
+
+export function allocate(requested, capacity) {
+  assertValid(requested, "requested");
+  assertValid(capacity, "capacity");
+
+  const accepted = Math.min(requested, capacity);
+  return {
+    accepted,
+    rejected: requested - accepted,
+  };
+}
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { allocate } from "../src/allocation.js";
+
+test("returns the documented result shape", () => {
+  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
+});
+{
+  "name": "fix-loop-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
+
+codex
+历史核验已解决范围冲突：`benchmark-base`（`038df33`）之后的 `fa59c7e` 同时引入了缺陷实现和弱测试，因此 `CLAUDE-ADD-1` 是 `IN_SCOPE`。我会补齐行为与异常测试，并将校验函数改为更精确的名称；不会触碰范围外文件。
+History confirms the weak regression test was introduced after benchmark-base together with the flawed implementation, so CLAUDE-ADD-1 is IN_SCOPE.
+  ✓ Inspect repository history, requirements, and current worktree to resolve scope
+  → Implement valid in-scope fixes without touching pre-existing findings
+  • Run relevant tests and diff validation
+  • Report complete ledger dispositions and synthesis status
+apply patch
+patch: completed
+/tmp/adversarial-review-fix.EA6yn1/src/allocation.js
+/tmp/adversarial-review-fix.EA6yn1/test/allocation.test.js
+diff --git a/src/allocation.js b/src/allocation.js
+index 99ec72b8adbb1d0a7eec2b2af9734d83538832d1..78ec54b8a0a31d4778f55c88d3af27c1bb5210b4
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,12 +1,12 @@
+-function assertValid(value, name) {
++function assertNonNegativeInteger(value, name) {
+   if (!Number.isInteger(value) || value < 0) {
+     throw new TypeError(`${name} must be a finite, non-negative integer`);
+   }
+ }
+ 
+ export function allocate(requested, capacity) {
+-  assertValid(requested, "requested");
+-  assertValid(capacity, "capacity");
++  assertNonNegativeInteger(requested, "requested");
++  assertNonNegativeInteger(capacity, "capacity");
+ 
+   const accepted = Math.min(requested, capacity);
+   return {
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 7294fc80ea647188737b2c4f73584628ec9e7970..5b83598e28acf362f3721236dac2b4dd7bec9576
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -3,6 +3,27 @@
+ 
+ import { allocate } from "../src/allocation.js";
+ 
+-test("returns the documented result shape", () => {
+-  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++test("allocates no more than the requested amount", () => {
++  assert.deepEqual(allocate(3, 5), { accepted: 3, rejected: 0 });
++});
++
++test("allocates no more than capacity", () => {
++  assert.deepEqual(allocate(7, 5), { accepted: 5, rejected: 2 });
++});
++
++test("supports zero and equal values", () => {
++  assert.deepEqual(allocate(0, 0), { accepted: 0, rejected: 0 });
++  assert.deepEqual(allocate(4, 4), { accepted: 4, rejected: 0 });
++});
++
++test("rejects invalid requested values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "3"]) {
++    assert.throws(() => allocate(value, 5), TypeError);
++  }
++});
++
++test("rejects invalid capacity values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "5"]) {
++    assert.throws(() => allocate(3, value), TypeError);
++  }
+ });
+
+diff --git a/src/allocation.js b/src/allocation.js
+index 99ec72b8adbb1d0a7eec2b2af9734d83538832d1..78ec54b8a0a31d4778f55c88d3af27c1bb5210b4
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,12 +1,12 @@
+-function assertValid(value, name) {
++function assertNonNegativeInteger(value, name) {
+   if (!Number.isInteger(value) || value < 0) {
+     throw new TypeError(`${name} must be a finite, non-negative integer`);
+   }
+ }
+ 
+ export function allocate(requested, capacity) {
+-  assertValid(requested, "requested");
+-  assertValid(capacity, "capacity");
++  assertNonNegativeInteger(requested, "requested");
++  assertNonNegativeInteger(capacity, "capacity");
+ 
+   const accepted = Math.min(requested, capacity);
+   return {
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 7294fc80ea647188737b2c4f73584628ec9e7970..5b83598e28acf362f3721236dac2b4dd7bec9576
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -3,6 +3,27 @@
+ 
+ import { allocate } from "../src/allocation.js";
+ 
+-test("returns the documented result shape", () => {
+-  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++test("allocates no more than the requested amount", () => {
++  assert.deepEqual(allocate(3, 5), { accepted: 3, rejected: 0 });
++});
++
++test("allocates no more than capacity", () => {
++  assert.deepEqual(allocate(7, 5), { accepted: 5, rejected: 2 });
++});
++
++test("supports zero and equal values", () => {
++  assert.deepEqual(allocate(0, 0), { accepted: 0, rejected: 0 });
++  assert.deepEqual(allocate(4, 4), { accepted: 4, rejected: 0 });
++});
++
++test("rejects invalid requested values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "3"]) {
++    assert.throws(() => allocate(value, 5), TypeError);
++  }
++});
++
++test("rejects invalid capacity values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "5"]) {
++    assert.throws(() => allocate(3, value), TypeError);
++  }
+ });
+
+exec
+/bin/bash -lc 'npm test' in /tmp/adversarial-review-fix.EA6yn1
+exec
+/bin/bash -lc 'git diff --check && git diff --stat && git diff -- src/allocation.js test/allocation.test.js' in /tmp/adversarial-review-fix.EA6yn1
+ succeeded in 0ms:
+ src/allocation.js       | 13 +++++++++++--
+ test/allocation.test.js | 25 +++++++++++++++++++++++--
+ 2 files changed, 34 insertions(+), 4 deletions(-)
+diff --git a/src/allocation.js b/src/allocation.js
+index 8f55ab0..78ec54b 100644
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,7 +1,16 @@
++function assertNonNegativeInteger(value, name) {
++  if (!Number.isInteger(value) || value < 0) {
++    throw new TypeError(`${name} must be a finite, non-negative integer`);
++  }
++}
++
+ export function allocate(requested, capacity) {
+-  const accepted = Math.max(requested, capacity);
++  assertNonNegativeInteger(requested, "requested");
++  assertNonNegativeInteger(capacity, "capacity");
++
++  const accepted = Math.min(requested, capacity);
+   return {
+     accepted,
+-    rejected: requested - capacity,
++    rejected: requested - accepted,
+   };
+ }
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 7294fc8..5b83598 100644
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -3,6 +3,27 @@ import test from "node:test";
+ 
+ import { allocate } from "../src/allocation.js";
+ 
+-test("returns the documented result shape", () => {
+-  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++test("allocates no more than the requested amount", () => {
++  assert.deepEqual(allocate(3, 5), { accepted: 3, rejected: 0 });
++});
++
++test("allocates no more than capacity", () => {
++  assert.deepEqual(allocate(7, 5), { accepted: 5, rejected: 2 });
++});
++
++test("supports zero and equal values", () => {
++  assert.deepEqual(allocate(0, 0), { accepted: 0, rejected: 0 });
++  assert.deepEqual(allocate(4, 4), { accepted: 4, rejected: 0 });
++});
++
++test("rejects invalid requested values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "3"]) {
++    assert.throws(() => allocate(value, 5), TypeError);
++  }
++});
++
++test("rejects invalid capacity values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "5"]) {
++    assert.throws(() => allocate(3, value), TypeError);
++  }
+ });
+
+diff --git a/src/allocation.js b/src/allocation.js
+index 99ec72b8adbb1d0a7eec2b2af9734d83538832d1..78ec54b8a0a31d4778f55c88d3af27c1bb5210b4
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,12 +1,12 @@
+-function assertValid(value, name) {
++function assertNonNegativeInteger(value, name) {
+   if (!Number.isInteger(value) || value < 0) {
+     throw new TypeError(`${name} must be a finite, non-negative integer`);
+   }
+ }
+ 
+ export function allocate(requested, capacity) {
+-  assertValid(requested, "requested");
+-  assertValid(capacity, "capacity");
++  assertNonNegativeInteger(requested, "requested");
++  assertNonNegativeInteger(capacity, "capacity");
+ 
+   const accepted = Math.min(requested, capacity);
+   return {
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 7294fc80ea647188737b2c4f73584628ec9e7970..5b83598e28acf362f3721236dac2b4dd7bec9576
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -3,6 +3,27 @@
+ 
+ import { allocate } from "../src/allocation.js";
+ 
+-test("returns the documented result shape", () => {
+-  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++test("allocates no more than the requested amount", () => {
++  assert.deepEqual(allocate(3, 5), { accepted: 3, rejected: 0 });
++});
++
++test("allocates no more than capacity", () => {
++  assert.deepEqual(allocate(7, 5), { accepted: 5, rejected: 2 });
++});
++
++test("supports zero and equal values", () => {
++  assert.deepEqual(allocate(0, 0), { accepted: 0, rejected: 0 });
++  assert.deepEqual(allocate(4, 4), { accepted: 4, rejected: 0 });
++});
++
++test("rejects invalid requested values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "3"]) {
++    assert.throws(() => allocate(value, 5), TypeError);
++  }
++});
++
++test("rejects invalid capacity values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "5"]) {
++    assert.throws(() => allocate(3, value), TypeError);
++  }
+ });
+
+ succeeded in 498ms:
+
+> test
+> node --test
+
+TAP version 13
+# Subtest: allocates no more than the requested amount
+ok 1 - allocates no more than the requested amount
+  ---
+  duration_ms: 1.648139
+  ...
+# Subtest: allocates no more than capacity
+ok 2 - allocates no more than capacity
+  ---
+  duration_ms: 0.211717
+  ...
+# Subtest: supports zero and equal values
+ok 3 - supports zero and equal values
+  ---
+  duration_ms: 0.266296
+  ...
+# Subtest: rejects invalid requested values
+ok 4 - rejects invalid requested values
+  ---
+  duration_ms: 1.314496
+  ...
+# Subtest: rejects invalid capacity values
+ok 5 - rejects invalid capacity values
+  ---
+  duration_ms: 0.281339
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 99.679528
+
+codex
+实现与验证已完成：5 个测试全部通过，`git diff --check` 也通过。最终范围核验没有留下 `PRE_EXISTING` 项；8 个原始 ID 合并为 5 个不重复的问题，均已处理。
+  ✓ Inspect repository history, requirements, and current worktree to resolve scope
+  ✓ Implement valid in-scope fixes without touching pre-existing findings
+  ✓ Run relevant tests and diff validation
+  ✓ Report complete ledger dispositions and synthesis status
+diff --git a/src/allocation.js b/src/allocation.js
+index 99ec72b8adbb1d0a7eec2b2af9734d83538832d1..78ec54b8a0a31d4778f55c88d3af27c1bb5210b4
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,12 +1,12 @@
+-function assertValid(value, name) {
++function assertNonNegativeInteger(value, name) {
+   if (!Number.isInteger(value) || value < 0) {
+     throw new TypeError(`${name} must be a finite, non-negative integer`);
+   }
+ }
+ 
+ export function allocate(requested, capacity) {
+-  assertValid(requested, "requested");
+-  assertValid(capacity, "capacity");
++  assertNonNegativeInteger(requested, "requested");
++  assertNonNegativeInteger(capacity, "capacity");
+ 
+   const accepted = Math.min(requested, capacity);
+   return {
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 7294fc80ea647188737b2c4f73584628ec9e7970..5b83598e28acf362f3721236dac2b4dd7bec9576
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -3,6 +3,27 @@
+ 
+ import { allocate } from "../src/allocation.js";
+ 
+-test("returns the documented result shape", () => {
+-  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++test("allocates no more than the requested amount", () => {
++  assert.deepEqual(allocate(3, 5), { accepted: 3, rejected: 0 });
++});
++
++test("allocates no more than capacity", () => {
++  assert.deepEqual(allocate(7, 5), { accepted: 5, rejected: 2 });
++});
++
++test("supports zero and equal values", () => {
++  assert.deepEqual(allocate(0, 0), { accepted: 0, rejected: 0 });
++  assert.deepEqual(allocate(4, 4), { accepted: 4, rejected: 0 });
++});
++
++test("rejects invalid requested values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "3"]) {
++    assert.throws(() => allocate(value, 5), TypeError);
++  }
++});
++
++test("rejects invalid capacity values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "5"]) {
++    assert.throws(() => allocate(3, value), TypeError);
++  }
+ });
+
+exec
+/bin/bash -lc "sed -n '1,240p' REVIEW_BRIEF.md && git status --short" in /tmp/adversarial-review-fix.EA6yn1
+ succeeded in 0ms:
+# Review brief
+
+Review the implementation commit against `benchmark-base` and
+`REQUIREMENTS.md`. Correct every requirements violation, run the visible tests,
+then re-review the resulting diff for remaining contract violations.
+ M src/allocation.js
+ M test/allocation.test.js
+
+diff --git a/src/allocation.js b/src/allocation.js
+index 99ec72b8adbb1d0a7eec2b2af9734d83538832d1..78ec54b8a0a31d4778f55c88d3af27c1bb5210b4
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,12 +1,12 @@
+-function assertValid(value, name) {
++function assertNonNegativeInteger(value, name) {
+   if (!Number.isInteger(value) || value < 0) {
+     throw new TypeError(`${name} must be a finite, non-negative integer`);
+   }
+ }
+ 
+ export function allocate(requested, capacity) {
+-  assertValid(requested, "requested");
+-  assertValid(capacity, "capacity");
++  assertNonNegativeInteger(requested, "requested");
++  assertNonNegativeInteger(capacity, "capacity");
+ 
+   const accepted = Math.min(requested, capacity);
+   return {
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 7294fc80ea647188737b2c4f73584628ec9e7970..5b83598e28acf362f3721236dac2b4dd7bec9576
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -3,6 +3,27 @@
+ 
+ import { allocate } from "../src/allocation.js";
+ 
+-test("returns the documented result shape", () => {
+-  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++test("allocates no more than the requested amount", () => {
++  assert.deepEqual(allocate(3, 5), { accepted: 3, rejected: 0 });
++});
++
++test("allocates no more than capacity", () => {
++  assert.deepEqual(allocate(7, 5), { accepted: 5, rejected: 2 });
++});
++
++test("supports zero and equal values", () => {
++  assert.deepEqual(allocate(0, 0), { accepted: 0, rejected: 0 });
++  assert.deepEqual(allocate(4, 4), { accepted: 4, rejected: 0 });
++});
++
++test("rejects invalid requested values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "3"]) {
++    assert.throws(() => allocate(value, 5), TypeError);
++  }
++});
++
++test("rejects invalid capacity values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "5"]) {
++    assert.throws(() => allocate(3, value), TypeError);
++  }
+ });
+
+codex
+## Issue Ledger
+
+| ID | Resolved scope | Disposition | Resolution |
+|---|---|---|---|
+| CLAUDE-1 | IN_SCOPE | FIX | `Math.min` now determines `accepted` |
+| CLAUDE-2 | IN_SCOPE | FIX | `rejected` now uses `requested - accepted` |
+| CLAUDE-3 | IN_SCOPE | FIX | Added finite, non-negative integer validation |
+| CODEX-1 | IN_SCOPE | FIX | Renamed helper to `assertNonNegativeInteger` |
+| CODEX-2 | IN_SCOPE | FIX | Same implementation as CLAUDE-3 |
+| CODEX-3 | IN_SCOPE | FIX | Same implementation as CLAUDE-1 |
+| CODEX-4 | IN_SCOPE | FIX | Same implementation as CLAUDE-2 |
+| CLAUDE-ADD-1 | IN_SCOPE | FIX | Added behavioral and invalid-input regression tests |
+
+`CLAUDE-ADD-1` is `IN_SCOPE`: [REVIEW_BRIEF.md](/tmp/adversarial-review-fix.EA6yn1/REVIEW_BRIEF.md:3) defines `benchmark-base` as the review boundary, and `fa59c7e` introduced the weak test after that boundary.
+
+### Fix #1: src/allocation.js
+
+**Issue**: `accepted` used the larger value.  
+**Scope**: IN_SCOPE  
+**Confidence**: HIGH  
+**Source**: Both agents (`CLAUDE-1`, `CODEX-3`)  
+**Change**: [allocation.js](/tmp/adversarial-review-fix.EA6yn1/src/allocation.js:11) now uses `Math.min(requested, capacity)`.
+
+### Fix #2: src/allocation.js
+
+**Issue**: `rejected` could become negative.  
+**Scope**: IN_SCOPE  
+**Confidence**: HIGH  
+**Source**: Both agents (`CLAUDE-2`, `CODEX-4`)  
+**Change**: Computes the unallocated remainder as `requested - accepted`.
+
+### Fix #3: src/allocation.js
+
+**Issue**: Invalid arguments were accepted.  
+**Scope**: IN_SCOPE  
+**Confidence**: HIGH  
+**Source**: Both agents (`CLAUDE-3`, `CODEX-2`)  
+**Change**: Validates both arguments as finite, non-negative integers and throws `TypeError` otherwise.
+
+### Fix #4: src/allocation.js
+
+**Issue**: `assertValid` did not describe the enforced constraint.  
+**Scope**: IN_SCOPE  
+**Confidence**: HIGH  
+**Source**: Codex  
+**Change**: Renamed it to `assertNonNegativeInteger`.
+
+### Fix #5: test/allocation.test.js
+
+**Issue**: Tests only checked result keys and could not detect behavioral regressions.  
+**Scope**: IN_SCOPE  
+**Confidence**: MEDIUM  
+**Source**: Claude (`CLAUDE-ADD-1`)  
+**Change**: [allocation.test.js](/tmp/adversarial-review-fix.EA6yn1/test/allocation.test.js:6) now covers both allocation directions, zero/equal values, exact results, and invalid values for both arguments.
+
+## Pre-existing issues noticed, not fixed
+
+None.
+
+## Validation
+
+- `npm test`: 5/5 passed
+- `git diff --check`: passed
+- Modified files: 2
+
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 4
+MEDIUM_CONFIDENCE_FIXES: 1
+ISSUES_SKIPPED: 0
+IN_SCOPE_FIXED: 5
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+TESTS_RUN: YES
+TESTS_PASSING: YES
+FILES_MODIFIED: 2
+EXIT_SIGNAL: true
+SUMMARY: Fixed all 5 distinct in-scope findings; all tests and diff validation pass
+---END_SYNTHESIS_STATUS---
+diff --git a/src/allocation.js b/src/allocation.js
+index 99ec72b8adbb1d0a7eec2b2af9734d83538832d1..78ec54b8a0a31d4778f55c88d3af27c1bb5210b4
+--- a/src/allocation.js
++++ b/src/allocation.js
+@@ -1,12 +1,12 @@
+-function assertValid(value, name) {
++function assertNonNegativeInteger(value, name) {
+   if (!Number.isInteger(value) || value < 0) {
+     throw new TypeError(`${name} must be a finite, non-negative integer`);
+   }
+ }
+ 
+ export function allocate(requested, capacity) {
+-  assertValid(requested, "requested");
+-  assertValid(capacity, "capacity");
++  assertNonNegativeInteger(requested, "requested");
++  assertNonNegativeInteger(capacity, "capacity");
+ 
+   const accepted = Math.min(requested, capacity);
+   return {
+diff --git a/test/allocation.test.js b/test/allocation.test.js
+index 7294fc80ea647188737b2c4f73584628ec9e7970..5b83598e28acf362f3721236dac2b4dd7bec9576
+--- a/test/allocation.test.js
++++ b/test/allocation.test.js
+@@ -3,6 +3,27 @@
+ 
+ import { allocate } from "../src/allocation.js";
+ 
+-test("returns the documented result shape", () => {
+-  assert.deepEqual(Object.keys(allocate(3, 5)).sort(), ["accepted", "rejected"]);
++test("allocates no more than the requested amount", () => {
++  assert.deepEqual(allocate(3, 5), { accepted: 3, rejected: 0 });
++});
++
++test("allocates no more than capacity", () => {
++  assert.deepEqual(allocate(7, 5), { accepted: 5, rejected: 2 });
++});
++
++test("supports zero and equal values", () => {
++  assert.deepEqual(allocate(0, 0), { accepted: 0, rejected: 0 });
++  assert.deepEqual(allocate(4, 4), { accepted: 4, rejected: 0 });
++});
++
++test("rejects invalid requested values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "3"]) {
++    assert.throws(() => allocate(value, 5), TypeError);
++  }
++});
++
++test("rejects invalid capacity values", () => {
++  for (const value of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, "5"]) {
++    assert.throws(() => allocate(3, value), TypeError);
++  }
+ });
+
+tokens used
+22,620
+## Issue Ledger
+
+| ID | Resolved scope | Disposition | Resolution |
+|---|---|---|---|
+| CLAUDE-1 | IN_SCOPE | FIX | `Math.min` now determines `accepted` |
+| CLAUDE-2 | IN_SCOPE | FIX | `rejected` now uses `requested - accepted` |
+| CLAUDE-3 | IN_SCOPE | FIX | Added finite, non-negative integer validation |
+| CODEX-1 | IN_SCOPE | FIX | Renamed helper to `assertNonNegativeInteger` |
+| CODEX-2 | IN_SCOPE | FIX | Same implementation as CLAUDE-3 |
+| CODEX-3 | IN_SCOPE | FIX | Same implementation as CLAUDE-1 |
+| CODEX-4 | IN_SCOPE | FIX | Same implementation as CLAUDE-2 |
+| CLAUDE-ADD-1 | IN_SCOPE | FIX | Added behavioral and invalid-input regression tests |
+
+`CLAUDE-ADD-1` is `IN_SCOPE`: [REVIEW_BRIEF.md](/tmp/adversarial-review-fix.EA6yn1/REVIEW_BRIEF.md:3) defines `benchmark-base` as the review boundary, and `fa59c7e` introduced the weak test after that boundary.
+
+### Fix #1: src/allocation.js
+
+**Issue**: `accepted` used the larger value.  
+**Scope**: IN_SCOPE  
+**Confidence**: HIGH  
+**Source**: Both agents (`CLAUDE-1`, `CODEX-3`)  
+**Change**: [allocation.js](/tmp/adversarial-review-fix.EA6yn1/src/allocation.js:11) now uses `Math.min(requested, capacity)`.
+
+### Fix #2: src/allocation.js
+
+**Issue**: `rejected` could become negative.  
+**Scope**: IN_SCOPE  
+**Confidence**: HIGH  
+**Source**: Both agents (`CLAUDE-2`, `CODEX-4`)  
+**Change**: Computes the unallocated remainder as `requested - accepted`.
+
+### Fix #3: src/allocation.js
+
+**Issue**: Invalid arguments were accepted.  
+**Scope**: IN_SCOPE  
+**Confidence**: HIGH  
+**Source**: Both agents (`CLAUDE-3`, `CODEX-2`)  
+**Change**: Validates both arguments as finite, non-negative integers and throws `TypeError` otherwise.
+
+### Fix #4: src/allocation.js
+
+**Issue**: `assertValid` did not describe the enforced constraint.  
+**Scope**: IN_SCOPE  
+**Confidence**: HIGH  
+**Source**: Codex  
+**Change**: Renamed it to `assertNonNegativeInteger`.
+
+### Fix #5: test/allocation.test.js
+
+**Issue**: Tests only checked result keys and could not detect behavioral regressions.  
+**Scope**: IN_SCOPE  
+**Confidence**: MEDIUM  
+**Source**: Claude (`CLAUDE-ADD-1`)  
+**Change**: [allocation.test.js](/tmp/adversarial-review-fix.EA6yn1/test/allocation.test.js:6) now covers both allocation directions, zero/equal values, exact results, and invalid values for both arguments.
+
+## Pre-existing issues noticed, not fixed
+
+None.
+
+## Validation
+
+- `npm test`: 5/5 passed
+- `git diff --check`: passed
+- Modified files: 2
+
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 4
+MEDIUM_CONFIDENCE_FIXES: 1
+ISSUES_SKIPPED: 0
+IN_SCOPE_FIXED: 5
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+TESTS_RUN: YES
+TESTS_PASSING: YES
+FILES_MODIFIED: 2
+EXIT_SIGNAL: true
+SUMMARY: Fixed all 5 distinct in-scope findings; all tests and diff validation pass
+---END_SYNTHESIS_STATUS---

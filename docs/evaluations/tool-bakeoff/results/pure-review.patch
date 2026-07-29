@@ -1,0 +1,23 @@
+diff --git a/src/helpers.js b/src/helpers.js
+index c8afa62..386413a 100644
+--- a/src/helpers.js
++++ b/src/helpers.js
+@@ -1,11 +1,15 @@
+ export function isSafeRedirect(target) {
+-  return typeof target === "string" && target.startsWith("/");
++  return (
++    typeof target === "string" &&
++    target.startsWith("/") &&
++    !target.startsWith("//")
++  );
+ }
+ 
+ export function retryDelay(attempt, baseMs) {
+-  return baseMs * 2 ** attempt;
++  return baseMs * 2 ** (attempt - 1);
+ }
+ 
+ export function take(items, count) {
+-  return items.slice(0, count - 1);
++  return items.slice(0, count);
+ }

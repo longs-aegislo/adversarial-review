@@ -1,0 +1,59 @@
+{
+  "evaluation_date": "2026-07-29",
+  "environment": {
+    "claude_code": "2.1.220",
+    "codex_cli": "0.145.0",
+    "node": "20.20.2"
+  },
+  "formal_runs": [
+    {
+      "case": "pure-review",
+      "base_commit": "aa756ff68f46c8bed39e9b38751d580af0c5df8b",
+      "head_commit": "4146fd1ec394f8fe18d895bf9c7b883d01e67a7b",
+      "reviewers": ["claude", "codex"],
+      "fixer": "codex",
+      "model_calls": 7,
+      "duration_seconds": 503.2,
+      "known_defects_found": 3,
+      "known_defects_total": 3,
+      "hidden_validation": "pass",
+      "finding_scope_violation": false,
+      "phase_boundary_violation": false
+    },
+    {
+      "case": "scope",
+      "base_commit": "7230eabb6d23a4a46a3ce3c762b73b8ed825a0c8",
+      "head_commit": "8ad172738be7f87adafef3261962a4453da6c069",
+      "reviewers": ["claude", "codex"],
+      "fixer": "codex",
+      "model_calls": 7,
+      "duration_seconds": 511.88,
+      "known_defects_found": 2,
+      "known_defects_total": 2,
+      "hidden_validation": "pass",
+      "finding_scope_violation": false,
+      "phase_boundary_violation": true
+    },
+    {
+      "case": "fix-loop",
+      "base_commit": "038df3344364c5a0c1b23a0c10de7f490d9643af",
+      "head_commit": "fa59c7e0cd76c085acad4af593a84246021344a1",
+      "reviewers": ["claude", "codex"],
+      "fixer": "codex",
+      "model_calls": 7,
+      "duration_seconds": 497.87,
+      "known_defects_found": 3,
+      "known_defects_total": 3,
+      "hidden_validation": "pass",
+      "finding_scope_violation": false,
+      "phase_boundary_violation": true
+    }
+  ],
+  "setup_retry": {
+    "case": "pure-review",
+    "duration_seconds": 144.63,
+    "claude_calls_completed": 3,
+    "codex_startups_failed": 4,
+    "reason": "Codex app-server initialization failed in the managed read-only filesystem wrapper"
+  }
+}

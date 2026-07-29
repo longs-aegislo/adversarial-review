@@ -1,0 +1,3 @@
+WARNING: proceeding, even though we could not create PATH aliases: Read-only file system (os error 30)
+Reading prompt from stdin...
+Error: failed to initialize in-process app-server client: Read-only file system (os error 30)

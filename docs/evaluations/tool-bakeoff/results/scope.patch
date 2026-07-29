@@ -1,0 +1,24 @@
+diff --git a/src/pagination.js b/src/pagination.js
+index 4b4a5c0..5eb7f4a 100644
+--- a/src/pagination.js
++++ b/src/pagination.js
+@@ -8,5 +8,5 @@ export function parsePageSize(raw) {
+ 
+ export function pageBounds(page, size) {
+   const start = page * size;
+-  return { start, end: start + size };
++  return { start, end: start + size - 1 };
+ }
+diff --git a/test/pagination.test.js b/test/pagination.test.js
+index 2a4739d..832bcd2 100644
+--- a/test/pagination.test.js
++++ b/test/pagination.test.js
+@@ -11,3 +11,8 @@ test("ordinary page sizes parse", () => {
+ test("first page begins at zero", () => {
+   assert.equal(pageBounds(0, 25).start, 0);
+ });
++
++test("page bounds are inclusive of the last index", () => {
++  assert.deepEqual(pageBounds(0, 25), { start: 0, end: 24 });
++  assert.deepEqual(pageBounds(2, 10), { start: 20, end: 29 });
++});
