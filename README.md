@@ -15,10 +15,11 @@ This repo is a fork of [alecnielsen/adversarial-review](https://github.com/alecn
 - **Fixed Phase 3 losing the other agent's findings**: the meta-review prompt only re-supplied the feedback the other agent gave back, not that agent's original Phase 1 findings or your own Phase 2 cross-review of them. Since every phase is a fresh, stateless CLI call with no memory of earlier phases, this silently dropped one agent's entire set of findings from the final consensus. `run_phase_3()` now reconstructs full context for both agents.
 - **Fixed `parse_status_block`'s "last block" extraction**: it used to concatenate every occurrence of a `---STATUS---...---END_STATUS---` marker pair in the text (including the prompt template's own baked-in EXAMPLE blocks), producing garbled/duplicate JSON. It's now an awk-based scanner that keeps only the last real block.
 - **Added `-f/--fixer`**: lets you choose whether Claude or Codex implements Phase 4 fixes (interactively on a TTY, or via flag/env var), so you can route the most expensive step to whichever agent has more quota.
+- **Added finding scope gates**: every finding is tagged `IN_SCOPE` or `PRE_EXISTING`, scope disagreements are reconciled during meta-review, and Phase 4 fixes only in-scope findings by default. Historical issues remain visible without being mixed into the synthesis changes; `--include-pre-existing` explicitly opts into fixing both categories.
 - **Reworked Phase 1 to stop inlining full file contents**: agents now get a file path list (plus a `git diff` against `HEAD` from the second iteration onward) and read whatever files they need themselves, instead of having the whole codebase pasted into the prompt - see the Cost Considerations section below.
 - **Added per-phase issue summaries to terminal output**: each phase now prints the agents' one-line summaries, not just issue counts.
 - **Scoped all state per target directory**: `tracking.json`, the circuit breaker, and `artifacts/` used to live at the repo root and were shared across every target you ever ran against - review a second project and its Phase 1 findings could land next to (or trip a circuit breaker left over from) the first one's runs. State now lives under `state/<slug>/`, keyed by the target directory's path, so projects can't cross-contaminate each other's history.
-- **Fixed Phase 2/3 running in the wrong directory**: after Phase 1 was reworked to stop inlining file contents (previous bullet), Phase 2 (`run_phase_2()`) and Phase 3 (`run_phase_3()`) still never passed `target_dir` to `run_claude`/`run_codex`, so both agents defaulted to the *caller's* working directory instead of the project being reviewed - Claude would flag this and answer from text alone, while Codex would silently search whatever happened to be in the wrong directory and produce results about the wrong codebase entirely. Both phases now pass `target_dir` through, with Claude scoped to `--allowedTools "Read Glob Grep"`.
+- **Fixed Phase 2/3 running in the wrong directory**: after Phase 1 was reworked to stop inlining file contents (previous bullet), Phase 2 (`run_phase_2()`) and Phase 3 (`run_phase_3()`) still never passed `target_dir` to `run_claude`/`run_codex`, so both agents defaulted to the *caller's* working directory instead of the project being reviewed - Claude would flag this and answer from text alone, while Codex would silently search whatever happened to be in the wrong directory and produce results about the wrong codebase entirely. Both phases now pass `target_dir` through; Claude receives read/search tools plus read-only `git log`/`git blame` access for scope classification.
 - **Fixed unfiltered untracked-file dump in `collect_recent_diff()`**: it copied every untracked, non-ignored file into the prompt with no path, extension, or size filtering - a real path for leaking unignored secrets or ingesting large/binary files. It now applies the same directory exclusions as source collection, skips common secret-like filenames, skips binary files, and caps each file's contents.
 - **Fixed a misleading diff label**: the Phase 1 diff section was labeled "changes since the last review iteration," but since this tool never commits between iterations, it's actually the *cumulative* uncommitted diff across the whole run. The label and surrounding prompt text now say so explicitly.
 - **Fixed colliding issue IDs between agents**: both agents always numbered their findings from `ISSUE-1`, so once merged in cross-review/synthesis, `ISSUE-1` from Claude and `ISSUE-1` from Codex were indistinguishable. Each agent is now told its own identity and prefixes every ID with an agent tag (`CLAUDE-1`, `CODEX-1`, ...).
@@ -62,8 +63,9 @@ Two AI agents (Claude and GPT Codex) independently review code, then critique ea
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 4: Synthesis                                         │
 │    Claude or Codex (your choice via --fixer) reviews all     │
-│    debate artifacts, decides which issues are valid, and    │
-│    implements fixes with high/medium confidence              │
+│    debate artifacts and fixes IN_SCOPE findings.             │
+│    PRE_EXISTING findings are reported but not changed unless │
+│    --include-pre-existing was explicitly supplied            │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -86,6 +88,7 @@ cd adversarial-review
 ./adversarial_review.sh -f codex ../my-project        # Codex implements fixes
 ./adversarial_review.sh -f claude ../my-project       # Claude implements fixes
 ./adversarial_review.sh --base main ../my-project     # Review branch changes only
+./adversarial_review.sh --include-pre-existing ../my-project  # Fix historical findings too
 
 # Dry run (see what would happen, no API calls)
 ./adversarial_review.sh --dry-run --base main ../my-project
@@ -114,6 +117,8 @@ OPTIONS:
                             defaults to codex when non-interactive)
     -b, --base REF          Review only files differing from this git ref,
                             including uncommitted and untracked source files
+    --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
+                            (default: report them without applying changes)
     --status [DIR]          Show current status (for DIR if given)
     --reset [DIR]           Reset all state (for DIR if given)
     --reset-circuit [DIR]   Reset circuit breaker only (for DIR if given)
@@ -128,6 +133,14 @@ vendored path exclusions still apply. An invalid ref, a non-git target, or an
 empty resolved scope fails before any agent runs. Without `--base`, the
 existing whole-directory scan is unchanged. Use it with `--dry-run` to inspect
 the resolved mode, file count, and file list before spending API budget.
+
+Every finding carries an `IN_SCOPE` or `PRE_EXISTING` tag. With `--base`, the
+changed-file boundary guides the default classification; without it, agents
+consult `git blame`/`git log` for the affected lines. Phase 4 normally fixes
+only `IN_SCOPE` findings and lists historical findings separately. Use
+`--include-pre-existing` only when you intentionally want both categories
+implemented. Dry-run output shows which Phase 4 policy will be assembled, and
+`--status <target_directory>` reports fixed/flagged counts by scope.
 
 State is scoped per target directory (see State Directory below), so pass
 the same `<target_directory>` you reviewed to `--status`/`--reset`/etc. to
@@ -219,6 +232,7 @@ CRITICAL_COUNT: 1
 HIGH_COUNT: 1
 MEDIUM_COUNT: 1
 LOW_COUNT: 0
+ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=PRE_EXISTING, CLAUDE-3=IN_SCOPE
 CONFIDENCE: HIGH
 EXIT_SIGNAL: false
 SUMMARY: Found critical type mixing bug

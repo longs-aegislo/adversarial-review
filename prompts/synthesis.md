@@ -18,7 +18,12 @@ consensus list dropped an ID that either agent originally raised (in
 Phase 1 or Phase 2), do NOT treat that as "no issue" - go back to that
 agent's original write-up and the Phase 2/3 discussion of it and make the
 call yourself instead of silently omitting it. Every ID must end up with
-an explicit disposition: FIX, SKIP (with reason), or DEFER.
+an explicit resolved scope (`IN_SCOPE` or `PRE_EXISTING`) and disposition:
+FIX, SKIP (with reason), FLAG (reported but not fixed), or DEFER.
+
+Phase 3's resolved `ISSUE_SCOPES` map is the default source of truth. If an
+ID is missing or malformed there, inspect the Phase 1/2 classification and
+repository history yourself; default ambiguity to `PRE_EXISTING`.
 
 ## Decision Framework
 
@@ -40,6 +45,20 @@ Issues where agents DISAGREED:
 - Persistent disagreement through meta-review
 - Insufficient evidence from either side
 
+## Scope Gate
+
+A run-specific Phase 4 scope policy is injected below this template. Follow
+it exactly:
+
+- Without explicit opt-in, implement only `IN_SCOPE` findings. Do not edit
+  code for `PRE_EXISTING` findings, even when they are high confidence.
+- With explicit opt-in, valid findings in both categories may be implemented.
+- Always keep category counts separate.
+
+When pre-existing findings are not being fixed, include a distinct
+`Pre-existing issues noticed, not fixed` section containing each issue's ID,
+file, line, severity, and suggested fix.
+
 ## Implementation Guidelines
 
 1. **Start with high-confidence fixes** - These have consensus
@@ -58,6 +77,7 @@ For each fix you implement:
 ```
 ### Fix #N: [Filename]
 **Issue**: What was wrong
+**Scope**: IN_SCOPE | PRE_EXISTING
 **Confidence**: HIGH | MEDIUM
 **Source**: Both agents | Claude | Codex
 **Change**: Description of what you changed
@@ -67,6 +87,7 @@ For issues you skip:
 ```
 ### Skipped: [Filename]
 **Issue**: What was reported
+**Scope**: IN_SCOPE | PRE_EXISTING
 **Reason**: Why you're not fixing it
 ```
 
@@ -77,6 +98,9 @@ For issues you skip:
 HIGH_CONFIDENCE_FIXES: <number implemented>
 MEDIUM_CONFIDENCE_FIXES: <number implemented>
 ISSUES_SKIPPED: <number not fixed>
+IN_SCOPE_FIXED: <number of IN_SCOPE findings implemented>
+PRE_EXISTING_FIXED: <number of PRE_EXISTING findings implemented>
+PRE_EXISTING_FLAGGED: <number of PRE_EXISTING findings reported but not implemented>
 TESTS_RUN: YES | NO
 TESTS_PASSING: YES | NO | N/A
 FILES_MODIFIED: <number>
@@ -102,6 +126,9 @@ SUMMARY: <one line summary>
 HIGH_CONFIDENCE_FIXES: 4
 MEDIUM_CONFIDENCE_FIXES: 2
 ISSUES_SKIPPED: 1
+IN_SCOPE_FIXED: 6
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 2
 TESTS_RUN: YES
 TESTS_PASSING: YES
 FILES_MODIFIED: 3
@@ -116,6 +143,9 @@ SUMMARY: Fixed 6 issues, skipped 1 disputed item, all tests pass
 HIGH_CONFIDENCE_FIXES: 0
 MEDIUM_CONFIDENCE_FIXES: 0
 ISSUES_SKIPPED: 0
+IN_SCOPE_FIXED: 0
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
 TESTS_RUN: YES
 TESTS_PASSING: YES
 FILES_MODIFIED: 0

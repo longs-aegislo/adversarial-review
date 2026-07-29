@@ -14,6 +14,8 @@ other agent's description on faith.
 2. **Challenge**: Which findings are incorrect, false positives, or overstated?
 3. **Expand**: What issues did they miss that you would have caught?
 4. **Contextualize**: Are any issues more or less severe than stated?
+5. **Classify scope**: Is each `IN_SCOPE` / `PRE_EXISTING` tag supported by
+   the diff boundary or repository history?
 
 ## Analysis Guidelines
 
@@ -38,6 +40,12 @@ For EACH of their numbered findings:
 - State "{THEIR_ID}: UNCLEAR" or "{THEIR_ID}: NEEDS MORE CONTEXT"
 - Explain what additional information is needed
 
+For every verdict, also state whether you agree with the reported scope. If
+you disagree, give your resolved scope and cite the changed-file boundary or
+the relevant `git blame` / `git log` evidence. Scope disagreement is separate
+from severity or validity disagreement and must not be silently folded into
+either one.
+
 ## Verdict Ledger (REQUIRED, before the status block)
 
 Immediately before the status block, list every one of their IDs (their
@@ -46,6 +54,7 @@ cross-checked mechanically:
 
 ```
 VERDICTS: CODEX-1=VALID, CODEX-2=INVALID, CODEX-3=UNCLEAR, ...
+SCOPE_VERDICTS: CODEX-1=IN_SCOPE, CODEX-2=PRE_EXISTING, CODEX-3=PRE_EXISTING, ...
 ```
 
 The count of entries in VERDICTS MUST equal the number of findings the
@@ -58,7 +67,7 @@ Give each one an ID using your own agent tag with an `-ADD-` suffix (e.g.
 `CLAUDE-ADD-1`, `CLAUDE-ADD-2`, ...) so the synthesis phase can track these
 alongside the Phase 1 findings instead of them getting silently dropped.
 Follow the same format as Phase 1:
-- ID, File, Line, Severity, Issue, Fix
+- ID, File, Line, Severity, Scope, Issue, Fix
 
 ## Adversarial Perspective
 
@@ -75,6 +84,7 @@ Be critical but fair:
 FINDINGS_VALIDATED: <number they got right>
 FINDINGS_CHALLENGED: <number you disagree with>
 FINDINGS_ADDED: <number of new issues you found>
+ISSUE_SCOPES: <ID>=IN_SCOPE | PRE_EXISTING, ... (or NONE)
 AGREEMENT_LEVEL: FULL | PARTIAL | LOW
 CONFIDENCE: HIGH | MEDIUM | LOW
 SUMMARY: <one line assessment>
@@ -92,6 +102,7 @@ SUMMARY: <one line assessment>
 FINDINGS_VALIDATED: 5
 FINDINGS_CHALLENGED: 1
 FINDINGS_ADDED: 2
+ISSUE_SCOPES: CODEX-1=IN_SCOPE, CODEX-2=PRE_EXISTING, CLAUDE-ADD-1=IN_SCOPE, CLAUDE-ADD-2=PRE_EXISTING
 AGREEMENT_LEVEL: FULL
 CONFIDENCE: HIGH
 SUMMARY: Strong review, one false positive, added two edge cases
@@ -104,6 +115,7 @@ SUMMARY: Strong review, one false positive, added two edge cases
 FINDINGS_VALIDATED: 1
 FINDINGS_CHALLENGED: 4
 FINDINGS_ADDED: 3
+ISSUE_SCOPES: CODEX-1=PRE_EXISTING, CLAUDE-ADD-1=IN_SCOPE, CLAUDE-ADD-2=PRE_EXISTING, CLAUDE-ADD-3=IN_SCOPE
 AGREEMENT_LEVEL: LOW
 CONFIDENCE: MEDIUM
 SUMMARY: Many false positives, missed critical security issues

@@ -13,6 +13,8 @@ point, rather than relying only on the text descriptions below.
 2. **Defend**: Maintain positions where you're confident you're correct
 3. **Concede**: Acknowledge where they raised valid points
 4. **Synthesize**: Help reach consensus on the final set of issues
+5. **Resolve scope**: Reconcile every disagreement about `IN_SCOPE` versus
+   `PRE_EXISTING`, independently of severity and validity
 
 ## For Each Challenged Finding
 
@@ -50,6 +52,11 @@ Produce a **CONSENSUS LIST** of issues you believe should be fixed:
 - Exclude false positives from either side
 - Note any remaining disagreements
 
+For every issue ID, record one resolved scope tag. Compare both agents'
+classification and evidence. If the affected code predates the reviewed
+change, or the evidence remains ambiguous, resolve it as `PRE_EXISTING` with
+a short note. Do not invent a third scope tier.
+
 ## Status Block (REQUIRED)
 
 ```
@@ -60,6 +67,7 @@ NEW_ISSUES_ACCEPTED: <number of their new findings you accept>
 NEW_ISSUES_REJECTED: <number of their new findings you reject>
 REMAINING_DISAGREEMENTS: <number of issues still disputed>
 CONSENSUS_REACHED: YES | PARTIAL | NO
+ISSUE_SCOPES: <ID>=IN_SCOPE | PRE_EXISTING, ... (or NONE)
 SUMMARY: <one line summary of where things stand>
 ---END_META_REVIEW_STATUS---
 ```
@@ -73,6 +81,7 @@ NEW_ISSUES_ACCEPTED: 2
 NEW_ISSUES_REJECTED: 0
 REMAINING_DISAGREEMENTS: 0
 CONSENSUS_REACHED: YES
+ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CODEX-1=PRE_EXISTING, CODEX-ADD-1=IN_SCOPE
 SUMMARY: Agreed on 6 issues, withdrew 1 false positive
 ---END_META_REVIEW_STATUS---
 ```
@@ -86,6 +95,7 @@ NEW_ISSUES_ACCEPTED: 1
 NEW_ISSUES_REJECTED: 2
 REMAINING_DISAGREEMENTS: 2
 CONSENSUS_REACHED: PARTIAL
+ISSUE_SCOPES: CLAUDE-1=PRE_EXISTING, CODEX-1=IN_SCOPE
 SUMMARY: Agree on 4 issues, dispute severity of 2 others
 ---END_META_REVIEW_STATUS---
 ```
@@ -96,8 +106,8 @@ At the end of your response, provide a clear list:
 
 ```
 ---CONSENSUS_ISSUES---
-1. [AGREED] file.py:123 - Description (SEVERITY)
-2. [AGREED] file.py:456 - Description (SEVERITY)
-3. [DISPUTED] file.py:789 - Description (Your view vs Their view)
+1. [AGREED] [IN_SCOPE] CLAUDE-1 file.py:123 - Description (SEVERITY)
+2. [AGREED] [PRE_EXISTING] CODEX-1 file.py:456 - Description (SEVERITY)
+3. [DISPUTED] [PRE_EXISTING] CODEX-2 file.py:789 - Description (Your view vs Their view)
 ---END_CONSENSUS_ISSUES---
 ```

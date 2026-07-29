@@ -61,8 +61,27 @@ For each issue found, document:
 1. **File**: path/to/file.py
 2. **Line**: approximate line number or function name
 3. **Severity**: CRITICAL | HIGH | MEDIUM | LOW
-4. **Issue**: Clear description of what's wrong
-5. **Fix**: Suggested correction
+4. **Scope**: IN_SCOPE | PRE_EXISTING
+5. **Issue**: Clear description of what's wrong
+6. **Fix**: Suggested correction
+
+## Scope Classification
+
+Classify every finding independently:
+
+- `IN_SCOPE`: the affected lines were touched by, or are part of, the change
+  under review.
+- `PRE_EXISTING`: the affected lines predate the work under review.
+
+The run-specific scope boundary is supplied below the file list. Follow it
+when one is present. When there is no `--base` boundary, inspect the affected
+lines with `git blame` and/or `git log -1 -- <file>` before classifying them.
+If old code contains the bug but a new call site merely exposes it, classify
+it as `PRE_EXISTING` and add a one-line ambiguity note. When in doubt, default
+to `PRE_EXISTING` so an unrelated fix is not applied silently.
+
+Repeat every issue's classification in `ISSUE_SCOPES` in the status block.
+The IDs there must exactly match the issue IDs in your response.
 
 ## Status Block (REQUIRED)
 
@@ -75,6 +94,7 @@ CRITICAL_COUNT: <number>
 HIGH_COUNT: <number>
 MEDIUM_COUNT: <number>
 LOW_COUNT: <number>
+ISSUE_SCOPES: <ID>=IN_SCOPE | PRE_EXISTING, ... (or NONE)
 CONFIDENCE: HIGH | MEDIUM | LOW
 EXIT_SIGNAL: false | true
 SUMMARY: <one line summary>
@@ -93,6 +113,7 @@ CRITICAL_COUNT: 1
 HIGH_COUNT: 1
 MEDIUM_COUNT: 1
 LOW_COUNT: 0
+ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=PRE_EXISTING, CLAUDE-3=IN_SCOPE
 CONFIDENCE: HIGH
 EXIT_SIGNAL: false
 SUMMARY: Found critical type mixing bug and two medium issues
@@ -107,6 +128,7 @@ CRITICAL_COUNT: 0
 HIGH_COUNT: 0
 MEDIUM_COUNT: 0
 LOW_COUNT: 0
+ISSUE_SCOPES: NONE
 CONFIDENCE: HIGH
 EXIT_SIGNAL: true
 SUMMARY: Code review complete, no issues found

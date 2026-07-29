@@ -16,6 +16,100 @@ FIX_PATTERNS=("fixed" "changed" "modified" "updated" "corrected" "refactored" "F
 DISAGREEMENT_PATTERNS=("disagree" "incorrect" "wrong" "invalid" "false positive" "not an issue")
 AGREEMENT_PATTERNS=("agree" "valid point" "correct" "good catch" "confirmed")
 
+# Parse the last complete structured status block from an agent response.
+# ISSUE_SCOPES is promoted from a comma-separated status field into a JSON
+# object keyed by issue ID. Invalid entries are preserved in scope_errors so
+# callers never have to infer whether a missing classification was accidental.
+parse_status_block() {
+    local file="$1"
+    local block_name="${2:-REVIEW_STATUS}"
+
+    if [[ ! -f "$file" ]]; then
+        echo '{"error":"file not found","issue_scopes":{},"scope_errors":[]}'
+        return 1
+    fi
+
+    local content
+    content="$(cat "$file")"
+    local block
+    block="$(echo "$content" | awk -v start="---${block_name}---" -v end="---END_${block_name}---" '
+        index($0, start) { capture=1; buf=""; next }
+        index($0, end) { capture=0; last=buf }
+        capture { buf = buf $0 "\n" }
+        END { printf "%s", last }
+    ')"
+
+    if [[ -z "$block" ]]; then
+        if echo "$content" | grep -qE '^\s*NO_ISSUES\s*$'; then
+            echo '{"exit_signal":true,"issues_found":0,"issue_scopes":{},"scope_errors":[]}'
+            return 0
+        fi
+        echo '{"error":"no status block","issue_scopes":{},"scope_errors":[]}'
+        return 1
+    fi
+
+    local json="{"
+    local first=true
+    local issue_scopes='{}'
+    local scope_errors='[]'
+    local issue_scopes_seen=false
+    while IFS=: read -r key value; do
+        [[ -z "$key" ]] && continue
+        key="$(echo "$key" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+        value="$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+        if [[ "$key" == "issue_scopes" ]]; then
+            issue_scopes_seen=true
+            if [[ "$value" != "NONE" ]]; then
+                local scope_entries=()
+                local entry
+                IFS=',' read -r -a scope_entries <<< "$value"
+                for entry in "${scope_entries[@]}"; do
+                    entry="$(echo "$entry" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                    if [[ "$entry" =~ ^([A-Za-z0-9][A-Za-z0-9._-]*)=(IN_SCOPE|PRE_EXISTING)$ ]]; then
+                        issue_scopes="$(jq -c \
+                            --arg id "${BASH_REMATCH[1]}" \
+                            --arg scope "${BASH_REMATCH[2]}" \
+                            '. + {($id): $scope}' <<< "$issue_scopes")"
+                    else
+                        scope_errors="$(jq -c --arg entry "$entry" '. + [$entry]' <<< "$scope_errors")"
+                    fi
+                done
+            fi
+            continue
+        fi
+
+        [[ "$first" == "true" ]] && first=false || json+=","
+
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+            json+="\"$key\": $value"
+        elif [[ "$value" == "true" || "$value" == "false" ]]; then
+            json+="\"$key\": $value"
+        elif [[ "$value" == "YES" || "$value" == "FULL" ]]; then
+            json+="\"$key\": true"
+        elif [[ "$value" == "NO" || "$value" == "LOW" ]]; then
+            json+="\"$key\": false"
+        else
+            json+="\"$key\": \"$value\""
+        fi
+    done <<< "$block"
+    json+="}"
+
+    local issues_found
+    issues_found="$(jq -r '.issues_found // 0' <<< "$json")"
+    if [[ "$issue_scopes_seen" == "false" ]] &&
+        { [[ "$issues_found" -gt 0 ]] ||
+          [[ "$block_name" == "CROSS_REVIEW_STATUS" ]] ||
+          [[ "$block_name" == "META_REVIEW_STATUS" ]]; }; then
+        scope_errors="$(jq -c '. + ["missing ISSUE_SCOPES"]' <<< "$scope_errors")"
+    fi
+
+    jq -c \
+        --argjson issue_scopes "$issue_scopes" \
+        --argjson scope_errors "$scope_errors" \
+        '. + {issue_scopes: $issue_scopes, scope_errors: $scope_errors}' <<< "$json"
+}
+
 # Analyze a single agent's response
 # Returns JSON with structured analysis
 analyze_response() {
@@ -190,6 +284,7 @@ clear_analysis() {
 
 # Export functions
 export -f analyze_response
+export -f parse_status_block
 export -f compare_responses
 export -f analyze_cross_review
 export -f store_analysis
