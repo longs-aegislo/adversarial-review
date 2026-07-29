@@ -14,4 +14,8 @@
 - **Artifacts** — every agent response, saved under `artifacts/iter{N}_{phase}_{agent}_{type}.md` (see CLAUDE.md's Artifacts Naming Convention).
 - **Raw transcript / `.raw.log`** — Codex's full `codex exec` stdout (reasoning summaries, tool calls, file dumps), saved alongside the extracted final-reply `.md` artifact but never fed into later prompts.
 - **Fixer** — the agent (`claude` or `codex`) chosen to implement fixes in Phase 4.
-- **Scope** *(new, see the scope-aware review spec)* — the boundary of what a review run is meant to cover: today, Phase 1 always reviews the target directory's entire file list, with no notion of "this issue" or "this branch's diff" versus the rest of the codebase's pre-existing state.
+- **Scope** — the boundary of source files Phase 1 is meant to review. By
+  default this is every reviewable file in the target directory. With an
+  explicit `--base <ref>`, it is instead the reviewable committed,
+  uncommitted, and untracked files that differ from that Git ref; the same
+  scope is retained across later iterations and recorded in run state.

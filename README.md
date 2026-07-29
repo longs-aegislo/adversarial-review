@@ -85,9 +85,10 @@ cd adversarial-review
 ./adversarial_review.sh -m 5 -v ../my-project        # 5 iterations, verbose
 ./adversarial_review.sh -f codex ../my-project        # Codex implements fixes
 ./adversarial_review.sh -f claude ../my-project       # Claude implements fixes
+./adversarial_review.sh --base main ../my-project     # Review branch changes only
 
 # Dry run (see what would happen, no API calls)
-./adversarial_review.sh --dry-run ../my-project
+./adversarial_review.sh --dry-run --base main ../my-project
 ```
 
 ## Requirements
@@ -111,12 +112,22 @@ OPTIONS:
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
                             (if omitted, prompts interactively on a TTY;
                             defaults to codex when non-interactive)
+    -b, --base REF          Review only files differing from this git ref,
+                            including uncommitted and untracked source files
     --status [DIR]          Show current status (for DIR if given)
     --reset [DIR]           Reset all state (for DIR if given)
     --reset-circuit [DIR]   Reset circuit breaker only (for DIR if given)
     --circuit-status [DIR]  Show circuit breaker status (for DIR if given)
     --dry-run               Show what would happen without executing
 ```
+
+`--base` is optional and never inferred. When it is set, Phase 1 stays scoped
+to reviewable source files that differ from the ref across committed, staged,
+unstaged, and untracked work. The normal extension allowlist and generated/
+vendored path exclusions still apply. An invalid ref, a non-git target, or an
+empty resolved scope fails before any agent runs. Without `--base`, the
+existing whole-directory scan is unchanged. Use it with `--dry-run` to inspect
+the resolved mode, file count, and file list before spending API budget.
 
 State is scoped per target directory (see State Directory below), so pass
 the same `<target_directory>` you reviewed to `--status`/`--reset`/etc. to

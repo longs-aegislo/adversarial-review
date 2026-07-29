@@ -82,9 +82,10 @@ cd adversarial-review
 ./adversarial_review.sh -m 5 -v ../my-project        # 5 轮迭代，详细输出
 ./adversarial_review.sh -f codex ../my-project        # 由 Codex 实施修复
 ./adversarial_review.sh -f claude ../my-project       # 由 Claude 实施修复
+./adversarial_review.sh --base main ../my-project     # 只审查分支差异
 
 # 空跑（查看会执行什么，不会真正调用任何 API）
-./adversarial_review.sh --dry-run ../my-project
+./adversarial_review.sh --dry-run --base main ../my-project
 ```
 
 ## 依赖要求
@@ -108,12 +109,21 @@ cd adversarial-review
     -f, --fixer AGENT       阶段四由谁来实施修复：claude | codex
                             （省略时，在交互终端会询问；
                             非交互场景默认使用 codex）
+    -b, --base REF          只审查相对该 Git ref 有差异的文件，
+                            包括未提交和未跟踪的源文件
     --status [目录]          显示当前状态（给定目录时按该项目查看）
     --reset [目录]           重置所有状态（给定目录时只重置该项目）
     --reset-circuit [目录]   仅重置断路器（给定目录时只重置该项目）
     --circuit-status [目录]  显示断路器状态（给定目录时只看该项目）
     --dry-run               只展示会执行什么，不真正运行
 ```
+
+`--base` 是可选的，并且不会自动推断。设置后，阶段一只审查相对该 ref
+发生差异的可审查源文件，包括已提交、已暂存、未暂存和未跟踪的工作；
+既有的扩展名白名单以及生成目录／第三方目录排除规则仍然生效。ref 无效、
+目标不是 Git 工作树，或最终范围为空时，脚本会在调用任何智能体之前失败。
+不传 `--base` 时，原有的全目录扫描行为不变。建议配合 `--dry-run` 先检查
+解析后的模式、文件数量和文件列表，再消耗 API 额度。
 
 状态是按目标目录隔离的（见下方"状态目录"一节），所以想查看或重置某个项目的历史，把当初审查它时用的 `<目标目录>` 原样传给 `--status`/`--reset` 等命令即可。不传目录时会退回一个共享/全局的兜底位置，仅为向后兼容保留。
 

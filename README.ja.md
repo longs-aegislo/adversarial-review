@@ -86,9 +86,10 @@ cd adversarial-review
 ./adversarial_review.sh -m 5 -v ../my-project        # 5イテレーション、詳細出力
 ./adversarial_review.sh -f codex ../my-project        # Codex が修正を実装
 ./adversarial_review.sh -f claude ../my-project       # Claude が修正を実装
+./adversarial_review.sh --base main ../my-project     # ブランチ差分のみレビュー
 
 # ドライラン（実際にAPIを呼ばずに、何が実行されるかを確認）
-./adversarial_review.sh --dry-run ../my-project
+./adversarial_review.sh --dry-run --base main ../my-project
 ```
 
 ## 必要要件
@@ -112,12 +113,23 @@ cd adversarial-review
     -f, --fixer AGENT       フェーズ4の修正実装担当：claude | codex
                             （省略時、TTYであれば対話的に尋ねる。
                             非対話環境では codex がデフォルト）
+    -b, --base REF          この Git ref との差分ファイルのみレビュー
+                            （未コミット・未追跡のソースも含む）
     --status [DIR]          現在の状態を表示（DIR指定時はそのプロジェクトのみ）
     --reset [DIR]           すべての状態をリセット（DIR指定時はそのプロジェクトのみ）
     --reset-circuit [DIR]   サーキットブレーカーのみリセット（DIR指定時はそのプロジェクトのみ）
     --circuit-status [DIR]  サーキットブレーカーの状態を表示（DIR指定時はそのプロジェクトのみ）
     --dry-run               実行せずに何が行われるかを表示
 ```
+
+`--base` は任意指定で、自動推測は行いません。指定するとフェーズ1は、
+その ref に対して差分のあるレビュー対象ソースだけに限定されます。
+コミット済み・ステージ済み・未ステージ・未追跡の変更を含み、既存の
+拡張子許可リストと生成物／ベンダーディレクトリの除外規則も適用されます。
+ref が無効、対象が Git ワークツリーではない、または解決後の範囲が空の
+場合は、エージェントを呼び出す前に失敗します。`--base` を省略した場合、
+従来のディレクトリ全体スキャンは変わりません。API 使用量を消費する前に
+`--dry-run` と組み合わせ、モード・ファイル数・一覧を確認できます。
 
 状態はターゲットディレクトリごとに分離されています（下記「状態ディレクトリ」参照）。特定のプロジェクトの履歴を確認・リセットしたい場合は、レビュー時に指定したのと同じ `<対象ディレクトリ>` を `--status`/`--reset` などに渡してください。省略した場合は後方互換のために残された共有／グローバルな領域にフォールバックします。
 

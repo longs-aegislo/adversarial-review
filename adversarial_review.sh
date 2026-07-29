@@ -18,6 +18,7 @@
 #   -v, --verbose           Verbose output
 #   -t, --timeout MIN       Timeout per agent call in minutes (default: 10)
 #   -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
+#   -b, --base REF          Review only files differing from this git ref
 #   --status [DIR]          Show current status (scoped to DIR if given)
 #   --reset [DIR]           Reset artifacts and tracking (scoped to DIR if given)
 #   --reset-circuit [DIR]   Reset circuit breaker (scoped to DIR if given)
@@ -33,7 +34,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 PROMPTS_DIR="$SCRIPT_DIR/prompts"
-STATE_ROOT="$SCRIPT_DIR/state"
+STATE_ROOT="${AR_STATE_ROOT:-$SCRIPT_DIR/state}"
 
 # Tracking/circuit-breaker/artifacts state is scoped per target directory so
 # that running against one project can't leave stale history or an OPEN
@@ -63,7 +64,7 @@ _prescan_i=0
 while [[ $_prescan_i -lt ${#_prescan_args[@]} ]]; do
     _arg="${_prescan_args[$_prescan_i]}"
     case "$_arg" in
-        -m|--max-iters|-p|--prompt|-t|--timeout|-f|--fixer)
+        -m|--max-iters|-p|--prompt|-t|--timeout|-f|--fixer|-b|--base)
             ((_prescan_i+=2)) || true
             ;;
         -h|--help|-v|--verbose|--status|--reset|--reset-circuit|--circuit-status|--dry-run)
@@ -101,6 +102,8 @@ VERBOSE="${VERBOSE:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-10}"
 FIXER="${FIXER:-}"
+BASE_REF=""
+BASE_COMMIT=""
 
 # Colors
 RED='\033[0;31m'
@@ -171,6 +174,7 @@ init_tracking() {
     "iteration": 0,
     "status": "pending",
     "target_dir": null,
+    "base_ref": null,
     "started_at": null,
     "updated_at": null,
     "phases": [],
@@ -282,20 +286,70 @@ parse_status_block() {
 # List reviewable source files (paths only - agents read file contents
 # themselves via their own file tools instead of having everything dumped
 # into the prompt, which is what was blowing up prompt size/usage).
+is_reviewable_source_file() {
+    local file="$1"
+
+    case "$file" in
+        *.py|*.php|*.ts|*.tsx|*.js|*.jsx|*.sh) ;;
+        *) return 1 ;;
+    esac
+
+    case "$file" in
+        .*|*/.*|node_modules/*|*/node_modules/*|vendor/*|*/vendor/*|\
+        public/*|*/public/*|storage/*|*/storage/*|bootstrap/cache/*|\
+        */bootstrap/cache/*|dist/*|*/dist/*|build/*|*/build/*|\
+        __pycache__/*|*/__pycache__/*|venv/*|*/venv/*|.venv/*|*/.venv/*)
+            return 1
+            ;;
+    esac
+}
+
 collect_file_list() {
     local target_dir="$1"
+    local base_ref="${2:-}"
 
     log_verbose "Listing source files in $target_dir"
 
-    local exclude_paths=(! -path "*/\.*" ! -path "*/node_modules/*" ! -path "*/vendor/*" \
-        ! -path "*/public/*" ! -path "*/storage/*" ! -path "*/bootstrap/cache/*" \
-        ! -path "*/dist/*" ! -path "*/build/*" ! -path "*/__pycache__/*" \
-        ! -path "*/venv/*" ! -path "*/.venv/*")
+    if [[ -z "$base_ref" ]]; then
+        (cd "$target_dir" && find . -type f -print0 2>/dev/null |
+            while IFS= read -r -d '' file; do
+                file="${file#./}"
+                if is_reviewable_source_file "$file"; then
+                    printf '%s\n' "$file"
+                fi
+            done | sort)
+        return
+    fi
 
-    (cd "$target_dir" && find . \
-        \( -name "*.py" -o -name "*.php" -o -name "*.ts" -o -name "*.tsx" \
-           -o -name "*.js" -o -name "*.jsx" -o -name "*.sh" \) \
-        -type f "${exclude_paths[@]}" 2>/dev/null | sed 's|^\./||' | sort)
+    (
+        cd "$target_dir"
+        local base_commit
+        base_commit="$(git rev-parse --verify --end-of-options "${base_ref}^{commit}" 2>/dev/null)" || return 1
+
+        {
+            git diff --relative --name-only -z "$base_commit" -- .
+            git ls-files --others --exclude-standard -z -- .
+        } |
+            while IFS= read -r -d '' file; do
+                if is_reviewable_source_file "$file"; then
+                    printf '%s\n' "$file"
+                fi
+            done |
+            sort -u
+    )
+}
+
+emit_untracked_file_diff() {
+    local file="$1"
+
+    case "$file" in
+        .env|.env.*|*.pem|*.key|*_rsa|*_rsa.pub|*.p12|*.pfx|*credential*|*secret*) return ;;
+    esac
+    [[ -f "$file" ]] || return
+    grep -Iq . "$file" 2>/dev/null || return
+    echo "=== NEW FILE: $file ==="
+    head -c 20000 "$file" 2>/dev/null
+    echo ""
 }
 
 # Uncommitted diff (tracked changes + new files) against HEAD, so re-review
@@ -307,29 +361,49 @@ collect_file_list() {
 collect_recent_diff() {
     local target_dir="$1"
     local iteration="$2"
+    local base_ref="${3:-}"
 
     [[ "$iteration" -le 1 ]] && return 0
     (cd "$target_dir" && git rev-parse --is-inside-work-tree) >/dev/null 2>&1 || return 0
 
-    (cd "$target_dir" && git diff HEAD 2>/dev/null)
+    if [[ -n "$base_ref" ]]; then
+        local scoped_files=()
+        local scoped_file
+        while IFS= read -r scoped_file; do
+            [[ -n "$scoped_file" ]] && scoped_files+=("$scoped_file")
+        done < <(collect_file_list "$target_dir" "$base_ref")
+
+        if [[ ${#scoped_files[@]} -gt 0 ]]; then
+            (cd "$target_dir" && git diff HEAD -- "${scoped_files[@]}" 2>/dev/null)
+        fi
+    else
+        (cd "$target_dir" && git diff HEAD 2>/dev/null)
+    fi
 
     # New (untracked) files: same directory exclusions as source collection,
     # plus a secret-filename denylist and per-file size/binary guards, so
     # this can't leak unignored credentials or dump large/binary blobs into
     # the prompt (git status includes untracked files regardless of size or
     # content, unlike the tracked diff above).
-    (cd "$target_dir" && git status --porcelain --untracked-files=all 2>/dev/null | while read -r status file; do
-        [[ "$status" != "??" ]] && continue
-        case "$file" in
-            */.*|node_modules/*|vendor/*|public/*|storage/*|bootstrap/cache/*|dist/*|build/*|__pycache__/*|venv/*|.venv/*) continue ;;
-            .env|.env.*|*.pem|*.key|*_rsa|*_rsa.pub|*.p12|*.pfx|*credential*|*secret*) continue ;;
-        esac
-        [[ -f "$file" ]] || continue
-        grep -Iq . "$file" 2>/dev/null || continue
-        echo "=== NEW FILE: $file ==="
-        head -c 20000 "$file" 2>/dev/null
-        echo ""
-    done)
+    if [[ -n "$base_ref" ]]; then
+        (
+            cd "$target_dir"
+            git ls-files --others --exclude-standard -z 2>/dev/null |
+                while IFS= read -r -d '' file; do
+                    is_reviewable_source_file "$file" || continue
+                    emit_untracked_file_diff "$file"
+                done
+        )
+    else
+        # Preserve the original whole-directory behavior when no base is set.
+        (cd "$target_dir" && git status --porcelain --untracked-files=all 2>/dev/null | while read -r status file; do
+            [[ "$status" != "??" ]] && continue
+            case "$file" in
+                */.*|node_modules/*|vendor/*|public/*|storage/*|bootstrap/cache/*|dist/*|build/*|__pycache__/*|venv/*|.venv/*) continue ;;
+            esac
+            emit_untracked_file_diff "$file"
+        done)
+    fi
 }
 
 # Run Claude
@@ -451,9 +525,23 @@ run_phase_1() {
 
     log_info "=== Phase 1: Independent Reviews ==="
 
-    local file_list=$(collect_file_list "$target_dir")
-    local recent_diff=$(collect_recent_diff "$target_dir" "$iteration")
+    local file_list
+    file_list="$(collect_file_list "$target_dir" "$BASE_COMMIT")"
+    local recent_diff
+    recent_diff="$(collect_recent_diff "$target_dir" "$iteration" "$BASE_COMMIT")"
     local prompt_template=$(cat "$PROMPTS_DIR/initial_review.md")
+
+    if [[ "$DRY_RUN" == "1" ]]; then
+        local file_count
+        file_count="$(printf '%s\n' "$file_list" | awk 'NF { count++ } END { print count + 0 }')"
+        if [[ -n "$BASE_REF" ]]; then
+            log_info "Scope: base-scoped ($BASE_REF)"
+        else
+            log_info "Scope: whole-directory"
+        fi
+        log_info "Files in scope ($file_count):"
+        printf '%s\n' "$file_list"
+    fi
 
     local diff_section=""
     if [[ -n "$recent_diff" ]]; then
@@ -796,6 +884,11 @@ run_review_loop() {
     log_info "Target: $target_dir"
     log_info "Max iterations: $MAX_ITERATIONS"
     log_info "Timeout: ${TIMEOUT_MINUTES}m per agent"
+    if [[ -n "$BASE_REF" ]]; then
+        log_info "Scope: base-scoped ($BASE_REF)"
+    else
+        log_info "Scope: whole-directory"
+    fi
     echo ""
 
     log_verbose "Initializing tracking..."
@@ -805,6 +898,7 @@ run_review_loop() {
 
     log_verbose "Updating tracking state..."
     update_tracking "target_dir" "$target_dir"
+    update_tracking "base_ref" "${BASE_REF:-whole-directory}"
     update_tracking "status" "in_progress"
     update_tracking "started_at" "$(get_iso_timestamp)"
 
@@ -879,6 +973,7 @@ show_status() {
 
     jq -r '
         "Target:     \(.target_dir // "none")",
+        "Scope:      \(.base_ref // "whole-directory")",
         "Status:     \(.status // "unknown")",
         "Iteration:  \(.iteration // 0)",
         "Started:    \(.started_at // "never")",
@@ -927,6 +1022,8 @@ OPTIONS:
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
                             (if omitted, prompts interactively on a TTY;
                             defaults to codex when non-interactive)
+    -b, --base REF          Review only files differing from this git ref,
+                            including uncommitted and untracked source files
     --status [DIR]          Show current status (scoped to DIR if given)
     --reset [DIR]           Reset all state (scoped to DIR if given)
     --reset-circuit [DIR]   Reset circuit breaker only (scoped to DIR if given)
@@ -959,6 +1056,7 @@ REQUIREMENTS:
 
 EXAMPLES:
     ./adversarial_review.sh ../my-project
+    ./adversarial_review.sh --base main ../my-project
     ./adversarial_review.sh -m 5 -v ../my-project
     ./adversarial_review.sh --dry-run ../my-project
     ./adversarial_review.sh --status
@@ -997,6 +1095,14 @@ main() {
                 ;;
             -f|--fixer)
                 FIXER="$2"
+                shift 2
+                ;;
+            -b|--base)
+                if [[ $# -lt 2 ]]; then
+                    log_error "Missing value for $1"
+                    exit 1
+                fi
+                BASE_REF="$2"
                 shift 2
                 ;;
             --status)
@@ -1045,6 +1151,25 @@ main() {
         exit 1
     fi
 
+    if [[ -n "$BASE_REF" ]]; then
+        if [[ "$(git -C "$target_dir" rev-parse --is-inside-work-tree 2>/dev/null || true)" != "true" ]]; then
+            log_error "Cannot use --base: target is not a git working tree: $target_dir"
+            exit 1
+        fi
+
+        if ! BASE_COMMIT="$(git -C "$target_dir" rev-parse --verify --quiet --end-of-options "${BASE_REF}^{commit}")"; then
+            log_error "Base ref '$BASE_REF' does not resolve to a commit in target: $target_dir"
+            exit 1
+        fi
+
+        local scoped_files
+        scoped_files="$(collect_file_list "$target_dir" "$BASE_COMMIT")"
+        if [[ -z "$scoped_files" ]]; then
+            log_error "No reviewable files differ from base '$BASE_REF'"
+            exit 1
+        fi
+    fi
+
     check_dependencies
 
     if [[ -n "$custom_prompt" ]] && [[ -f "$custom_prompt" ]]; then
@@ -1075,4 +1200,6 @@ main() {
     run_review_loop "$target_dir"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
