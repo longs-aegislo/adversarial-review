@@ -15,10 +15,11 @@
 - **修复了阶段三丢失对方发现的问题**：原来的元审查 prompt 只重新提供了对方给出的反馈内容，却没有重新提供对方在阶段一的原始发现，也没有提供你自己在阶段二对这些发现做的交叉审查。由于每个阶段都是全新的、无记忆的独立 CLI 调用，这会导致某一方的全部发现在最终共识中悄悄消失。现在 `run_phase_3()` 会为双方都重建完整上下文。
 - **修复了 `parse_status_block` 的"取最后一块"逻辑**：原来的实现会把文本中所有 `---STATUS---...---END_STATUS---` 标记对（包括 prompt 模板自带的 EXAMPLE 示例块）全部拼接在一起，产生错乱/重复的 JSON。现在改成基于 awk 的扫描器，只保留最后一个真实的状态块。
 - **新增了 `-f/--fixer` 选项**：可以选择由 Claude 还是 Codex 来实施阶段四的修复（可以在交互式终端中被询问，也可以通过参数或环境变量指定），这样就能把最贵的一步交给额度更充裕的那个智能体。
+- **新增了发现范围门控**：每条发现都标记为 `IN_SCOPE` 或 `PRE_EXISTING`，元审查阶段会调解双方对范围标签的分歧；阶段四默认只修复当前范围内的问题。历史问题仍会单独列出，但不会混入综合修复；只有显式传入 `--include-pre-existing` 才会修复两类问题。
 - **重构了阶段一，不再内联完整文件内容**：智能体现在只拿到一份文件路径清单（从第二轮起还会附上相对于 `HEAD` 的 `git diff`），需要什么文件就自己去读，而不是把整个代码库都贴进 prompt——详见下方"成本考量"一节。
 - **在终端输出中加入了每个阶段的具体问题摘要**：现在每个阶段都会打印智能体给出的一句话摘要，而不仅仅是问题数量。
 - **按目标目录隔离了所有状态**：原来 `tracking.json`、断路器状态、`artifacts/` 都放在仓库根目录，所有跑过的目标项目共用同一份——审查完项目 A 再审查项目 B，两边的 Phase 1 发现会混在一起，甚至项目 A 留下的 OPEN 断路器会直接把项目 B 的运行拦下来。现在状态统一放到 `state/<slug>/` 下，按目标目录路径区分，不同项目之间不会再互相污染。
-- **修复了阶段二/三跑在错误目录的问题**：上面那条"阶段一改成清单模式"的重构落地之后，`run_phase_2()`/`run_phase_3()` 仍然从没把 `target_dir` 传给 `run_claude`/`run_codex`，导致两个智能体默认落到**调用者自己的工作目录**，而不是被审查的目标项目。Claude 会诚实地说出来、只能凭文字描述作答；Codex 则不会声明，而是默默在错误的目录里搜索，结果给出的完全是关于另一个代码库的结论。现在两个阶段都会正确传入 `target_dir`，Claude 限定为 `--allowedTools "Read Glob Grep"`。
+- **修复了阶段二/三跑在错误目录的问题**：上面那条"阶段一改成清单模式"的重构落地之后，`run_phase_2()`/`run_phase_3()` 仍然从没把 `target_dir` 传给 `run_claude`/`run_codex`，导致两个智能体默认落到**调用者自己的工作目录**，而不是被审查的目标项目。Claude 会诚实地说出来、只能凭文字描述作答；Codex 则不会声明，而是默默在错误的目录里搜索，结果给出的完全是关于另一个代码库的结论。现在两个阶段都会正确传入 `target_dir`；Claude 除读取／搜索工具外，还能以只读方式执行 `git log`/`git blame` 来判断发现范围。
 - **修复了 `collect_recent_diff()` 里未过滤的未跟踪文件转储**：之前会把所有未跟踪、未被 gitignore 的文件不加过滤地整份塞进 prompt——这是真实的泄露风险（可能泄露没被忽略的密钥，或吃进超大/二进制文件）。现在应用了和源码收集一样的目录排除规则，跳过常见的密钥类文件名，跳过二进制文件，并对单个文件内容做了大小上限。
 - **修复了一处误导性的 diff 标签**：阶段一的 diff 区块原来标注为"自上次审查迭代以来的改动"，但由于这个工具从不在迭代之间提交，实际上是**整次运行累计的全部未提交改动**。现在标签和上下文说明都改成了如实描述。
 - **修复了双方发现编号冲突的问题**：以前两个智能体都从 `ISSUE-1` 开始编号，合并到交叉审查/综合阶段之后，Claude 的 `ISSUE-1` 和 Codex 的 `ISSUE-1` 根本分不清。现在每个智能体都会被告知自己的身份，并要求给每个 ID 都加上智能体标签前缀（`CLAUDE-1`、`CODEX-1` ……）。
@@ -60,7 +61,8 @@
 ├─────────────────────────────────────────────────────────────┤
 │  阶段四：综合与修复                                           │
 │    由 Claude 或 Codex（通过 --fixer 选择）审阅全部辩论记录，   │
-│    判断哪些问题成立，并对高/中置信度的问题实施修复             │
+│    默认只修复 IN_SCOPE 问题；PRE_EXISTING 问题只单独报告，     │
+│    除非显式传入 --include-pre-existing                         │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -83,6 +85,7 @@ cd adversarial-review
 ./adversarial_review.sh -f codex ../my-project        # 由 Codex 实施修复
 ./adversarial_review.sh -f claude ../my-project       # 由 Claude 实施修复
 ./adversarial_review.sh --base main ../my-project     # 只审查分支差异
+./adversarial_review.sh --include-pre-existing ../my-project  # 也修复历史问题
 
 # 空跑（查看会执行什么，不会真正调用任何 API）
 ./adversarial_review.sh --dry-run --base main ../my-project
@@ -111,6 +114,8 @@ cd adversarial-review
                             非交互场景默认使用 codex）
     -b, --base REF          只审查相对该 Git ref 有差异的文件，
                             包括未提交和未跟踪的源文件
+    --include-pre-existing  允许阶段四也修复 PRE_EXISTING 问题
+                            （默认只报告，不应用修改）
     --status [目录]          显示当前状态（给定目录时按该项目查看）
     --reset [目录]           重置所有状态（给定目录时只重置该项目）
     --reset-circuit [目录]   仅重置断路器（给定目录时只重置该项目）
@@ -124,6 +129,13 @@ cd adversarial-review
 目标不是 Git 工作树，或最终范围为空时，脚本会在调用任何智能体之前失败。
 不传 `--base` 时，原有的全目录扫描行为不变。建议配合 `--dry-run` 先检查
 解析后的模式、文件数量和文件列表，再消耗 API 额度。
+
+每条发现都带有 `IN_SCOPE` 或 `PRE_EXISTING` 标签。传入 `--base` 时，
+变更文件边界用于默认分类；未传入时，智能体通过受影响行的 `git blame`/
+`git log` 判断历史归属。阶段四默认只修复 `IN_SCOPE`，并单独列出历史问题。
+只有明确希望同时修复两类问题时才使用 `--include-pre-existing`。dry-run
+会显示实际组装的阶段四策略，`--status <目标目录>` 会按范围显示已修复／
+仅标记的数量。
 
 状态是按目标目录隔离的（见下方"状态目录"一节），所以想查看或重置某个项目的历史，把当初审查它时用的 `<目标目录>` 原样传给 `--status`/`--reset` 等命令即可。不传目录时会退回一个共享/全局的兜底位置，仅为向后兼容保留。
 
@@ -205,6 +217,7 @@ CRITICAL_COUNT: 1
 HIGH_COUNT: 1
 MEDIUM_COUNT: 1
 LOW_COUNT: 0
+ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=PRE_EXISTING, CLAUDE-3=IN_SCOPE
 CONFIDENCE: HIGH
 EXIT_SIGNAL: false
 SUMMARY: Found critical type mixing bug

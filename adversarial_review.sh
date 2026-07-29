@@ -19,6 +19,7 @@
 #   -t, --timeout MIN       Timeout per agent call in minutes (default: 10)
 #   -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
 #   -b, --base REF          Review only files differing from this git ref
+#   --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings
 #   --status [DIR]          Show current status (scoped to DIR if given)
 #   --reset [DIR]           Reset artifacts and tracking (scoped to DIR if given)
 #   --reset-circuit [DIR]   Reset circuit breaker (scoped to DIR if given)
@@ -67,7 +68,7 @@ while [[ $_prescan_i -lt ${#_prescan_args[@]} ]]; do
         -m|--max-iters|-p|--prompt|-t|--timeout|-f|--fixer|-b|--base)
             ((_prescan_i+=2)) || true
             ;;
-        -h|--help|-v|--verbose|--status|--reset|--reset-circuit|--circuit-status|--dry-run)
+        -h|--help|-v|--verbose|--status|--reset|--reset-circuit|--circuit-status|--dry-run|--include-pre-existing)
             ((_prescan_i+=1)) || true
             ;;
         -*)
@@ -104,6 +105,7 @@ TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-10}"
 FIXER="${FIXER:-}"
 BASE_REF=""
 BASE_COMMIT=""
+INCLUDE_PRE_EXISTING=0
 
 # Colors
 RED='\033[0;31m'
@@ -122,6 +124,16 @@ log_error()   { echo -e "${RED}[ERROR]${NC} $1"; }
 log_claude()  { echo -e "${MAGENTA}[CLAUDE]${NC} $1"; }
 log_codex()   { echo -e "${CYAN}[CODEX]${NC} $1"; }
 log_verbose() { [[ "$VERBOSE" == "1" ]] && echo -e "${BLUE}[VERBOSE]${NC} $1" || true; }
+
+log_scope_errors() {
+    local status="$1"
+    local phase_agent="$2"
+    local errors
+    errors="$(jq -r '.scope_errors // [] | join(", ")' <<< "$status")"
+    if [[ -n "$errors" ]]; then
+        log_warning "$phase_agent returned incomplete scope metadata: $errors"
+    fi
+}
 
 # Cross-platform timeout command
 get_timeout_cmd() {
@@ -175,6 +187,10 @@ init_tracking() {
     "status": "pending",
     "target_dir": null,
     "base_ref": null,
+    "include_pre_existing": false,
+    "in_scope_fixed": 0,
+    "pre_existing_fixed": 0,
+    "pre_existing_flagged": 0,
     "started_at": null,
     "updated_at": null,
     "phases": [],
@@ -219,68 +235,6 @@ add_to_history() {
             "timestamp": $ts
         }]
     ' "$TRACKING_FILE" > "$tmp" && mv "$tmp" "$TRACKING_FILE"
-}
-
-# Parse status block from agent output
-# Format: ---REVIEW_STATUS--- ... ---END_REVIEW_STATUS---
-parse_status_block() {
-    local file="$1"
-    local block_name="${2:-REVIEW_STATUS}"
-
-    if [[ ! -f "$file" ]]; then
-        echo '{"error": "file not found"}'
-        return 1
-    fi
-
-    # Extract the status block. Agent output can contain the status block
-    # markers more than once (e.g. echoed prompt instructions/examples, or
-    # multiple reasoning turns) - only the LAST complete block is real, so
-    # scan for the last START..END pair instead of a naive sed range (which
-    # would concatenate every block it finds into one broken JSON blob).
-    local content=$(cat "$file")
-    local block=$(echo "$content" | awk -v start="---${block_name}---" -v end="---END_${block_name}---" '
-        index($0, start) { capture=1; buf=""; next }
-        index($0, end) { capture=0; last=buf }
-        capture { buf = buf $0 "\n" }
-        END { printf "%s", last }
-    ')
-
-    if [[ -z "$block" ]]; then
-        # No status block found, try to detect NO_ISSUES
-        if echo "$content" | grep -qE '^\s*NO_ISSUES\s*$'; then
-            echo '{"exit_signal": true, "issues_found": 0}'
-            return 0
-        fi
-        echo '{"error": "no status block"}'
-        return 1
-    fi
-
-    # Parse key: value pairs into JSON
-    local json="{"
-    local first=true
-    while IFS=: read -r key value; do
-        [[ -z "$key" ]] && continue
-        key=$(echo "$key" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-        value=$(echo "$value" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-
-        [[ "$first" == "true" ]] && first=false || json+=","
-
-        # Determine type
-        if [[ "$value" =~ ^[0-9]+$ ]]; then
-            json+="\"$key\": $value"
-        elif [[ "$value" == "true" || "$value" == "false" ]]; then
-            json+="\"$key\": $value"
-        elif [[ "$value" == "YES" || "$value" == "FULL" ]]; then
-            json+="\"$key\": true"
-        elif [[ "$value" == "NO" || "$value" == "LOW" ]]; then
-            json+="\"$key\": false"
-        else
-            json+="\"$key\": \"$value\""
-        fi
-    done <<< "$block"
-    json+="}"
-
-    echo "$json"
 }
 
 # List reviewable source files (paths only - agents read file contents
@@ -527,6 +481,18 @@ run_phase_1() {
     local recent_diff
     recent_diff="$(collect_recent_diff "$target_dir" "$iteration" "$BASE_COMMIT")"
     local prompt_template=$(cat "$PROMPTS_DIR/initial_review.md")
+    local scope_classification_context
+    if [[ -n "$BASE_REF" ]]; then
+        scope_classification_context="This run is scoped to changes since \`$BASE_REF\` (resolved commit
+\`$BASE_COMMIT\`). Findings in the listed changed-file set default to
+\`IN_SCOPE\`; anything noticed outside that set defaults to \`PRE_EXISTING\`.
+Use line history when a changed file contains both old and new code."
+    else
+        scope_classification_context="This is a whole-directory scan with no \`--base\` boundary. Classify each
+finding against repository history: use \`git blame\` on the affected lines
+and/or \`git log -1 -- <file>\`. A finding that predates the work being
+reviewed is \`PRE_EXISTING\`, even though its file appears in this list."
+    fi
 
     if [[ "$DRY_RUN" == "1" ]]; then
         local file_count
@@ -570,6 +536,10 @@ the working directory above before reporting any finding. Do not guess at
 file contents.
 
 $file_list
+
+# SCOPE CLASSIFICATION CONTEXT
+
+$scope_classification_context
 $diff_section"
 
     local claude_prompt="$(agent_id_header "CLAUDE")
@@ -583,7 +553,8 @@ $common_prompt"
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md"
 
     # Run in parallel
-    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" "Read Glob Grep" &
+    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
+        "Read Glob Grep Bash(git log:*) Bash(git blame:*)" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
@@ -595,6 +566,8 @@ $common_prompt"
     # Parse results
     local claude_status=$(parse_status_block "$claude_out" "REVIEW_STATUS")
     local codex_status=$(parse_status_block "$codex_out" "REVIEW_STATUS")
+    log_scope_errors "$claude_status" "Phase 1 Claude"
+    log_scope_errors "$codex_status" "Phase 1 Codex"
 
     local claude_exit=$(echo "$claude_status" | jq -r '.exit_signal // false')
     local codex_exit=$(echo "$codex_status" | jq -r '.exit_signal // false')
@@ -658,7 +631,8 @@ $(cat "$claude_review")
     local claude_out="$ARTIFACTS_DIR/iter${iteration}_2_claude_on_codex.md"
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_2_codex_on_claude.md"
 
-    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" "Read Glob Grep" &
+    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
+        "Read Glob Grep Bash(git log:*) Bash(git blame:*)" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
@@ -669,6 +643,8 @@ $(cat "$claude_review")
 
     local claude_status=$(parse_status_block "$claude_out" "CROSS_REVIEW_STATUS")
     local codex_status=$(parse_status_block "$codex_out" "CROSS_REVIEW_STATUS")
+    log_scope_errors "$claude_status" "Phase 2 Claude"
+    log_scope_errors "$codex_status" "Phase 2 Codex"
 
     add_to_history "$iteration" "phase_2" "claude" "$claude_status"
     add_to_history "$iteration" "phase_2" "codex" "$codex_status"
@@ -761,7 +737,8 @@ $(cat "$claude_on_codex")
     local claude_out="$ARTIFACTS_DIR/iter${iteration}_3_claude_meta.md"
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_3_codex_meta.md"
 
-    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" "Read Glob Grep" &
+    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
+        "Read Glob Grep Bash(git log:*) Bash(git blame:*)" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
@@ -772,6 +749,8 @@ $(cat "$claude_on_codex")
 
     local claude_status=$(parse_status_block "$claude_out" "META_REVIEW_STATUS")
     local codex_status=$(parse_status_block "$codex_out" "META_REVIEW_STATUS")
+    log_scope_errors "$claude_status" "Phase 3 Claude"
+    log_scope_errors "$codex_status" "Phase 3 Codex"
 
     add_to_history "$iteration" "phase_3" "claude" "$claude_status"
     add_to_history "$iteration" "phase_3" "codex" "$codex_status"
@@ -794,10 +773,33 @@ run_phase_4() {
 
     log_info "=== Phase 4: Synthesis & Implementation ==="
 
-    local synthesis_prompt=$(cat "$PROMPTS_DIR/synthesis.md")
+    local synthesis_prompt
+    synthesis_prompt="$(cat "$PROMPTS_DIR/synthesis.md")"
+    local scope_policy
+    if [[ "$INCLUDE_PRE_EXISTING" == "1" ]]; then
+        scope_policy="# PHASE 4 SCOPE POLICY
+
+The caller explicitly enabled \`--include-pre-existing\`. Implement valid
+\`IN_SCOPE\` and \`PRE_EXISTING\` findings. Keep the two categories separate
+in the synthesis report and status counts."
+        [[ "$DRY_RUN" == "1" ]] && log_info \
+            "Phase 4 scope policy: fix IN_SCOPE and PRE_EXISTING findings (--include-pre-existing enabled)"
+    else
+        scope_policy="# PHASE 4 SCOPE POLICY
+
+Implement only valid \`IN_SCOPE\` findings. Do not modify files to address
+\`PRE_EXISTING\` findings. Report those findings under a distinct
+\"Pre-existing issues noticed, not fixed\" heading with their ID, file, line,
+severity, and suggested fix."
+        [[ "$DRY_RUN" == "1" ]] && log_info \
+            "Phase 4 scope policy: fix IN_SCOPE findings; flag PRE_EXISTING findings without applying them"
+    fi
 
     # Gather all artifacts
     local context="$synthesis_prompt
+
+---
+$scope_policy
 
 ---
 # ADVERSARIAL REVIEW CHAIN
@@ -844,11 +846,21 @@ Working directory: $target_dir
     local status=$(parse_status_block "$output_file" "SYNTHESIS_STATUS")
     local exit_signal=$(echo "$status" | jq -r '.exit_signal // false')
     local files_modified=$(echo "$status" | jq -r '.files_modified // 0')
+    local in_scope_fixed
+    in_scope_fixed="$(echo "$status" | jq -r '.in_scope_fixed // 0')"
+    local pre_existing_fixed
+    pre_existing_fixed="$(echo "$status" | jq -r '.pre_existing_fixed // 0')"
+    local pre_existing_flagged
+    pre_existing_flagged="$(echo "$status" | jq -r '.pre_existing_flagged // 0')"
 
     add_to_history "$iteration" "phase_4" "$fixer_agent" "$status"
+    update_tracking "in_scope_fixed" "$in_scope_fixed"
+    update_tracking "pre_existing_fixed" "$pre_existing_fixed"
+    update_tracking "pre_existing_flagged" "$pre_existing_flagged"
 
     local synthesis_summary=$(echo "$status" | jq -r '.summary // "(no summary)"')
     log_info "Synthesis ($fixer_agent): $synthesis_summary"
+    log_info "Synthesis scope counts: $in_scope_fixed in-scope fixed, $pre_existing_fixed pre-existing fixed, $pre_existing_flagged pre-existing flagged"
 
     # Record for circuit breaker
     local agents_agree=0
@@ -896,6 +908,7 @@ run_review_loop() {
     log_verbose "Updating tracking state..."
     update_tracking "target_dir" "$target_dir"
     update_tracking "base_ref" "${BASE_REF:-whole-directory}"
+    update_tracking "include_pre_existing" "$([[ "$INCLUDE_PRE_EXISTING" == "1" ]] && echo true || echo false)"
     update_tracking "status" "in_progress"
     update_tracking "started_at" "$(get_iso_timestamp)"
 
@@ -971,6 +984,10 @@ show_status() {
     jq -r '
         "Target:     \(.target_dir // "none")",
         "Scope:      \(.base_ref // "whole-directory")",
+        "Pre-existing fixes: \(if .include_pre_existing then "included" else "report only" end)",
+        "In-scope fixed:     \(.in_scope_fixed // 0)",
+        "Pre-existing fixed: \(.pre_existing_fixed // 0)",
+        "Pre-existing flagged: \(.pre_existing_flagged // 0)",
         "Status:     \(.status // "unknown")",
         "Iteration:  \(.iteration // 0)",
         "Started:    \(.started_at // "never")",
@@ -1021,6 +1038,8 @@ OPTIONS:
                             defaults to codex when non-interactive)
     -b, --base REF          Review only files differing from this git ref,
                             including uncommitted and untracked source files
+    --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
+                            (default: report them without applying changes)
     --status [DIR]          Show current status (scoped to DIR if given)
     --reset [DIR]           Reset all state (scoped to DIR if given)
     --reset-circuit [DIR]   Reset circuit breaker only (scoped to DIR if given)
@@ -1101,6 +1120,10 @@ main() {
                 fi
                 BASE_REF="$2"
                 shift 2
+                ;;
+            --include-pre-existing)
+                INCLUDE_PRE_EXISTING=1
+                shift
                 ;;
             --status)
                 show_status
