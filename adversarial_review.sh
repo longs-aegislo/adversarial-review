@@ -106,6 +106,7 @@ FIXER="${FIXER:-}"
 BASE_REF=""
 BASE_COMMIT=""
 INCLUDE_PRE_EXISTING=0
+REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
 
 # Colors
 RED='\033[0;31m'
@@ -554,7 +555,7 @@ $common_prompt"
 
     # Run in parallel
     run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
-        "Read Glob Grep Bash(git log:*) Bash(git blame:*)" &
+        "$REVIEW_ALLOWED_TOOLS" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
@@ -632,7 +633,7 @@ $(cat "$claude_review")
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_2_codex_on_claude.md"
 
     run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
-        "Read Glob Grep Bash(git log:*) Bash(git blame:*)" &
+        "$REVIEW_ALLOWED_TOOLS" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
@@ -738,7 +739,7 @@ $(cat "$claude_on_codex")
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_3_codex_meta.md"
 
     run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
-        "Read Glob Grep Bash(git log:*) Bash(git blame:*)" &
+        "$REVIEW_ALLOWED_TOOLS" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
