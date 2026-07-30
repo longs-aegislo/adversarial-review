@@ -136,13 +136,13 @@ Examples:
 - iter1_4_synthesis.md          # Phase 4, Claude's synthesis
 ```
 
-Every Codex-produced `.md` file also has a companion `iter{N}_*_*.raw.log`.
-`codex exec`'s stdout is the full agent transcript (reasoning summaries,
-exec/tool calls, file dumps), not just the final answer, so `run_codex()`
-uses `codex exec -o <file>` (`--output-last-message`) to write only the
-final reply to the `.md` file - that's what gets fed into later phases'
-prompts. The raw transcript goes to `.raw.log` for debugging only and is
-never concatenated into subsequent prompts.
+Every agent reply has a companion `*.invocation.json` that records its phase,
+native permission/sandbox mode, and whether write access was authorized.
+Review-phase Claude and Codex calls also retain structured `*.raw.log` events
+for denied-write auditing. Codex's raw stream is not just the final answer, so
+`run_codex()` uses `codex exec -o <file>` (`--output-last-message`) to write
+only the final reply to the `.md` file fed into later prompts. Raw transcripts
+remain diagnostic artifacts and are never concatenated into later prompts.
 
 ## Dependencies
 

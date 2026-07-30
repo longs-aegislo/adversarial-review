@@ -97,7 +97,7 @@ cd adversarial-review
 OPTIONS:
     -h, --help              Show help
     -m, --max-iters N       Max iterations (default: 3)
-    -p, --prompt FILE       Custom initial review prompt
+    -p, --prompt FILE       Additional Phase 1 criteria for this run
     -v, --verbose           Verbose output
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
@@ -193,9 +193,21 @@ Prevents runaway loops by detecting:
 ### Custom Review Prompts
 
 ```bash
-# Use your own review criteria
+# Add review criteria for this run
 ./adversarial_review.sh -p my_review_prompt.md ../project
 ```
+
+The file is read once during argument validation and added as a delimited
+criteria section to the built-in Phase 1 prompt. It does not replace the
+agent-ID header, working-directory context, review scope, finding-scope rules,
+or required status block, and it never modifies files under `prompts/`.
+Missing, unreadable, and non-file paths fail before either agent is invoked.
+Separate runs keep their criteria isolated from one another.
+
+Phases 1-3 enforce read-only access at each backend's invocation boundary.
+Claude receives only read/search tools plus narrowly approved `git log` and
+`git blame` commands in non-interactive deny mode; Codex uses its read-only
+sandbox. Only the agent selected for Phase 4 receives write access.
 
 ### Environment Variables
 
@@ -246,8 +258,16 @@ Each iteration produces:
 - `iter{N}_3_codex_meta.md` - Codex's meta-review
 - `iter{N}_4_synthesis.md` - Final synthesis and fixes
 
-For each Codex-generated file above, a companion `iter{N}_*_*.raw.log` is also
-written. `codex exec`'s stdout is the full agent transcript (reasoning
+Every agent reply has a companion `*.invocation.json` recording the phase,
+backend, native enforcement mode, allowed tools, and whether write access was
+authorized. Review calls also retain structured `*.raw.log` events (Claude
+`stream-json`, Codex `--json`) so denied or disallowed write attempts can be
+audited; a detected Target change creates an
+`iter{N}_phase_*_write_violation.json` fingerprint record and stops the run
+without reverting user files.
+
+Each Codex-generated file also has a companion `iter{N}_*_*.raw.log`.
+`codex exec`'s stdout is the full agent transcript (reasoning
 summaries, shell/tool calls, file dumps) - not just its final answer - so the
 `.md` file is extracted via `codex exec -o` (`--output-last-message`) to hold
 only the final reply, keeping it small when fed into later phases. The

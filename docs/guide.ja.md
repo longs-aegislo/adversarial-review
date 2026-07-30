@@ -97,7 +97,7 @@ cd adversarial-review
 オプション：
     -h, --help              ヘルプを表示
     -m, --max-iters N       最大イテレーション数（デフォルト：3）
-    -p, --prompt FILE       カスタム初期レビュー prompt
+    -p, --prompt FILE       今回のフェーズ1レビュー基準を追加
     -v, --verbose           詳細出力
     -t, --timeout MIN       エージェント呼び出しごとのタイムアウト（分、デフォルト：10）
     -f, --fixer AGENT       フェーズ4の修正実装担当：claude | codex
@@ -184,9 +184,21 @@ adversarial-review/
 ### カスタムレビュー Prompt
 
 ```bash
-# 独自のレビュー基準を使用
+# 今回の実行にレビュー基準を追加
 ./adversarial_review.sh -p my_review_prompt.md ../project
 ```
+
+このファイルは引数検証時に一度だけ読み込まれ、区切り付きの基準セクションとして
+組み込みのフェーズ1 Prompt に追加されます。Agent ID Header、作業ディレクトリの
+コンテキスト、レビュー範囲、Finding Scope 規則、必須 Status Block を置き換えず、
+`prompts/` 配下のファイルも変更しません。パスが存在しない、読み取れない、または
+通常ファイルでない場合は、どちらのエージェントも起動する前に失敗します。実行ごとの
+基準は互いに分離されます。
+
+フェーズ1〜3は各 Backend の呼び出し境界で読み取り専用を強制します。Claude は
+読み取り／検索ツールと限定的に許可された `git log`、`git blame` のみを非対話拒否
+モードで使用し、Codex は読み取り専用 Sandbox を使用します。書き込み権限を得るのは、
+フェーズ4で選択された Fixer だけです。
 
 ### 環境変数
 
@@ -236,6 +248,13 @@ SUMMARY: Found critical type mixing bug
 - `iter{N}_3_claude_meta.md` - Claude のメタレビュー
 - `iter{N}_3_codex_meta.md` - Codex のメタレビュー
 - `iter{N}_4_synthesis.md` - 最終的な統合結果と修正内容
+
+各エージェント返信には `*.invocation.json` が対応し、フェーズ、Backend、ネイティブ
+権限／Sandbox モード、許可ツール、書き込み許可の有無を記録します。レビュー
+呼び出しでは構造化された `*.raw.log` イベント（Claude の `stream-json`、Codex の
+`--json`）も保持し、拒否または契約外の書き込み要求を監査できます。Target の変更を検出すると
+`iter{N}_phase_*_write_violation.json` に指紋を記録して停止しますが、ユーザーの
+ファイルはロールバックしません。
 
 上記の Codex 生成ファイルにはそれぞれ対応する `iter{N}_*_*.raw.log` も出力され
 ます。`codex exec` の標準出力は最終回答だけでなく、推論サマリーや shell/ツール

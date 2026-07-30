@@ -94,7 +94,7 @@ cd adversarial-review
 选项：
     -h, --help              显示帮助
     -m, --max-iters N       最大迭代次数（默认：3）
-    -p, --prompt FILE       自定义初始审查 prompt
+    -p, --prompt FILE       为本次运行追加阶段一审查标准
     -v, --verbose           详细输出
     -t, --timeout MIN       每个智能体调用的超时时间，单位分钟（默认：10）
     -f, --fixer AGENT       阶段四由谁来实施修复：claude | codex
@@ -178,9 +178,19 @@ adversarial-review/
 ### 自定义审查 Prompt
 
 ```bash
-# 使用你自己的审查标准
+# 为本次运行追加审查标准
 ./adversarial_review.sh -p my_review_prompt.md ../project
 ```
+
+脚本会在参数验证期间读取该文件一次，并把内容作为带边界标记的标准区段追加到
+内置阶段一 Prompt。它不会替换 Agent ID Header、工作目录上下文、审查范围、
+Finding Scope 规则或必需的 Status Block，也不会修改 `prompts/` 下的文件。
+路径缺失、不可读或不是普通文件时，会在任一智能体启动前失败。不同运行的标准
+彼此隔离。
+
+阶段一至阶段三在各 Backend 的调用边界强制只读。Claude 只能使用读取／搜索
+工具以及受限批准的 `git log` 和 `git blame` 命令，并采用非交互拒绝模式；
+Codex 使用只读沙箱。只有阶段四选定的 Fixer 获得写权限。
 
 ### 环境变量
 
@@ -231,7 +241,13 @@ SUMMARY: Found critical type mixing bug
 - `iter{N}_3_codex_meta.md` - Codex 的元审查
 - `iter{N}_4_synthesis.md` - 最终综合结果与修复内容
 
-以上每个 Codex 生成的文件都还有一份对应的 `iter{N}_*_*.raw.log`。`codex exec`
+每份智能体回复都有对应的 `*.invocation.json`，记录阶段、Backend、原生权限／
+Sandbox 模式、允许的工具以及是否授权写入。审查调用还会保留结构化
+`*.raw.log` 事件（Claude `stream-json`、Codex `--json`），用于审计被拒绝或
+越权的写入请求；如果检测到 Target 发生变化，流程会生成
+`iter{N}_phase_*_write_violation.json` 指纹记录并停止，但不会回滚用户文件。
+
+以上每个 Codex 生成的文件也有一份对应的 `iter{N}_*_*.raw.log`。`codex exec`
 的标准输出是完整的 agent 执行记录（推理摘要、shell/工具调用、文件转储），而不只是
 最终答案，所以 `.md` 文件是通过 `codex exec -o`（`--output-last-message`）提取出
 来的，只保留最终回复，这样喂进后续阶段的 prompt 时体积不会滚雪球式膨胀。完整记录

@@ -27,6 +27,10 @@ only `IN_SCOPE` findings by default and reports historical issues separately.
 Pass `--include-pre-existing` only when you intentionally want both categories
 fixed.
 
+Phases 1-3 run with read-only agent permissions; only the selected Phase 4
+fixer receives write access. `--prompt FILE` adds Phase 1 review criteria for
+that run without replacing the mandatory issue, scope, or status protocol.
+
 ## Quick Start
 
 ```bash
@@ -40,6 +44,9 @@ cd adversarial-review
 
 # Choose the Phase 4 fixer
 ./adversarial_review.sh --fixer codex ../my-project
+
+# Add review criteria for this run
+./adversarial_review.sh --prompt security-review.md ../my-project
 
 # Preview scope and Phase 4 policy without API calls
 ./adversarial_review.sh --dry-run --base main ../my-project
