@@ -23,6 +23,10 @@ Claude 和 Codex 各自独立审查目标项目，互相质疑对方的发现，
 `IN_SCOPE`，并单独报告历史问题。只有明确希望同时修复两类问题时，才传入
 `--include-pre-existing`。
 
+阶段一至阶段三使用只读智能体权限；只有阶段四中选定的 Fixer 获得写权限。
+`--prompt FILE` 只为本次运行追加阶段一审查标准，不会替换强制的 Issue、
+Scope 或 Status 协议。
+
 ## 快速开始
 
 ```bash
@@ -36,6 +40,9 @@ cd adversarial-review
 
 # 选择阶段四的修复智能体
 ./adversarial_review.sh --fixer codex ../my-project
+
+# 为本次运行追加审查标准
+./adversarial_review.sh --prompt security-review.md ../my-project
 
 # 不调用 API，预览范围与阶段四策略
 ./adversarial_review.sh --dry-run --base main ../my-project

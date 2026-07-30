@@ -94,7 +94,7 @@ cd adversarial-review
 选项：
     -h, --help              显示帮助
     -m, --max-iters N       最大迭代次数（默认：3）
-    -p, --prompt FILE       自定义初始审查 prompt
+    -p, --prompt FILE       为本次运行追加阶段一审查标准
     -v, --verbose           详细输出
     -t, --timeout MIN       每个智能体调用的超时时间，单位分钟（默认：10）
     -f, --fixer AGENT       阶段四由谁来实施修复：claude | codex
@@ -178,9 +178,19 @@ adversarial-review/
 ### 自定义审查 Prompt
 
 ```bash
-# 使用你自己的审查标准
+# 为本次运行追加审查标准
 ./adversarial_review.sh -p my_review_prompt.md ../project
 ```
+
+脚本会在参数验证期间读取该文件一次，并把内容作为带边界标记的标准区段追加到
+内置阶段一 Prompt。它不会替换 Agent ID Header、工作目录上下文、审查范围、
+Finding Scope 规则或必需的 Status Block，也不会修改 `prompts/` 下的文件。
+路径缺失、不可读或不是普通文件时，会在任一智能体启动前失败。不同运行的标准
+彼此隔离。
+
+阶段一至阶段三在各 Backend 的调用边界强制只读。Claude 只能使用读取／搜索
+工具以及受限批准的 `git log` 和 `git blame` 命令，并采用非交互拒绝模式；
+Codex 使用只读沙箱。只有阶段四选定的 Fixer 获得写权限。
 
 ### 环境变量
 

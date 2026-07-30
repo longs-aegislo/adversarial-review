@@ -14,7 +14,7 @@
 # Options:
 #   -h, --help              Show help message
 #   -m, --max-iters N       Maximum iterations (default: 3)
-#   -p, --prompt FILE       Custom review prompt file
+#   -p, --prompt FILE       Additional Phase 1 review criteria file
 #   -v, --verbose           Verbose output
 #   -t, --timeout MIN       Timeout per agent call in minutes (default: 10)
 #   -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
@@ -106,7 +106,9 @@ FIXER="${FIXER:-}"
 BASE_REF=""
 BASE_COMMIT=""
 INCLUDE_PRE_EXISTING=0
-REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
+CUSTOM_REVIEW_CRITERIA=""
+REVIEW_AVAILABLE_TOOLS="Read Glob Grep Bash"
+REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log *) Bash(git blame *)"
 
 # Colors
 RED='\033[0;31m'
@@ -134,6 +136,26 @@ log_scope_errors() {
     if [[ -n "$errors" ]]; then
         log_warning "$phase_agent returned incomplete scope metadata: $errors"
     fi
+}
+
+record_agent_failure() {
+    local iteration="$1"
+    local phase_key="$2"
+    local phase_label="$3"
+    local agent="$4"
+    local detail="$5"
+    local artifact="$6"
+    local result
+    local agent_key
+
+    log_error "$phase_label $agent failed: $detail (artifact: $artifact)"
+    update_tracking "status" "agent_failed"
+    agent_key="$(printf '%s' "$agent" | tr '[:upper:]' '[:lower:]')"
+    result="$(jq -cn \
+        --arg error "$detail" \
+        --arg artifact "$artifact" \
+        '{error: $error, artifact: $artifact}')"
+    add_to_history "$iteration" "$phase_key" "$agent_key" "$result"
 }
 
 # Cross-platform timeout command
@@ -232,7 +254,7 @@ add_to_history() {
             "iteration": ($i | tonumber),
             "phase": $p,
             "agent": $a,
-            "result": $r,
+            "result": ($r | fromjson? // $r),
             "timestamp": $ts
         }]
     ' "$TRACKING_FILE" > "$tmp" && mv "$tmp" "$TRACKING_FILE"
@@ -364,7 +386,8 @@ run_claude() {
     local output_file="$2"
     local working_dir="${3:-$PWD}"
     local with_permissions="${4:-false}"
-    local allowed_tools="${5:-}"
+    local available_tools="${5:-}"
+    local allowed_tools="${6:-}"
 
     if [[ "$DRY_RUN" == "1" ]]; then
         log_claude "[DRY RUN] Would run Claude (${#prompt} chars) -> $output_file"
@@ -380,15 +403,20 @@ run_claude() {
     local cmd_args=(--print)
     if [[ "$with_permissions" == "true" ]]; then
         cmd_args+=(--dangerously-skip-permissions)
-    elif [[ -n "$allowed_tools" ]]; then
-        cmd_args+=(--allowedTools "$allowed_tools")
+    elif [[ -n "$available_tools" ]]; then
+        cmd_args+=(
+            --safe-mode
+            --tools "$available_tools"
+            --allowedTools "$allowed_tools"
+            --permission-mode dontAsk
+        )
     fi
 
     local exit_code=0
     if [[ -n "$timeout_cmd" ]]; then
-        (cd "$working_dir" && echo "$prompt" | $timeout_cmd ${timeout_secs}s claude "${cmd_args[@]}") > "$output_file" 2>&1 || exit_code=$?
+        (cd "$working_dir" && printf '%s\n' "$prompt" | $timeout_cmd ${timeout_secs}s claude "${cmd_args[@]}") > "$output_file" 2>&1 || exit_code=$?
     else
-        (cd "$working_dir" && echo "$prompt" | claude "${cmd_args[@]}") > "$output_file" 2>&1 || exit_code=$?
+        (cd "$working_dir" && printf '%s\n' "$prompt" | claude "${cmd_args[@]}") > "$output_file" 2>&1 || exit_code=$?
     fi
 
     if [[ $exit_code -eq 0 ]]; then
@@ -430,9 +458,9 @@ run_codex() {
 
     local exit_code=0
     if [[ -n "$timeout_cmd" ]]; then
-        (cd "$working_dir" && echo "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s "$sandbox_mode" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
+        (cd "$working_dir" && printf '%s\n' "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s "$sandbox_mode" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
     else
-        (cd "$working_dir" && echo "$prompt" | codex exec -s "$sandbox_mode" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
+        (cd "$working_dir" && printf '%s\n' "$prompt" | codex exec -s "$sandbox_mode" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
     fi
 
     # If codex failed before writing a final message (crash, timeout), fall
@@ -522,7 +550,22 @@ $recent_diff
 "
     fi
 
-    local common_prompt="$prompt_template
+    local custom_criteria_section=""
+    if [[ -n "$CUSTOM_REVIEW_CRITERIA" ]]; then
+        custom_criteria_section="---
+# ADDITIONAL REVIEW CRITERIA
+
+The following caller-supplied criteria apply only to this run. They add to,
+and do not replace, the mandatory review and output protocol below.
+
+---BEGIN_ADDITIONAL_REVIEW_CRITERIA---
+$CUSTOM_REVIEW_CRITERIA
+---END_ADDITIONAL_REVIEW_CRITERIA---
+"
+    fi
+
+    local common_prompt="$custom_criteria_section
+$prompt_template
 
 ---
 # WORKING DIRECTORY
@@ -555,18 +598,43 @@ $common_prompt"
 
     # Run in parallel
     run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
+        "$REVIEW_AVAILABLE_TOOLS" \
         "$REVIEW_ALLOWED_TOOLS" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
     local codex_pid=$!
 
-    wait $claude_pid || true
-    wait $codex_pid || true
+    local claude_rc=0
+    local codex_rc=0
+    wait "$claude_pid" || claude_rc=$?
+    wait "$codex_pid" || codex_rc=$?
+
+    if [[ $claude_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_1" "Phase 1" "Claude" \
+            "agent exited with code $claude_rc" "$claude_out"
+    fi
+    if [[ $codex_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_1" "Phase 1" "Codex" \
+            "agent exited with code $codex_rc" "$codex_out"
+    fi
+    [[ $claude_rc -eq 0 && $codex_rc -eq 0 ]] || return 2
+
+    [[ "$DRY_RUN" == "1" ]] && return 1
 
     # Parse results
-    local claude_status=$(parse_status_block "$claude_out" "REVIEW_STATUS")
-    local codex_status=$(parse_status_block "$codex_out" "REVIEW_STATUS")
+    local claude_status
+    local codex_status
+    if ! claude_status="$(parse_status_block "$claude_out" "REVIEW_STATUS")"; then
+        record_agent_failure "$iteration" "phase_1" "Phase 1" "Claude" \
+            "missing or malformed REVIEW_STATUS block" "$claude_out"
+        return 2
+    fi
+    if ! codex_status="$(parse_status_block "$codex_out" "REVIEW_STATUS")"; then
+        record_agent_failure "$iteration" "phase_1" "Phase 1" "Codex" \
+            "missing or malformed REVIEW_STATUS block" "$codex_out"
+        return 2
+    fi
     log_scope_errors "$claude_status" "Phase 1 Claude"
     log_scope_errors "$codex_status" "Phase 1 Codex"
 
@@ -633,17 +701,42 @@ $(cat "$claude_review")
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_2_codex_on_claude.md"
 
     run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
+        "$REVIEW_AVAILABLE_TOOLS" \
         "$REVIEW_ALLOWED_TOOLS" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
     local codex_pid=$!
 
-    wait $claude_pid || true
-    wait $codex_pid || true
+    local claude_rc=0
+    local codex_rc=0
+    wait "$claude_pid" || claude_rc=$?
+    wait "$codex_pid" || codex_rc=$?
 
-    local claude_status=$(parse_status_block "$claude_out" "CROSS_REVIEW_STATUS")
-    local codex_status=$(parse_status_block "$codex_out" "CROSS_REVIEW_STATUS")
+    if [[ $claude_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_2" "Phase 2" "Claude" \
+            "agent exited with code $claude_rc" "$claude_out"
+    fi
+    if [[ $codex_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_2" "Phase 2" "Codex" \
+            "agent exited with code $codex_rc" "$codex_out"
+    fi
+    [[ $claude_rc -eq 0 && $codex_rc -eq 0 ]] || return 1
+
+    [[ "$DRY_RUN" == "1" ]] && return 0
+
+    local claude_status
+    local codex_status
+    if ! claude_status="$(parse_status_block "$claude_out" "CROSS_REVIEW_STATUS")"; then
+        record_agent_failure "$iteration" "phase_2" "Phase 2" "Claude" \
+            "missing or malformed CROSS_REVIEW_STATUS block" "$claude_out"
+        return 1
+    fi
+    if ! codex_status="$(parse_status_block "$codex_out" "CROSS_REVIEW_STATUS")"; then
+        record_agent_failure "$iteration" "phase_2" "Phase 2" "Codex" \
+            "missing or malformed CROSS_REVIEW_STATUS block" "$codex_out"
+        return 1
+    fi
     log_scope_errors "$claude_status" "Phase 2 Claude"
     log_scope_errors "$codex_status" "Phase 2 Codex"
 
@@ -739,17 +832,42 @@ $(cat "$claude_on_codex")
     local codex_out="$ARTIFACTS_DIR/iter${iteration}_3_codex_meta.md"
 
     run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
+        "$REVIEW_AVAILABLE_TOOLS" \
         "$REVIEW_ALLOWED_TOOLS" &
     local claude_pid=$!
 
     run_codex "$codex_prompt" "$codex_out" "$target_dir" &
     local codex_pid=$!
 
-    wait $claude_pid || true
-    wait $codex_pid || true
+    local claude_rc=0
+    local codex_rc=0
+    wait "$claude_pid" || claude_rc=$?
+    wait "$codex_pid" || codex_rc=$?
 
-    local claude_status=$(parse_status_block "$claude_out" "META_REVIEW_STATUS")
-    local codex_status=$(parse_status_block "$codex_out" "META_REVIEW_STATUS")
+    if [[ $claude_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_3" "Phase 3" "Claude" \
+            "agent exited with code $claude_rc" "$claude_out"
+    fi
+    if [[ $codex_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_3" "Phase 3" "Codex" \
+            "agent exited with code $codex_rc" "$codex_out"
+    fi
+    [[ $claude_rc -eq 0 && $codex_rc -eq 0 ]] || return 1
+
+    [[ "$DRY_RUN" == "1" ]] && return 0
+
+    local claude_status
+    local codex_status
+    if ! claude_status="$(parse_status_block "$claude_out" "META_REVIEW_STATUS")"; then
+        record_agent_failure "$iteration" "phase_3" "Phase 3" "Claude" \
+            "missing or malformed META_REVIEW_STATUS block" "$claude_out"
+        return 1
+    fi
+    if ! codex_status="$(parse_status_block "$codex_out" "META_REVIEW_STATUS")"; then
+        record_agent_failure "$iteration" "phase_3" "Phase 3" "Codex" \
+            "missing or malformed META_REVIEW_STATUS block" "$codex_out"
+        return 1
+    fi
     log_scope_errors "$claude_status" "Phase 3 Claude"
     log_scope_errors "$codex_status" "Phase 3 Codex"
 
@@ -836,15 +954,30 @@ Working directory: $target_dir
     local output_file="$ARTIFACTS_DIR/iter${iteration}_4_synthesis.md"
 
     local fixer_agent="claude"
+    local fixer_rc=0
     if [[ "$FIXER" == "codex" ]]; then
         fixer_agent="codex"
         log_info "Implementing fixes with Codex (workspace-write)"
-        run_codex "$context" "$output_file" "$target_dir" "workspace-write"
+        run_codex "$context" "$output_file" "$target_dir" "workspace-write" ||
+            fixer_rc=$?
     else
-        run_claude "$context" "$output_file" "$target_dir" "true"
+        run_claude "$context" "$output_file" "$target_dir" "true" ||
+            fixer_rc=$?
+    fi
+    if [[ $fixer_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
+            "agent exited with code $fixer_rc" "$output_file"
+        return 2
     fi
 
-    local status=$(parse_status_block "$output_file" "SYNTHESIS_STATUS")
+    [[ "$DRY_RUN" == "1" ]] && return 1
+
+    local status
+    if ! status="$(parse_status_block "$output_file" "SYNTHESIS_STATUS")"; then
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
+            "missing or malformed SYNTHESIS_STATUS block" "$output_file"
+        return 2
+    fi
     local exit_signal=$(echo "$status" | jq -r '.exit_signal // false')
     local files_modified=$(echo "$status" | jq -r '.files_modified // 0')
     local in_scope_fixed
@@ -936,19 +1069,27 @@ run_review_loop() {
         echo ""
 
         # Phase 1
-        if run_phase_1 "$target_dir" "$iteration"; then
+        local phase_1_result=0
+        run_phase_1 "$target_dir" "$iteration" || phase_1_result=$?
+        if [[ $phase_1_result -eq 0 ]]; then
             log_success "Review complete - both agents report clean code"
             update_tracking "status" "clean"
             return 0
+        elif [[ $phase_1_result -ne 1 ]]; then
+            return 1
         fi
         echo ""
 
         # Phase 2
-        run_phase_2 "$target_dir" "$iteration"
+        if ! run_phase_2 "$target_dir" "$iteration"; then
+            return 1
+        fi
         echo ""
 
         # Phase 3
-        run_phase_3 "$target_dir" "$iteration"
+        if ! run_phase_3 "$target_dir" "$iteration"; then
+            return 1
+        fi
         echo ""
 
         # Phase 4
@@ -1031,7 +1172,8 @@ USAGE:
 OPTIONS:
     -h, --help              Show this help
     -m, --max-iters N       Max iterations (default: 3)
-    -p, --prompt FILE       Custom initial review prompt
+    -p, --prompt FILE       Add Phase 1 review criteria for this run only;
+                            preserves the mandatory built-in output protocol
     -v, --verbose           Verbose output
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
@@ -1099,6 +1241,10 @@ main() {
                 shift 2
                 ;;
             -p|--prompt)
+                if [[ $# -lt 2 ]]; then
+                    log_error "Missing value for $1"
+                    exit 1
+                fi
                 custom_prompt="$2"
                 shift 2
                 ;;
@@ -1191,12 +1337,23 @@ main() {
         fi
     fi
 
-    check_dependencies
-
-    if [[ -n "$custom_prompt" ]] && [[ -f "$custom_prompt" ]]; then
-        cp "$custom_prompt" "$PROMPTS_DIR/initial_review.md"
-        log_info "Using custom prompt: $custom_prompt"
+    if [[ -n "$custom_prompt" ]]; then
+        if [[ ! -f "$custom_prompt" ]]; then
+            log_error "Custom prompt is not a regular file: $custom_prompt"
+            exit 1
+        fi
+        if [[ ! -r "$custom_prompt" ]]; then
+            log_error "Custom prompt is not readable: $custom_prompt"
+            exit 1
+        fi
+        if ! CUSTOM_REVIEW_CRITERIA="$(< "$custom_prompt")"; then
+            log_error "Could not read custom prompt: $custom_prompt"
+            exit 1
+        fi
+        log_info "Using additional review criteria: $custom_prompt"
     fi
+
+    check_dependencies
 
     if [[ -z "$FIXER" ]]; then
         if [[ "$DRY_RUN" == "1" || ! -t 0 ]]; then

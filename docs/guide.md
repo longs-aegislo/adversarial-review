@@ -97,7 +97,7 @@ cd adversarial-review
 OPTIONS:
     -h, --help              Show help
     -m, --max-iters N       Max iterations (default: 3)
-    -p, --prompt FILE       Custom initial review prompt
+    -p, --prompt FILE       Additional Phase 1 criteria for this run
     -v, --verbose           Verbose output
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
@@ -193,9 +193,21 @@ Prevents runaway loops by detecting:
 ### Custom Review Prompts
 
 ```bash
-# Use your own review criteria
+# Add review criteria for this run
 ./adversarial_review.sh -p my_review_prompt.md ../project
 ```
+
+The file is read once during argument validation and added as a delimited
+criteria section to the built-in Phase 1 prompt. It does not replace the
+agent-ID header, working-directory context, review scope, finding-scope rules,
+or required status block, and it never modifies files under `prompts/`.
+Missing, unreadable, and non-file paths fail before either agent is invoked.
+Separate runs keep their criteria isolated from one another.
+
+Phases 1-3 enforce read-only access at each backend's invocation boundary.
+Claude receives only read/search tools plus narrowly approved `git log` and
+`git blame` commands in non-interactive deny mode; Codex uses its read-only
+sandbox. Only the agent selected for Phase 4 receives write access.
 
 ### Environment Variables
 
