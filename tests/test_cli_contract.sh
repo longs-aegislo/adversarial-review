@@ -59,10 +59,12 @@ strict=false
 if [[ "$args" == *" --permission-mode dontAsk "* ]] &&
    [[ "$args" == *" --safe-mode "* ]] &&
    [[ "$args" == *" --tools "* ]] &&
+   [[ "$args" == *" --output-format stream-json "* ]] &&
+   [[ "$args" == *" --verbose "* ]] &&
    [[ "$args" != *" Write"* ]] &&
    [[ "$args" != *" Edit"* ]] &&
-   [[ "$args" == *" Bash(git log *)"* ]] &&
-   [[ "$args" == *" Bash(git blame *)"* ]]; then
+   [[ "$args" == *" Bash(git log:*)"* ]] &&
+   [[ "$args" == *" Bash(git blame:*)"* ]]; then
     strict=true
 fi
 
@@ -87,7 +89,11 @@ fi
 if [[ "$phase" -lt 4 && "$strict" != "true" ]]; then
     printf '%s\n' 'review-phase corruption by claude' >> app.sh
 fi
+if [[ "${FAKE_FORCE_REVIEW_WRITE_PHASE:-}" == "$phase" ]]; then
+    printf '%s\n' 'detected review-phase write by claude' >> app.sh
+fi
 
+response=""
 case "$phase" in
     1)
         assert_prompt="${FAKE_CUSTOM_CRITERIA:?}"
@@ -98,7 +104,7 @@ case "$phase" in
         [[ "$prompt" == *"# YOUR AGENT ID: CLAUDE"* ]]
         [[ "$prompt" == *"ISSUE_SCOPES:"* ]]
         [[ "$prompt" == *"---REVIEW_STATUS---"* ]]
-        cat <<'STATUS'
+        response="$(cat <<'STATUS'
 CLAUDE-1
 ---REVIEW_STATUS---
 ISSUES_FOUND: 1
@@ -112,9 +118,10 @@ EXIT_SIGNAL: false
 SUMMARY: Claude found one issue
 ---END_REVIEW_STATUS---
 STATUS
+)"
         ;;
     2)
-        cat <<'STATUS'
+        response="$(cat <<'STATUS'
 ---CROSS_REVIEW_STATUS---
 FINDINGS_VALIDATED: 1
 FINDINGS_CHALLENGED: 0
@@ -125,9 +132,10 @@ CONFIDENCE: HIGH
 SUMMARY: Claude validated Codex
 ---END_CROSS_REVIEW_STATUS---
 STATUS
+)"
         ;;
     3)
-        cat <<'STATUS'
+        response="$(cat <<'STATUS'
 ---META_REVIEW_STATUS---
 POSITIONS_DEFENDED: 1
 POSITIONS_CONCEDED: 0
@@ -140,10 +148,11 @@ ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CODEX-1=IN_SCOPE
 SUMMARY: Claude reached consensus
 ---END_META_REVIEW_STATUS---
 STATUS
+)"
         ;;
     4)
         printf '%s\n' 'fixed by claude' >> app.sh
-        cat <<'STATUS'
+        response="$(cat <<'STATUS'
 ---SYNTHESIS_STATUS---
 HIGH_CONFIDENCE_FIXES: 1
 MEDIUM_CONFIDENCE_FIXES: 0
@@ -156,8 +165,44 @@ EXIT_SIGNAL: true
 SUMMARY: Claude applied the fix
 ---END_SYNTHESIS_STATUS---
 STATUS
+)"
         ;;
 esac
+
+if [[ "$phase" -lt 4 && "$args" == *" --output-format stream-json "* ]]; then
+    if [[ "$phase" -eq 1 ]]; then
+        jq -cn '{
+            type: "assistant",
+            message: {
+                content: [{
+                    type: "tool_use",
+                    name: "Bash",
+                    input: {command: "git log -1 -- app.sh"}
+                }]
+            }
+        }'
+    fi
+    if [[ "${FAKE_DENIED_WRITE_PHASE:-}" == "$phase" ]]; then
+        jq -cn '{
+            type: "assistant",
+            message: {
+                content: [{
+                    type: "tool_use",
+                    name: "Bash",
+                    input: {command: "printf denied > review-write.txt"}
+                }]
+            }
+        }'
+    fi
+    jq -cn --arg result "$response" '{
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: $result
+    }'
+else
+    printf '%s\n' "$response"
+fi
 EOF
 
 cat > "$FAKE_BIN/codex" <<'EOF'
@@ -284,9 +329,12 @@ test_custom_prompt_is_additive_and_review_phases_are_read_only() {
     prompt_hash_before="$(git -C "$SCRIPT_DIR" hash-object prompts/initial_review.md)"
     repo_status_before="$(git -C "$SCRIPT_DIR" status --short)"
 
-    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+    if ! PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
         --max-iters 1 --fixer codex --prompt "$custom_prompt" "$target" \
-        > "$output_file" 2>&1
+        > "$output_file" 2>&1; then
+        fail "Codex-fixer contract run failed:
+$(cat "$output_file")"
+    fi
 
     [[ "$(git -C "$SCRIPT_DIR" hash-object prompts/initial_review.md)" == "$prompt_hash_before" ]] ||
         fail "custom prompt must not modify the built-in prompt"
@@ -313,6 +361,13 @@ test_custom_prompt_is_additive_and_review_phases_are_read_only() {
         fail "Phase 1 tracking must preserve parsed issue counts from the mandatory status blocks"
     [[ "$(jq -r '.history[] | select(.phase == "phase_1" and .agent == "claude") | .result.issue_scopes["CLAUDE-1"]' <<< "$tracking")" == 'IN_SCOPE' ]] ||
         fail "Phase 1 tracking must preserve scope metadata"
+    local invocation_metadata
+    invocation_metadata="$(find "$AR_STATE_ROOT" -name '*.invocation.json' \
+        -exec jq -c . {} \; | jq -sc '.')"
+    [[ "$(jq '[.[] | select(.phase != "phase_4" and .write_authorized == false)] | length' <<< "$invocation_metadata")" -eq 6 ]] ||
+        fail "artifacts must record all six review invocations as read-only"
+    [[ "$(jq '[.[] | select(.phase == "phase_4" and .agent == "codex" and .write_authorized == true)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
+        fail "artifacts must identify the selected Phase 4 fixer as write-authorized"
     unset FAKE_CUSTOM_SOURCE FAKE_REPLACEMENT_CRITERIA FAKE_FORBIDDEN_CRITERIA
     pass "custom prompt is additive and review phases are read-only"
 }
@@ -328,9 +383,12 @@ test_claude_fixer_is_writable_without_prompt_leakage() {
     export FAKE_CUSTOM_CRITERIA="Second run criteria only"
     printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
 
-    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+    if ! PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
         --max-iters 1 --fixer claude --prompt "$custom_prompt" "$target" \
-        > "$output_file" 2>&1
+        > "$output_file" 2>&1; then
+        fail "Claude-fixer contract run failed:
+$(cat "$output_file")"
+    fi
 
     [[ "$(cat "$target/app.sh")" == $'committed state\nuser work in progress\nfixed by claude' ]] ||
         fail "Claude must be writable only when selected as the Phase 4 fixer"
@@ -427,11 +485,78 @@ test_malformed_review_response_stops_the_workflow() {
 
     [[ $status -ne 0 ]] || fail "a malformed review response must fail the run"
     assert_contains "$(cat "$output_file")" \
-        "missing or malformed REVIEW_STATUS block" \
-        "the failure should explain that the required status block is invalid"
+        "malformed stream-json transcript" \
+        "the failure should explain that the structured response is invalid"
     [[ "$(grep -Ec '^(claude|codex)\|2\|' "$FAKE_AGENT_LOG")" -eq 0 ]] ||
         fail "the workflow must not treat a malformed response as zero findings"
     pass "malformed review response stops instead of becoming zero findings"
+}
+
+test_denied_write_attempt_stops_with_raw_diagnostics() {
+    local target="$TEST_ROOT/denied-write-target"
+    local custom_prompt="$TEST_ROOT/denied-write-criteria.md"
+    local output_file="$TEST_ROOT/denied-write.out"
+    local status state_dir raw_log
+    make_target "$target"
+
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Denied-write criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+    set +e
+    FAKE_DENIED_WRITE_PHASE=2 PATH="$FAKE_BIN:$PATH" \
+        "$SCRIPT_UNDER_TEST" --max-iters 1 --fixer codex \
+        --prompt "$custom_prompt" "$target" > "$output_file" 2>&1
+    status=$?
+    set -e
+
+    [[ $status -ne 0 ]] || fail "a denied write attempt must fail the run"
+    assert_contains "$(cat "$output_file")" "Phase 2 Claude failed" \
+        "the denied attempt must identify the failed phase and agent"
+    state_dir="$(find "$AR_STATE_ROOT" -type d -name 'denied-write-target*' -print -quit)"
+    raw_log="$state_dir/artifacts/iter1_2_claude_on_codex.raw.log"
+    assert_contains "$(cat "$raw_log")" "printf denied" \
+        "the raw artifact must retain the denied tool request"
+    [[ "$(grep -Ec '^(claude|codex)\|3\|' "$FAKE_AGENT_LOG")" -eq 0 ]] ||
+        fail "the workflow must stop after a denied write attempt"
+    [[ "$(cat "$target/app.sh")" == $'committed state\nuser work in progress' ]] ||
+        fail "a denied write attempt must leave target evidence unchanged"
+    pass "denied write attempt is fatal and retains raw diagnostics"
+}
+
+test_detected_target_write_stops_without_rollback() {
+    local target="$TEST_ROOT/detected-write-target"
+    local custom_prompt="$TEST_ROOT/detected-write-criteria.md"
+    local output_file="$TEST_ROOT/detected-write.out"
+    local status state_dir violation
+    make_target "$target"
+
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Detected-write criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+    set +e
+    FAKE_FORCE_REVIEW_WRITE_PHASE=2 PATH="$FAKE_BIN:$PATH" \
+        "$SCRIPT_UNDER_TEST" --max-iters 1 --fixer codex \
+        --prompt "$custom_prompt" "$target" > "$output_file" 2>&1
+    status=$?
+    set -e
+
+    [[ $status -ne 0 ]] || fail "a detected target write must fail the run"
+    assert_contains "$(cat "$output_file")" \
+        "target changed during a read-only review phase" \
+        "the boundary failure must explain that target evidence changed"
+    state_dir="$(find "$AR_STATE_ROOT" -type d -name 'detected-write-target*' -print -quit)"
+    violation="$state_dir/artifacts/iter1_phase_2_write_violation.json"
+    [[ "$(jq -r '.phase' "$violation")" == "Phase 2" ]] ||
+        fail "the write-violation artifact must identify the phase"
+    [[ "$(jq -r '.automatically_reverted' "$violation")" == "false" ]] ||
+        fail "the write-violation artifact must record the no-rollback policy"
+    [[ "$(cat "$target/app.sh")" == $'committed state\nuser work in progress\ndetected review-phase write by claude' ]] ||
+        fail "detected agent writes must not trigger a destructive rollback"
+    [[ "$(grep -Ec '^(claude|codex)\|3\|' "$FAKE_AGENT_LOG")" -eq 0 ]] ||
+        fail "the workflow must stop after detecting a review-phase write"
+    pass "detected target write is fatal and is not rolled back"
 }
 
 test_custom_prompt_is_additive_and_review_phases_are_read_only
@@ -439,5 +564,7 @@ test_claude_fixer_is_writable_without_prompt_leakage
 test_invalid_prompts_fail_before_agent_invocation
 test_review_agent_failure_stops_with_diagnostics
 test_malformed_review_response_stops_the_workflow
+test_denied_write_attempt_stops_with_raw_diagnostics
+test_detected_target_write_stops_without_rollback
 
 echo "1..$tests_run"

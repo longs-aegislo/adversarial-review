@@ -258,8 +258,15 @@ Each iteration produces:
 - `iter{N}_3_codex_meta.md` - Codex's meta-review
 - `iter{N}_4_synthesis.md` - Final synthesis and fixes
 
-For each Codex-generated file above, a companion `iter{N}_*_*.raw.log` is also
-written. `codex exec`'s stdout is the full agent transcript (reasoning
+Every agent reply has a companion `*.invocation.json` recording the phase,
+backend, native enforcement mode, allowed tools, and whether write access was
+authorized. Claude review calls also retain `*.raw.log` stream events so denied
+or disallowed tool attempts can be audited; a detected Target change creates an
+`iter{N}_phase_*_write_violation.json` fingerprint record and stops the run
+without reverting user files.
+
+Each Codex-generated file also has a companion `iter{N}_*_*.raw.log`.
+`codex exec`'s stdout is the full agent transcript (reasoning
 summaries, shell/tool calls, file dumps) - not just its final answer - so the
 `.md` file is extracted via `codex exec -o` (`--output-last-message`) to hold
 only the final reply, keeping it small when fed into later phases. The
