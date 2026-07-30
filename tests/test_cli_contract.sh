@@ -182,7 +182,8 @@ if [[ "$phase" -lt 4 && "$args" == *" --output-format stream-json "* ]]; then
             }
         }'
     fi
-    if [[ "${FAKE_DENIED_WRITE_PHASE:-}" == "$phase" ]]; then
+    if [[ "${FAKE_DENIED_WRITE_PHASE:-}" == "$phase" &&
+          "${FAKE_DENIED_WRITE_AGENT:-claude}" == "claude" ]]; then
         jq -cn '{
             type: "assistant",
             message: {
@@ -217,6 +218,7 @@ phase=1
 
 sandbox=""
 output_file=""
+json_mode=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -s)
@@ -226,6 +228,10 @@ while [[ $# -gt 0 ]]; do
         -o)
             output_file="$2"
             shift 2
+            ;;
+        --json)
+            json_mode=true
+            shift
             ;;
         *)
             shift
@@ -309,7 +315,26 @@ SUMMARY: Codex applied the fix
 esac
 
 printf '%s\n' "$response" > "$output_file"
-printf '%s\n' "fake codex phase $phase complete"
+if [[ "$json_mode" == "true" ]]; then
+    jq -cn '{type: "thread.started", thread_id: "fake-thread"}'
+    if [[ "${FAKE_DENIED_WRITE_PHASE:-}" == "$phase" &&
+          "${FAKE_DENIED_WRITE_AGENT:-claude}" == "codex" ]]; then
+        jq -cn '{
+            type: "item.completed",
+            item: {
+                id: "denied-write",
+                type: "command_execution",
+                command: "printf denied > review-write.txt",
+                status: "failed",
+                exit_code: 1,
+                aggregated_output: "sandbox denied: Read-only file system"
+            }
+        }'
+    fi
+    jq -cn '{type: "turn.completed", usage: {input_tokens: 1, output_tokens: 1}}'
+else
+    printf '%s\n' "fake codex phase $phase complete"
+fi
 EOF
 
 chmod +x "$FAKE_BIN/claude" "$FAKE_BIN/codex"
@@ -357,10 +382,14 @@ $(cat "$output_file")"
 
     local tracking
     tracking="$(find "$AR_STATE_ROOT" -name tracking.json -exec cat {} \;)"
-    [[ "$(jq -c '[.history[] | select(.phase == "phase_1") | .result.issues_found] | sort' <<< "$tracking")" == '[1,1]' ]] ||
+    [[ "$(jq -r '[.history[].result | type] | unique | join(",")' <<< "$tracking")" == 'string' ]] ||
+        fail "tracking history result values must retain the existing string schema"
+    [[ "$(jq -c '[.history[] | select(.phase == "phase_1") | (.result | fromjson).issues_found] | sort' <<< "$tracking")" == '[1,1]' ]] ||
         fail "Phase 1 tracking must preserve parsed issue counts from the mandatory status blocks"
-    [[ "$(jq -r '.history[] | select(.phase == "phase_1" and .agent == "claude") | .result.issue_scopes["CLAUDE-1"]' <<< "$tracking")" == 'IN_SCOPE' ]] ||
+    [[ "$(jq -r '.history[] | select(.phase == "phase_1" and .agent == "claude") | (.result | fromjson).issue_scopes["CLAUDE-1"]' <<< "$tracking")" == 'IN_SCOPE' ]] ||
         fail "Phase 1 tracking must preserve scope metadata"
+    [[ "$(jq -r '.history[] | select(.phase == "phase_1" and .agent == "claude") | (.result | fromjson).summary' <<< "$tracking")" == 'Claude found one issue' ]] ||
+        fail "Phase 1 tracking must preserve the parsed summary without changing its schema"
     local invocation_metadata
     invocation_metadata="$(find "$AR_STATE_ROOT" -name '*.invocation.json' \
         -exec jq -c . {} \; | jq -sc '.')"
@@ -493,35 +522,51 @@ test_malformed_review_response_stops_the_workflow() {
 }
 
 test_denied_write_attempt_stops_with_raw_diagnostics() {
-    local target="$TEST_ROOT/denied-write-target"
-    local custom_prompt="$TEST_ROOT/denied-write-criteria.md"
-    local output_file="$TEST_ROOT/denied-write.out"
-    local status state_dir raw_log
-    make_target "$target"
+    local agent target custom_prompt output_file status state_dir raw_log
+    local agent_label
 
-    : > "$FAKE_AGENT_LOG"
-    export FAKE_CUSTOM_CRITERIA="Denied-write criteria"
-    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+    for agent in claude codex; do
+        target="$TEST_ROOT/denied-write-$agent-target"
+        custom_prompt="$TEST_ROOT/denied-write-$agent-criteria.md"
+        output_file="$TEST_ROOT/denied-write-$agent.out"
+        make_target "$target"
 
-    set +e
-    FAKE_DENIED_WRITE_PHASE=2 PATH="$FAKE_BIN:$PATH" \
-        "$SCRIPT_UNDER_TEST" --max-iters 1 --fixer codex \
-        --prompt "$custom_prompt" "$target" > "$output_file" 2>&1
-    status=$?
-    set -e
+        : > "$FAKE_AGENT_LOG"
+        export FAKE_CUSTOM_CRITERIA="Denied-write criteria for $agent"
+        printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
 
-    [[ $status -ne 0 ]] || fail "a denied write attempt must fail the run"
-    assert_contains "$(cat "$output_file")" "Phase 2 Claude failed" \
-        "the denied attempt must identify the failed phase and agent"
-    state_dir="$(find "$AR_STATE_ROOT" -type d -name 'denied-write-target*' -print -quit)"
-    raw_log="$state_dir/artifacts/iter1_2_claude_on_codex.raw.log"
-    assert_contains "$(cat "$raw_log")" "printf denied" \
-        "the raw artifact must retain the denied tool request"
-    [[ "$(grep -Ec '^(claude|codex)\|3\|' "$FAKE_AGENT_LOG")" -eq 0 ]] ||
-        fail "the workflow must stop after a denied write attempt"
-    [[ "$(cat "$target/app.sh")" == $'committed state\nuser work in progress' ]] ||
-        fail "a denied write attempt must leave target evidence unchanged"
-    pass "denied write attempt is fatal and retains raw diagnostics"
+        set +e
+        FAKE_DENIED_WRITE_PHASE=2 FAKE_DENIED_WRITE_AGENT="$agent" \
+            PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" --max-iters 1 \
+            --fixer codex --prompt "$custom_prompt" "$target" \
+            > "$output_file" 2>&1
+        status=$?
+        set -e
+
+        [[ $status -ne 0 ]] ||
+            fail "a denied $agent write attempt must fail the run"
+        if [[ "$agent" == "claude" ]]; then
+            agent_label="Claude"
+        else
+            agent_label="Codex"
+        fi
+        assert_contains "$(cat "$output_file")" "Phase 2 $agent_label failed" \
+            "the denied attempt must identify the failed phase and agent"
+        state_dir="$(find "$AR_STATE_ROOT" -type d \
+            -name "denied-write-$agent-target*" -print -quit)"
+        if [[ "$agent" == "claude" ]]; then
+            raw_log="$state_dir/artifacts/iter1_2_claude_on_codex.raw.log"
+        else
+            raw_log="$state_dir/artifacts/iter1_2_codex_on_claude.raw.log"
+        fi
+        assert_contains "$(cat "$raw_log")" "printf denied" \
+            "the raw artifact must retain the denied $agent tool request"
+        [[ "$(grep -Ec '^(claude|codex)\|3\|' "$FAKE_AGENT_LOG")" -eq 0 ]] ||
+            fail "the workflow must stop after a denied $agent write attempt"
+        [[ "$(cat "$target/app.sh")" == $'committed state\nuser work in progress' ]] ||
+            fail "a denied $agent write attempt must leave target evidence unchanged"
+    done
+    pass "Claude and Codex denied writes are fatal with raw diagnostics"
 }
 
 test_detected_target_write_stops_without_rollback() {
@@ -559,6 +604,34 @@ test_detected_target_write_stops_without_rollback() {
     pass "detected target write is fatal and is not rolled back"
 }
 
+test_fixer_failure_does_not_start_another_iteration() {
+    local target="$TEST_ROOT/failing-fixer-target"
+    local custom_prompt="$TEST_ROOT/failing-fixer-criteria.md"
+    local output_file="$TEST_ROOT/failing-fixer.out"
+    local status tracking
+    make_target "$target"
+
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Failing-fixer criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+    set +e
+    FAKE_FAIL_PHASE=4 FAKE_FAIL_AGENT=codex PATH="$FAKE_BIN:$PATH" \
+        "$SCRIPT_UNDER_TEST" --max-iters 2 --fixer codex \
+        --prompt "$custom_prompt" "$target" > "$output_file" 2>&1
+    status=$?
+    set -e
+
+    [[ $status -ne 0 ]] || fail "a failed Phase 4 fixer must fail the run"
+    [[ "$(grep -c '^codex|4|' "$FAKE_AGENT_LOG")" -eq 1 ]] ||
+        fail "a failed fixer must not start another review iteration"
+    tracking="$(find "$AR_STATE_ROOT" -type f -path \
+        '*failing-fixer-target*/tracking.json' -exec cat {} \;)"
+    [[ "$(jq -r '.status' <<< "$tracking")" == "agent_failed" ]] ||
+        fail "fixer failure must remain visible in tracking state"
+    pass "fixer failure stops without starting another iteration"
+}
+
 test_custom_prompt_is_additive_and_review_phases_are_read_only
 test_claude_fixer_is_writable_without_prompt_leakage
 test_invalid_prompts_fail_before_agent_invocation
@@ -566,5 +639,6 @@ test_review_agent_failure_stops_with_diagnostics
 test_malformed_review_response_stops_the_workflow
 test_denied_write_attempt_stops_with_raw_diagnostics
 test_detected_target_write_stops_without_rollback
+test_fixer_failure_does_not_start_another_iteration
 
 echo "1..$tests_run"

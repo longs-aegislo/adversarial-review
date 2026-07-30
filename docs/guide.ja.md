@@ -250,9 +250,9 @@ SUMMARY: Found critical type mixing bug
 - `iter{N}_4_synthesis.md` - 最終的な統合結果と修正内容
 
 各エージェント返信には `*.invocation.json` が対応し、フェーズ、Backend、ネイティブ
-権限／Sandbox モード、許可ツール、書き込み許可の有無を記録します。Claude の
-レビューフェーズでは `*.raw.log` の構造化イベントも保持し、拒否または契約外の
-ツール要求を監査できます。Target の変更を検出すると
+権限／Sandbox モード、許可ツール、書き込み許可の有無を記録します。レビュー
+呼び出しでは構造化された `*.raw.log` イベント（Claude の `stream-json`、Codex の
+`--json`）も保持し、拒否または契約外の書き込み要求を監査できます。Target の変更を検出すると
 `iter{N}_phase_*_write_violation.json` に指紋を記録して停止しますが、ユーザーの
 ファイルはロールバックしません。
 

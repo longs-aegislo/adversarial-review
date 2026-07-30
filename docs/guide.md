@@ -260,8 +260,9 @@ Each iteration produces:
 
 Every agent reply has a companion `*.invocation.json` recording the phase,
 backend, native enforcement mode, allowed tools, and whether write access was
-authorized. Claude review calls also retain `*.raw.log` stream events so denied
-or disallowed tool attempts can be audited; a detected Target change creates an
+authorized. Review calls also retain structured `*.raw.log` events (Claude
+`stream-json`, Codex `--json`) so denied or disallowed write attempts can be
+audited; a detected Target change creates an
 `iter{N}_phase_*_write_violation.json` fingerprint record and stops the run
 without reverting user files.
 

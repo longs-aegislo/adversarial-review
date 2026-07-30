@@ -112,6 +112,9 @@ REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
 PHASE_1_CLEAN=0
 PHASE_1_CONTINUE=1
 PHASE_1_FAILED=2
+PHASE_4_COMPLETE=0
+PHASE_4_CONTINUE=1
+PHASE_4_FAILED=2
 
 # Colors
 RED='\033[0;31m'
@@ -327,6 +330,31 @@ audit_claude_review_transcript() {
     ' "$raw_log" >/dev/null
 }
 
+audit_codex_review_transcript() {
+    local raw_log="$1"
+
+    jq -e -s '
+        [
+            .[] |
+            select(
+                .type == "error" or
+                .type == "turn.failed" or
+                (
+                    (.type == "item.started" or .type == "item.completed") and
+                    .item.type == "file_change"
+                ) or
+                (
+                    (.type == "item.started" or .type == "item.completed") and
+                    .item.type == "command_execution" and
+                    .item.status == "failed" and
+                    ((.item | tostring) |
+                        test("(?i)(sandbox|permission denied|read-only file system|operation not permitted)"))
+                )
+            )
+        ] | length == 0
+    ' "$raw_log" >/dev/null
+}
+
 # Cross-platform timeout command
 get_timeout_cmd() {
     if command -v gtimeout &> /dev/null; then
@@ -423,7 +451,7 @@ add_to_history() {
             "iteration": ($i | tonumber),
             "phase": $p,
             "agent": $a,
-            "result": ($r | fromjson? // $r),
+            "result": $r,
             "timestamp": $ts
         }]
     ' "$TRACKING_FILE" > "$tmp" && mv "$tmp" "$TRACKING_FILE"
@@ -646,7 +674,9 @@ run_codex() {
     local sandbox_mode="${4:-read-only}"
     local phase="${5:-unknown}"
     local write_authorized=false
+    local structured_review=false
     [[ "$sandbox_mode" == "workspace-write" ]] && write_authorized=true
+    [[ "$sandbox_mode" == "read-only" ]] && structured_review=true
     write_invocation_metadata "$output_file" "codex" "$phase" \
         "$write_authorized" "sandbox:$sandbox_mode"
 
@@ -668,12 +698,24 @@ run_codex() {
     # get only the agent's final reply for $output_file, which is what
     # downstream phases actually cat into their prompts.
     local raw_log="${output_file%.md}.raw.log"
+    local json_args=()
+    [[ "$structured_review" == "true" ]] && json_args+=(--json)
 
     local exit_code=0
     if [[ -n "$timeout_cmd" ]]; then
-        (cd "$working_dir" && printf '%s\n' "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s "$sandbox_mode" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
+        (cd "$working_dir" && printf '%s\n' "$prompt" | $timeout_cmd ${timeout_secs}s codex exec -s "$sandbox_mode" "${json_args[@]}" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
     else
-        (cd "$working_dir" && printf '%s\n' "$prompt" | codex exec -s "$sandbox_mode" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
+        (cd "$working_dir" && printf '%s\n' "$prompt" | codex exec -s "$sandbox_mode" "${json_args[@]}" --skip-git-repo-check -o "$output_file") > "$raw_log" 2>&1 || exit_code=$?
+    fi
+
+    if [[ "$structured_review" == "true" && $exit_code -eq 0 ]]; then
+        if ! jq -e . "$raw_log" >/dev/null 2>&1; then
+            log_warning "Codex returned a malformed JSONL transcript"
+            exit_code=65
+        elif ! audit_codex_review_transcript "$raw_log"; then
+            log_warning "Codex attempted a write outside the read-only review contract"
+            exit_code=65
+        fi
     fi
 
     # If codex failed before writing a final message (crash, timeout), fall
@@ -1158,16 +1200,16 @@ Working directory: $target_dir
     if [[ $fixer_rc -ne 0 ]]; then
         record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
             "agent exited with code $fixer_rc" "$output_file"
-        return 2
+        return "$PHASE_4_FAILED"
     fi
 
-    [[ "$DRY_RUN" == "1" ]] && return 1
+    [[ "$DRY_RUN" == "1" ]] && return "$PHASE_4_CONTINUE"
 
     local status
     if ! status="$(parse_status_block "$output_file" "SYNTHESIS_STATUS")"; then
         record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
             "missing or malformed SYNTHESIS_STATUS block" "$output_file"
-        return 2
+        return "$PHASE_4_FAILED"
     fi
     local exit_signal=$(echo "$status" | jq -r '.exit_signal // false')
     local files_modified=$(echo "$status" | jq -r '.files_modified // 0')
@@ -1200,11 +1242,11 @@ Working directory: $target_dir
 
     if [[ "$exit_signal" == "true" ]]; then
         log_success "Synthesis complete - no more issues"
-        return 0
+        return "$PHASE_4_COMPLETE"
     fi
 
     log_info "Fixes applied, will verify in next iteration"
-    return 1
+    return "$PHASE_4_CONTINUE"
 }
 
 # ============================================================================
@@ -1284,10 +1326,14 @@ run_review_loop() {
         echo ""
 
         # Phase 4
-        if run_phase_4 "$target_dir" "$iteration"; then
+        local phase_4_result=0
+        run_phase_4 "$target_dir" "$iteration" || phase_4_result=$?
+        if [[ $phase_4_result -eq $PHASE_4_COMPLETE ]]; then
             log_success "Synthesis complete"
             update_tracking "status" "clean"
             return 0
+        elif [[ $phase_4_result -eq $PHASE_4_FAILED ]]; then
+            return 1
         fi
         echo ""
 

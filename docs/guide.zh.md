@@ -242,10 +242,10 @@ SUMMARY: Found critical type mixing bug
 - `iter{N}_4_synthesis.md` - 最终综合结果与修复内容
 
 每份智能体回复都有对应的 `*.invocation.json`，记录阶段、Backend、原生权限／
-Sandbox 模式、允许的工具以及是否授权写入。Claude 审查调用还会保留
-`*.raw.log` 结构化事件，用于审计被拒绝或越权的工具请求；如果检测到 Target
-发生变化，流程会生成 `iter{N}_phase_*_write_violation.json` 指纹记录并停止，
-但不会回滚用户文件。
+Sandbox 模式、允许的工具以及是否授权写入。审查调用还会保留结构化
+`*.raw.log` 事件（Claude `stream-json`、Codex `--json`），用于审计被拒绝或
+越权的写入请求；如果检测到 Target 发生变化，流程会生成
+`iter{N}_phase_*_write_violation.json` 指纹记录并停止，但不会回滚用户文件。
 
 以上每个 Codex 生成的文件也有一份对应的 `iter{N}_*_*.raw.log`。`codex exec`
 的标准输出是完整的 agent 执行记录（推理摘要、shell/工具调用、文件转储），而不只是
