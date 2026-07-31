@@ -645,22 +645,11 @@ run_claude() {
             log_warning "Claude stream-json transcript has no final result"
             cp "$raw_log" "$output_file"
             exit_code=65
-        elif ! audit_claude_review_transcript "$raw_log"; then
-            log_warning "Claude attempted a tool outside the read-only review contract"
-            exit_code=65
         fi
     fi
     if [[ "$structured_review" == "true" && ! -s "$output_file" &&
           -f "$raw_log" ]]; then
         cp "$raw_log" "$output_file"
-    fi
-
-    if [[ $exit_code -eq 0 ]]; then
-        log_claude "Complete ($(wc -l < "$output_file" | tr -d ' ') lines)"
-    elif [[ $exit_code -eq 124 ]]; then
-        log_warning "Claude timed out after ${TIMEOUT_MINUTES}m"
-    else
-        log_warning "Claude exited with code $exit_code"
     fi
 
     return $exit_code
@@ -712,9 +701,6 @@ run_codex() {
         if ! jq -e . "$raw_log" >/dev/null 2>&1; then
             log_warning "Codex returned a malformed JSONL transcript"
             exit_code=65
-        elif ! audit_codex_review_transcript "$raw_log"; then
-            log_warning "Codex attempted a write outside the read-only review contract"
-            exit_code=65
         fi
     fi
 
@@ -724,15 +710,71 @@ run_codex() {
         cp "$raw_log" "$output_file"
     fi
 
+    return $exit_code
+}
+
+run_backend() {
+    local backend_name="$1"
+    local prompt="$2"
+    local output_file="$3"
+    local working_dir="${4:-$PWD}"
+    local mode="${5:-read-only}"
+    local phase="${6:-unknown}"
+    local exit_code=0
+    local raw_log="${output_file%.md}.raw.log"
+    local backend_label
+
+    case "$backend_name:$mode" in
+        claude:read-only)
+            run_claude "$prompt" "$output_file" "$working_dir" "false" \
+                "$REVIEW_AVAILABLE_TOOLS" "$REVIEW_ALLOWED_TOOLS" "$phase" ||
+                exit_code=$?
+            if [[ $exit_code -eq 0 && "$DRY_RUN" != "1" ]] &&
+               ! audit_claude_review_transcript "$raw_log"; then
+                log_warning "Claude attempted a tool outside the read-only review contract"
+                exit_code=65
+            fi
+            ;;
+        claude:workspace-write)
+            run_claude "$prompt" "$output_file" "$working_dir" "true" "" "" \
+                "$phase" ||
+                exit_code=$?
+            ;;
+        codex:read-only|codex:workspace-write)
+            run_codex "$prompt" "$output_file" "$working_dir" "$mode" "$phase" ||
+                exit_code=$?
+            if [[ $exit_code -eq 0 && "$mode" == "read-only" &&
+                  "$DRY_RUN" != "1" ]] &&
+               ! audit_codex_review_transcript "$raw_log"; then
+                log_warning "Codex attempted a write outside the read-only review contract"
+                exit_code=65
+            fi
+            ;;
+        *)
+            log_warning "Unsupported backend/mode combination: $backend_name:$mode"
+            return 64
+            ;;
+    esac
+
+    [[ "$DRY_RUN" == "1" ]] && return "$exit_code"
+
     if [[ $exit_code -eq 0 ]]; then
-        log_codex "Complete ($(wc -l < "$output_file" | tr -d ' ') lines, raw transcript $(wc -l < "$raw_log" | tr -d ' ') lines)"
-    elif [[ $exit_code -eq 124 ]]; then
-        log_warning "Codex timed out after ${TIMEOUT_MINUTES}m"
+        if [[ "$backend_name" == "claude" ]]; then
+            log_claude "Complete ($(wc -l < "$output_file" | tr -d ' ') lines)"
+        else
+            log_codex "Complete ($(wc -l < "$output_file" | tr -d ' ') lines, raw transcript $(wc -l < "$raw_log" | tr -d ' ') lines)"
+        fi
     else
-        log_warning "Codex exited with code $exit_code"
+        [[ "$backend_name" == "claude" ]] &&
+            backend_label="Claude" || backend_label="Codex"
+        if [[ $exit_code -eq 124 ]]; then
+            log_warning "$backend_label timed out after ${TIMEOUT_MINUTES}m"
+        else
+            log_warning "$backend_label exited with code $exit_code"
+        fi
     fi
 
-    return $exit_code
+    return "$exit_code"
 }
 
 # Both agents number their issues starting from 1 in every phase; without
@@ -854,13 +896,12 @@ $common_prompt"
     target_before="$(target_tree_fingerprint "$target_dir")"
 
     # Run in parallel
-    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
-        "$REVIEW_AVAILABLE_TOOLS" \
-        "$REVIEW_ALLOWED_TOOLS" "phase_1" &
+    run_backend "claude" "$claude_prompt" "$claude_out" "$target_dir" \
+        "read-only" "phase_1" &
     local claude_pid=$!
 
-    run_codex "$codex_prompt" "$codex_out" "$target_dir" "read-only" \
-        "phase_1" &
+    run_backend "codex" "$codex_prompt" "$codex_out" "$target_dir" \
+        "read-only" "phase_1" &
     local codex_pid=$!
 
     if ! wait_for_review_agents "$iteration" "phase_1" "Phase 1" \
@@ -949,13 +990,12 @@ $(cat "$claude_review")
     local target_before
     target_before="$(target_tree_fingerprint "$target_dir")"
 
-    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
-        "$REVIEW_AVAILABLE_TOOLS" \
-        "$REVIEW_ALLOWED_TOOLS" "phase_2" &
+    run_backend "claude" "$claude_prompt" "$claude_out" "$target_dir" \
+        "read-only" "phase_2" &
     local claude_pid=$!
 
-    run_codex "$codex_prompt" "$codex_out" "$target_dir" "read-only" \
-        "phase_2" &
+    run_backend "codex" "$codex_prompt" "$codex_out" "$target_dir" \
+        "read-only" "phase_2" &
     local codex_pid=$!
 
     if ! wait_for_review_agents "$iteration" "phase_2" "Phase 2" \
@@ -1072,13 +1112,12 @@ $(cat "$claude_on_codex")
     local target_before
     target_before="$(target_tree_fingerprint "$target_dir")"
 
-    run_claude "$claude_prompt" "$claude_out" "$target_dir" "false" \
-        "$REVIEW_AVAILABLE_TOOLS" \
-        "$REVIEW_ALLOWED_TOOLS" "phase_3" &
+    run_backend "claude" "$claude_prompt" "$claude_out" "$target_dir" \
+        "read-only" "phase_3" &
     local claude_pid=$!
 
-    run_codex "$codex_prompt" "$codex_out" "$target_dir" "read-only" \
-        "phase_3" &
+    run_backend "codex" "$codex_prompt" "$codex_out" "$target_dir" \
+        "read-only" "phase_3" &
     local codex_pid=$!
 
     if ! wait_for_review_agents "$iteration" "phase_3" "Phase 3" \
@@ -1189,12 +1228,12 @@ Working directory: $target_dir
     if [[ "$FIXER" == "codex" ]]; then
         fixer_agent="codex"
         log_info "Implementing fixes with Codex (workspace-write)"
-        run_codex "$context" "$output_file" "$target_dir" "workspace-write" \
-            "phase_4" ||
+        run_backend "codex" "$context" "$output_file" "$target_dir" \
+            "workspace-write" "phase_4" ||
             fixer_rc=$?
     else
-        run_claude "$context" "$output_file" "$target_dir" "true" "" "" \
-            "phase_4" ||
+        run_backend "claude" "$context" "$output_file" "$target_dir" \
+            "workspace-write" "phase_4" ||
             fixer_rc=$?
     fi
     if [[ $fixer_rc -ne 0 ]]; then

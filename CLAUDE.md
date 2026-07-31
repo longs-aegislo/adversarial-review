@@ -139,10 +139,13 @@ Examples:
 Every agent reply has a companion `*.invocation.json` that records its phase,
 native permission/sandbox mode, and whether write access was authorized.
 Review-phase Claude and Codex calls also retain structured `*.raw.log` events
-for denied-write auditing. Codex's raw stream is not just the final answer, so
-`run_codex()` uses `codex exec -o <file>` (`--output-last-message`) to write
-only the final reply to the `.md` file fed into later prompts. Raw transcripts
-remain diagnostic artifacts and are never concatenated into later prompts.
+for denied-write auditing. All four phases invoke agents through
+`run_backend()`, which dispatches to the backend-specific runner and requires
+the matching audit hook in read-only mode. Codex's raw stream is not just the
+final answer, so `run_codex()` uses `codex exec -o <file>`
+(`--output-last-message`) to write only the final reply to the `.md` file fed
+into later prompts. Raw transcripts remain diagnostic artifacts and are never
+concatenated into later prompts.
 
 ## Dependencies
 
@@ -157,9 +160,9 @@ remain diagnostic artifacts and are never concatenated into later prompts.
    No maintainer environment currently has (or is expected to have) macOS, so
    this path is untested by the maintainer and relies on community testing
    and feedback.
-2. **Tests**: `tests/` has bats-style suites covering base-scope,
-   response-analyzer, include-pre-existing, and the CLI contract (27 cases
-   total). See `tests/test_*.sh`.
+2. **Tests**: `tests/` has bats-style suites covering backend dispatch,
+   base-scope, response-analyzer, include-pre-existing, and the CLI contract
+   (33 cases total). See `tests/test_*.sh`.
 3. **Codex CLI flags**: May need adjustment based on actual codex CLI behavior
 4. **Cost tracking**: Not implemented - each iteration is ~6 API calls
 5. **Prompt bloat from Codex transcripts** (fixed): earlier versions fed each
@@ -181,10 +184,12 @@ remain diagnostic artifacts and are never concatenated into later prompts.
 ### Adding New Agents
 
 To add a third agent (e.g., Gemini):
-1. Add `run_gemini()` function following `run_claude()`/`run_codex()` pattern
-2. Update phases to run third agent in parallel
-3. Update cross-review to have 3-way comparisons
-4. Update synthesis to consider all three perspectives
+1. Add `run_gemini()` and `audit_gemini_review_transcript()` functions
+2. Register both read-only and writable modes in `run_backend()` so the
+   read-only audit cannot be skipped
+3. Update phases to run the third agent in parallel
+4. Update cross-review to have 3-way comparisons
+5. Update synthesis to consider all three perspectives
 
 ### Customizing Review Criteria
 
