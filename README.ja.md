@@ -63,6 +63,9 @@ cd adversarial-review
   成果物、カスタマイズ、コストに関する説明
 - [Fork変更履歴](docs/fork-notes.ja.md) — アップストリームとの差分と修正
 - [ドメイン用語集](CONTEXT.md) — 実装で使用する共通用語
+- [ツール比較評価](docs/evaluations/tool-bakeoff/README.md) — Chorus、
+  Open Code Review、coding-review-agent-loop との比較、再現可能な fixture と
+  生の検証記録
 
 ## コントリビューション
 

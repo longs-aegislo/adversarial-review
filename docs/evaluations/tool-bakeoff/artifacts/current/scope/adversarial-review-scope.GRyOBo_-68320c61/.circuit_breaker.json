@@ -1,0 +1,12 @@
+{
+    "state": "CLOSED",
+    "last_change": "2026-07-29T09:06:53Z",
+    "consecutive_no_progress": 0,
+    "consecutive_disagreement": 0,
+    "consecutive_same_issues": 0,
+    "last_progress_iteration": 1,
+    "total_opens": 0,
+    "reason": "",
+    "last_issues_hash": "8687ceb0c781b4d123458a1816155bf7ec0085678a5354b30870379267581ebe",
+    "current_iteration": 1
+}

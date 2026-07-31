@@ -1,0 +1,4 @@
+# Preserve generated evaluation transcripts and unified patches byte-for-byte.
+# Diff whitespace checks are disabled only for these evidence files.
+docs/evaluations/tool-bakeoff/artifacts/** whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab
+docs/evaluations/tool-bakeoff/results/*.patch whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab

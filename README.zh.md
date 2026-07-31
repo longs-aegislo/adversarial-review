@@ -61,6 +61,8 @@ cd adversarial-review
   自定义方式与成本说明
 - [Fork 变更记录](docs/fork-notes.zh.md)——相对上游的修改与修复
 - [领域术语表](CONTEXT.md)——实现中使用的统一术语
+- [工具对比评测](docs/evaluations/tool-bakeoff/README.md)——与 Chorus、
+  Open Code Review、coding-review-agent-loop 的比较，包含可复现 fixture 与原始证据
 
 ## 参与贡献
 

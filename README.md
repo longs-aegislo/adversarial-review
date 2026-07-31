@@ -65,6 +65,9 @@ cd adversarial-review
   state management, artifacts, customization, and cost notes
 - [Fork notes](docs/fork-notes.md) — changes and fixes relative to upstream
 - [Domain glossary](CONTEXT.md) — terminology used by the implementation
+- [Tool bake-off](docs/evaluations/tool-bakeoff/README.md) — comparison with
+  Chorus, Open Code Review, and coding-review-agent-loop, including reproducible
+  fixtures and raw evidence
 
 ## Contributing
 
