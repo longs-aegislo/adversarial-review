@@ -751,6 +751,7 @@ run_backend() {
             fi
             ;;
         *)
+            log_warning "Unsupported backend/mode combination: $backend_name:$mode"
             return 64
             ;;
     esac
