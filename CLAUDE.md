@@ -153,8 +153,13 @@ remain diagnostic artifacts and are never concatenated into later prompts.
 
 ## Known Issues / TODOs
 
-1. **macOS compatibility**: Uses `gtimeout` from coreutils instead of `timeout`
-2. **No tests yet**: Should add bats tests following ralph's pattern
+1. **macOS compatibility**: Uses `gtimeout` from coreutils instead of `timeout`.
+   No maintainer environment currently has (or is expected to have) macOS, so
+   this path is untested by the maintainer and relies on community testing
+   and feedback.
+2. **Tests**: `tests/` has bats-style suites covering base-scope,
+   response-analyzer, include-pre-existing, and the CLI contract (27 cases
+   total). See `tests/test_*.sh`.
 3. **Codex CLI flags**: May need adjustment based on actual codex CLI behavior
 4. **Cost tracking**: Not implemented - each iteration is ~6 API calls
 5. **Prompt bloat from Codex transcripts** (fixed): earlier versions fed each
