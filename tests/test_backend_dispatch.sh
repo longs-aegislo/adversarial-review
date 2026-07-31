@@ -174,10 +174,28 @@ test_read_only_dry_run_skips_transcript_audits() {
     pass "read-only dry-run skips transcript audits"
 }
 
+test_unsupported_backend_mode_logs_diagnostic() {
+    local backend_output status
+
+    set +e
+    backend_output="$(run_backend "unknown" "prompt" "$TEST_ROOT/unknown.md" \
+        "$TEST_ROOT/target" "read-only" "phase_1" 2>&1)"
+    status=$?
+    set -e
+
+    assert_eq "64" "$status" \
+        "unsupported backend/mode combinations should retain their usage error"
+    assert_contains "$backend_output" \
+        "Unsupported backend/mode combination: unknown:read-only" \
+        "unsupported backend/mode combinations should explain the failure"
+    pass "unsupported backend/mode logs diagnostic"
+}
+
 test_read_only_claude_dispatches_and_audits
 test_read_only_codex_dispatches_and_audits
 test_workspace_write_dispatches_without_review_audits
 test_read_only_audit_failures_are_fatal_and_preserve_raw_logs
 test_read_only_dry_run_skips_transcript_audits
+test_unsupported_backend_mode_logs_diagnostic
 
 echo "1..$tests_run"
