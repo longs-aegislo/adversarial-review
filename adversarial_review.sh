@@ -23,6 +23,11 @@
 #   --target-dir PATH       Project to review
 #   -b, --base REF          Review only files differing from this git ref
 #   --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings
+#   --review-only           Declare intent for Phase 4 to run without write
+#                           access (mutually exclusive with --apply-fixes;
+#                           Phase 4 behavior itself is unchanged for now)
+#   --apply-fixes           Declare intent for Phase 4 to keep today's write
+#                           access (mutually exclusive with --review-only)
 #   --status                Show current status for the required target
 #   --reset                 Reset artifacts and tracking for the required target
 #   --reset-circuit         Reset circuit breaker for the required target
@@ -85,7 +90,7 @@ while [[ $_prescan_i -lt ${#_prescan_args[@]} ]]; do
         -m|--max-iters|-p|--prompt|-t|--timeout|-f|--fixer|-b|--base)
             ((_prescan_i+=2)) || true
             ;;
-        -h|--help|-v|--verbose|--status|--reset|--reset-circuit|--circuit-status|--dry-run|--include-pre-existing)
+        -h|--help|-v|--verbose|--status|--reset|--reset-circuit|--circuit-status|--dry-run|--include-pre-existing|--review-only|--apply-fixes)
             ((_prescan_i+=1)) || true
             ;;
         -*)
@@ -131,6 +136,8 @@ SLOT_B=""
 BASE_REF=""
 BASE_COMMIT=""
 INCLUDE_PRE_EXISTING=0
+REVIEW_ONLY=0
+APPLY_FIXES=0
 CUSTOM_REVIEW_CRITERIA=""
 REVIEW_AVAILABLE_TOOLS="Read,Glob,Grep,Bash"
 REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
@@ -1584,6 +1591,23 @@ OPTIONS:
                             including uncommitted and untracked source files
     --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
                             (default: report them without applying changes)
+    --review-only           Declare that this caller wants Phase 4 to run
+                            without write access (mutually exclusive with
+                            --apply-fixes). NOTE: Phase 4 still keeps its
+                            current write-access behavior in this release;
+                            this flag only records the caller's intent and
+                            is validated, but does not yet change what
+                            Phase 4 does — that follows in a later release.
+    --apply-fixes           Declare that this caller wants (and accepts)
+                            Phase 4 keeping today's write-access behavior
+                            (mutually exclusive with --review-only)
+                            If neither --review-only nor --apply-fixes is
+                            given, Phase 4 behavior matches today's implicit
+                            apply-fixes default, and a migration warning is
+                            printed. Passing both is a startup error. New
+                            automation, skills, and plugins should pass one
+                            of these flags explicitly, since the implicit
+                            default may be removed in a future version.
     --status                Show current status for the required target
     --reset                 Reset all state for the required target
     --reset-circuit         Reset circuit breaker for the required target
@@ -1696,6 +1720,14 @@ main() {
                 INCLUDE_PRE_EXISTING=1
                 shift
                 ;;
+            --review-only)
+                REVIEW_ONLY=1
+                shift
+                ;;
+            --apply-fixes)
+                APPLY_FIXES=1
+                shift
+                ;;
             --status)
                 action="status"
                 shift
@@ -1784,6 +1816,13 @@ main() {
             exit 0
             ;;
     esac
+
+    if [[ "$REVIEW_ONLY" == "1" && "$APPLY_FIXES" == "1" ]]; then
+        log_error "--review-only and --apply-fixes are mutually exclusive"
+        exit 1
+    elif [[ "$REVIEW_ONLY" != "1" && "$APPLY_FIXES" != "1" ]]; then
+        log_warning "Neither --review-only nor --apply-fixes was specified; using today's implicit Phase 4 behavior (write access is kept). This implicit default may be removed in a future version — automation, skills, and plugins invoking this CLI should pass one of the two flags explicitly."
+    fi
 
     if [[ -n "$BASE_REF" ]]; then
         if [[ "$(git -C "$target_dir" rev-parse --is-inside-work-tree 2>/dev/null || true)" != "true" ]]; then
