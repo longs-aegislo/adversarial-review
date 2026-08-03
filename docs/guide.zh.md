@@ -15,7 +15,8 @@
 
 ## 核心理念
 
-两个 AI 智能体（Claude 和 GPT Codex）各自独立审查代码，然后通过多轮辩论互相批判对方的发现。这种对抗式流程有助于：
+两个可配置的审查槽位分别由 Claude 或 Codex 后端执行，各自独立审查代码，
+再通过多轮辩论互相批判对方的发现。两个槽位可使用不同或相同的后端。这种对抗式流程有助于：
 
 - **发现更多问题**：不同模型能捕捉到不同的问题
 - **消除误报**：交叉验证能过滤掉不正确的发现
@@ -27,21 +28,21 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  阶段一：独立审查                                             │
-│    Claude 审查代码 → claude_review.md                        │
-│    Codex 审查代码  → codex_review.md                         │
+│    槽位 A 审查代码 → <backend>_review.md                     │
+│    槽位 B 审查代码 → <backend>_review.md                     │
 │    两个智能体只拿到一份文件路径清单（从第二轮起还会附上         │
 │    自上一轮以来的 git diff），需要用自己的工具去读取想看的     │
 │    文件——不再把整个代码库的文件内容直接塞进 prompt             │
 │    （并行执行）                                               │
 ├─────────────────────────────────────────────────────────────┤
 │  阶段二：交叉审查                                             │
-│    Claude 审查 Codex 的发现 → claude_on_codex.md              │
-│    Codex 审查 Claude 的发现 → codex_on_claude.md              │
+│    槽位 A 审查槽位 B 的发现                                   │
+│    槽位 B 审查槽位 A 的发现                                   │
 │    （并行执行）                                               │
 ├─────────────────────────────────────────────────────────────┤
 │  阶段三：元审查（Meta-Review）                                │
-│    Claude 回应 Codex 的批评 → claude_meta.md                  │
-│    Codex 回应 Claude 的批评 → codex_meta.md                   │
+│    槽位 A 回应槽位 B 的批评                                   │
+│    槽位 B 回应槽位 A 的批评                                   │
 │    每个智能体都会拿到：自己第一阶段的审查结果、对方第一阶段的  │
 │    审查结果、自己在第二阶段对对方发现的交叉审查，以及自己收到  │
 │    的反馈——每次都是完整上下文，避免发现在共识阶段悄悄消失      │
@@ -66,17 +67,17 @@ cd adversarial-review
 
 # 对目标项目运行（若 stdin 是交互终端，会询问由哪个智能体
 # 负责阶段四的修复实现）
-./adversarial_review.sh ../my-project
+./adversarial_review.sh claude codex ../my-project
 
 # 带选项运行
-./adversarial_review.sh -m 5 -v ../my-project        # 5 轮迭代，详细输出
-./adversarial_review.sh -f codex ../my-project        # 由 Codex 实施修复
-./adversarial_review.sh -f claude ../my-project       # 由 Claude 实施修复
-./adversarial_review.sh --base main ../my-project     # 只审查分支差异
-./adversarial_review.sh --include-pre-existing ../my-project  # 也修复历史问题
+./adversarial_review.sh -m 5 -v claude codex ../my-project
+./adversarial_review.sh -f codex claude codex ../my-project
+./adversarial_review.sh -f claude claude codex ../my-project
+./adversarial_review.sh --base main claude codex ../my-project
+./adversarial_review.sh --include-pre-existing claude codex ../my-project
 
 # 空跑（查看会执行什么，不会真正调用任何 API）
-./adversarial_review.sh --dry-run --base main ../my-project
+./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
 ## 依赖要求
@@ -89,7 +90,7 @@ cd adversarial-review
 ## 用法
 
 ```bash
-./adversarial_review.sh [选项] <目标目录>
+./adversarial_review.sh [选项] <slot_a> <slot_b> <目标目录>
 
 选项：
     -h, --help              显示帮助
@@ -100,16 +101,23 @@ cd adversarial-review
     -f, --fixer AGENT       阶段四由谁来实施修复：claude | codex
                             （省略时，在交互终端会询问；
                             非交互场景默认使用 codex）
+    --slot-a AGENT          审查槽位 A 的后端：claude | codex
+    --slot-b AGENT          审查槽位 B 的后端：claude | codex
+    --target-dir PATH       要审查的项目目录
     -b, --base REF          只审查相对该 Git ref 有差异的文件，
                             包括未提交和未跟踪的源文件
     --include-pre-existing  允许阶段四也修复 PRE_EXISTING 问题
                             （默认只报告，不应用修改）
-    --status [目录]          显示当前状态（给定目录时按该项目查看）
-    --reset [目录]           重置所有状态（给定目录时只重置该项目）
-    --reset-circuit [目录]   仅重置断路器（给定目录时只重置该项目）
-    --circuit-status [目录]  显示断路器状态（给定目录时只看该项目）
+    --status                显示必填目标目录对应的当前状态
+    --reset                 重置必填目标目录对应的所有状态
+    --reset-circuit         重置必填目标目录对应的断路器
+    --circuit-status        显示必填目标目录对应的断路器状态
     --dry-run               只展示会执行什么，不真正运行
 ```
+
+三个必填输入均可独立使用位置形式或长选项形式，并可任意混用。两个槽位可使用
+同一后端；运行会继续，但会警告审查多样性降低。旧的单位置参数形式会被拒绝，
+不会把目标路径误解释为槽位 A。
 
 `--base` 是可选的，并且不会自动推断。设置后，阶段一只审查相对该 ref
 发生差异的可审查源文件，包括已提交、已暂存、未暂存和未跟踪的工作；
@@ -122,10 +130,10 @@ cd adversarial-review
 变更文件边界用于默认分类；未传入时，智能体通过受影响行的 `git blame`/
 `git log` 判断历史归属。阶段四默认只修复 `IN_SCOPE`，并单独列出历史问题。
 只有明确希望同时修复两类问题时才使用 `--include-pre-existing`。dry-run
-会显示实际组装的阶段四策略，`--status <目标目录>` 会按范围显示已修复／
+会显示实际组装的阶段四策略，`--status <slot_a> <slot_b> <目标目录>` 会按范围显示已修复／
 仅标记的数量。
 
-状态是按目标目录隔离的（见下方"状态目录"一节），所以想查看或重置某个项目的历史，把当初审查它时用的 `<目标目录>` 原样传给 `--status`/`--reset` 等命令即可。不传目录时会退回一个共享/全局的兜底位置，仅为向后兼容保留。
+状态是按目标目录隔离的（见下方"状态目录"一节），所以想查看或重置某个项目的历史，需要把必填的槽位配置和当初审查它时用的 `<目标目录>` 传给 `--status`/`--reset` 等命令。
 
 ## 项目结构
 
@@ -155,7 +163,7 @@ adversarial-review/
 
 - 审查完项目 A 再审查项目 B，两者的 `tracking.json` 历史、产出文件、断路器计数都不会混在一起。
 - 项目 A 留下的 OPEN 断路器（或者一次遗留的 `--dry-run`）不会拦下或污染项目 B 的运行。
-- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` 都支持传入一个可选的目标目录参数，用来精确定位到该项目的状态。
+- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` 都要求提供两个槽位配置和目标目录，用来精确定位到该项目的状态。
 
 ## 断路器（Circuit Breaker）
 
@@ -167,10 +175,10 @@ adversarial-review/
 
 ```bash
 # 查看某个项目的断路器状态
-./adversarial_review.sh --circuit-status ../my-project
+./adversarial_review.sh --circuit-status claude codex ../my-project
 
 # 卡住时重置
-./adversarial_review.sh --reset-circuit ../my-project
+./adversarial_review.sh --reset-circuit claude codex ../my-project
 ```
 
 ## 自定义
@@ -179,7 +187,7 @@ adversarial-review/
 
 ```bash
 # 为本次运行追加审查标准
-./adversarial_review.sh -p my_review_prompt.md ../project
+./adversarial_review.sh -p my_review_prompt.md claude codex ../project
 ```
 
 脚本会在参数验证期间读取该文件一次，并把内容作为带边界标记的标准区段追加到
@@ -233,13 +241,15 @@ SUMMARY: Found critical type mixing bug
 ### 产出文件（Artifacts）
 
 每轮迭代会产生：
-- `iter{N}_1_claude_review.md` - Claude 的初始审查
-- `iter{N}_1_codex_review.md` - Codex 的初始审查
-- `iter{N}_2_claude_on_codex.md` - Claude 的交叉审查
-- `iter{N}_2_codex_on_claude.md` - Codex 的交叉审查
-- `iter{N}_3_claude_meta.md` - Claude 的元审查
-- `iter{N}_3_codex_meta.md` - Codex 的元审查
+- `iter{N}_1_<backend>_review.md` - 槽位 A 的初始审查
+- `iter{N}_1_<backend>_review.md` - 槽位 B 的初始审查
+- `iter{N}_2_<backend>_on_<other_backend>.md` - 交叉审查
+- `iter{N}_3_<backend>_meta.md` - 元审查
 - `iter{N}_4_synthesis.md` - 最终综合结果与修复内容
+
+`<backend>` 始终使用实际的 `claude` 或 `codex`，不会改成槽位名。异构配置保留
+既有路径；同后端配置中，未改变的文件名分别放在 `artifacts/slot-a/` 与
+`artifacts/slot-b/` 下，以避免文件冲突。
 
 每份智能体回复都有对应的 `*.invocation.json`，记录阶段、Backend、原生权限／
 Sandbox 模式、允许的工具以及是否授权写入。审查调用还会保留结构化
@@ -269,9 +279,9 @@ Sandbox 模式、允许的工具以及是否授权写入。审查调用还会保
 ## 成本考量
 
 每轮迭代会产生 6 次 API 调用（3 组并行调用）：
-- 阶段一：2 次调用（Claude + Codex）
-- 阶段二：2 次调用（Claude + Codex）
-- 阶段三：2 次调用（Claude + Codex）
+- 阶段一：2 次调用（槽位 A + 槽位 B）
+- 阶段二：2 次调用（槽位 A + 槽位 B）
+- 阶段三：2 次调用（槽位 A + 槽位 B）
 - 阶段四：1 次调用（由 `--fixer` 选定的那个智能体）
 
 最多 3 轮迭代时，最坏情况约为每次审查 21 次 API 调用。

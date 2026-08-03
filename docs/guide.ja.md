@@ -15,7 +15,9 @@ Claude と GPT Codex による敵対的ディベートループを用いたマ�
 
 ## コンセプト
 
-2つのAIエージェント（Claude と GPT Codex）がそれぞれ独立してコードをレビューし、その後複数ラウンドのディベートを通じてお互いの指摘を批評し合います。この敵対的なプロセスには次のような利点があります：
+Claude または Codex を割り当てられる2つのレビュースロットが、それぞれ独立して
+コードをレビューし、複数ラウンドのディベートで互いの指摘を批評します。両スロットは
+異なるバックエンドにも同じバックエンドにもできます。この敵対的なプロセスには次の利点があります：
 
 - **より多くの問題を発見**：異なるモデルは異なる問題を見つけます
 - **誤検知の排除**：クロスバリデーションによって誤った指摘を除外します
@@ -27,8 +29,8 @@ Claude と GPT Codex による敵対的ディベートループを用いたマ�
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  フェーズ1：独立レビュー                                      │
-│    Claude がコードをレビュー → claude_review.md               │
-│    Codex がコードをレビュー  → codex_review.md                │
+│    スロット A がレビュー → <backend>_review.md                 │
+│    スロット B がレビュー → <backend>_review.md                 │
 │    両エージェントにはファイルパスの一覧のみが渡され（2回目の  │
 │    イテレーション以降は前回からの git diff も付与）、必要な    │
 │    ファイルは自分のツールで読みに行きます。ファイルの中身を    │
@@ -36,13 +38,13 @@ Claude と GPT Codex による敵対的ディベートループを用いたマ�
 │    （並列実行）                                                │
 ├─────────────────────────────────────────────────────────────┤
 │  フェーズ2：クロスレビュー                                    │
-│    Claude が Codex の指摘をレビュー → claude_on_codex.md       │
-│    Codex が Claude の指摘をレビュー → codex_on_claude.md       │
+│    スロット A がスロット B の指摘をレビュー                    │
+│    スロット B がスロット A の指摘をレビュー                    │
 │    （並列実行）                                                │
 ├─────────────────────────────────────────────────────────────┤
 │  フェーズ3：メタレビュー                                      │
-│    Claude が Codex の批評に応答 → claude_meta.md               │
-│    Codex が Claude の批評に応答 → codex_meta.md                │
+│    スロット A がスロット B の批評に応答                        │
+│    スロット B がスロット A の批評に応答                        │
 │    各エージェントには、自分のフェーズ1レビュー、相手の         │
 │    フェーズ1レビュー、自分がフェーズ2で行った相手への          │
 │    クロスレビュー、そして自分が受け取ったフィードバックが      │
@@ -69,17 +71,17 @@ cd adversarial-review
 
 # 対象プロジェクトに対して実行（標準入力がTTYの場合、フェーズ4の
 # 修正実装をどちらのエージェントに任せるか対話的に尋ねられます）
-./adversarial_review.sh ../my-project
+./adversarial_review.sh claude codex ../my-project
 
 # オプション付き
-./adversarial_review.sh -m 5 -v ../my-project        # 5イテレーション、詳細出力
-./adversarial_review.sh -f codex ../my-project        # Codex が修正を実装
-./adversarial_review.sh -f claude ../my-project       # Claude が修正を実装
-./adversarial_review.sh --base main ../my-project     # ブランチ差分のみレビュー
-./adversarial_review.sh --include-pre-existing ../my-project  # 既存問題も修正
+./adversarial_review.sh -m 5 -v claude codex ../my-project
+./adversarial_review.sh -f codex claude codex ../my-project
+./adversarial_review.sh -f claude claude codex ../my-project
+./adversarial_review.sh --base main claude codex ../my-project
+./adversarial_review.sh --include-pre-existing claude codex ../my-project
 
 # ドライラン（実際にAPIを呼ばずに、何が実行されるかを確認）
-./adversarial_review.sh --dry-run --base main ../my-project
+./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
 ## 必要要件
@@ -92,7 +94,7 @@ cd adversarial-review
 ## 使い方
 
 ```bash
-./adversarial_review.sh [オプション] <対象ディレクトリ>
+./adversarial_review.sh [オプション] <slot_a> <slot_b> <対象ディレクトリ>
 
 オプション：
     -h, --help              ヘルプを表示
@@ -103,16 +105,24 @@ cd adversarial-review
     -f, --fixer AGENT       フェーズ4の修正実装担当：claude | codex
                             （省略時、TTYであれば対話的に尋ねる。
                             非対話環境では codex がデフォルト）
+    --slot-a AGENT          レビュースロット A のバックエンド：claude | codex
+    --slot-b AGENT          レビュースロット B のバックエンド：claude | codex
+    --target-dir PATH       レビュー対象のプロジェクトディレクトリ
     -b, --base REF          この Git ref との差分ファイルのみレビュー
                             （未コミット・未追跡のソースも含む）
     --include-pre-existing  フェーズ4で PRE_EXISTING も修正
                             （デフォルトは報告のみで変更しない）
-    --status [DIR]          現在の状態を表示（DIR指定時はそのプロジェクトのみ）
-    --reset [DIR]           すべての状態をリセット（DIR指定時はそのプロジェクトのみ）
-    --reset-circuit [DIR]   サーキットブレーカーのみリセット（DIR指定時はそのプロジェクトのみ）
-    --circuit-status [DIR]  サーキットブレーカーの状態を表示（DIR指定時はそのプロジェクトのみ）
+    --status                必須の対象ディレクトリに対応する状態を表示
+    --reset                 必須の対象ディレクトリに対応する全状態をリセット
+    --reset-circuit         必須の対象ディレクトリのサーキットブレーカーをリセット
+    --circuit-status        必須の対象ディレクトリのサーキットブレーカー状態を表示
     --dry-run               実行せずに何が行われるかを表示
 ```
+
+3つの必須入力は、それぞれ位置形式または長形式オプションで指定でき、自由に
+混在できます。両スロットに同じバックエンドを指定しても実行は継続しますが、
+レビュー多様性低下の警告が表示されます。従来の単一位置引数形式は拒否され、
+対象パスがスロット A として誤解釈されることはありません。
 
 `--base` は任意指定で、自動推測は行いません。指定するとフェーズ1は、
 その ref に対して差分のあるレビュー対象ソースだけに限定されます。
@@ -128,10 +138,10 @@ ref が無効、対象が Git ワークツリーではない、または解決�
 で履歴を確認します。フェーズ4は通常 `IN_SCOPE` のみを修正し、既存問題は
 別セクションに列挙します。両カテゴリを意図的に修正する場合だけ
 `--include-pre-existing` を使用してください。dry-run は組み立てられる
-フェーズ4ポリシーを表示し、`--status <対象ディレクトリ>` はスコープ別の
+フェーズ4ポリシーを表示し、`--status <slot_a> <slot_b> <対象ディレクトリ>` はスコープ別の
 修正／報告件数を表示します。
 
-状態はターゲットディレクトリごとに分離されています（下記「状態ディレクトリ」参照）。特定のプロジェクトの履歴を確認・リセットしたい場合は、レビュー時に指定したのと同じ `<対象ディレクトリ>` を `--status`/`--reset` などに渡してください。省略した場合は後方互換のために残された共有／グローバルな領域にフォールバックします。
+状態はターゲットディレクトリごとに分離されています（下記「状態ディレクトリ」参照）。特定のプロジェクトの履歴を確認・リセットしたい場合は、必須のスロット構成と、レビュー時に指定したのと同じ `<対象ディレクトリ>` を `--status`/`--reset` などに渡してください。
 
 ## プロジェクト構成
 
@@ -161,7 +171,7 @@ adversarial-review/
 
 - プロジェクトAをレビューした後にプロジェクトBをレビューしても、`tracking.json` の履歴・成果物・サーキットブレーカーのカウンターが混ざりません。
 - プロジェクトAで「OPEN」になったサーキットブレーカー（や実行し忘れた `--dry-run` の残骸）が、別プロジェクトBの実行をブロックしたり汚染したりしません。
-- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` はいずれも対象ディレクトリを任意の引数として受け取り、そのプロジェクトの状態に絞り込めます。
+- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` はいずれも2つのスロット構成と対象ディレクトリを必須入力として受け取り、そのプロジェクトの状態に絞り込みます。
 
 ## サーキットブレーカー
 
@@ -173,10 +183,10 @@ adversarial-review/
 
 ```bash
 # 特定プロジェクトのサーキットブレーカーの状態を確認
-./adversarial_review.sh --circuit-status ../my-project
+./adversarial_review.sh --circuit-status claude codex ../my-project
 
 # 詰まった場合はリセット
-./adversarial_review.sh --reset-circuit ../my-project
+./adversarial_review.sh --reset-circuit claude codex ../my-project
 ```
 
 ## カスタマイズ
@@ -185,7 +195,7 @@ adversarial-review/
 
 ```bash
 # 今回の実行にレビュー基準を追加
-./adversarial_review.sh -p my_review_prompt.md ../project
+./adversarial_review.sh -p my_review_prompt.md claude codex ../project
 ```
 
 このファイルは引数検証時に一度だけ読み込まれ、区切り付きの基準セクションとして
@@ -241,13 +251,15 @@ SUMMARY: Found critical type mixing bug
 ### 成果物（Artifacts）
 
 各イテレーションで以下が生成されます：
-- `iter{N}_1_claude_review.md` - Claude の初期レビュー
-- `iter{N}_1_codex_review.md` - Codex の初期レビュー
-- `iter{N}_2_claude_on_codex.md` - Claude のクロスレビュー
-- `iter{N}_2_codex_on_claude.md` - Codex のクロスレビュー
-- `iter{N}_3_claude_meta.md` - Claude のメタレビュー
-- `iter{N}_3_codex_meta.md` - Codex のメタレビュー
+- `iter{N}_1_<backend>_review.md` - スロット A の初期レビュー
+- `iter{N}_1_<backend>_review.md` - スロット B の初期レビュー
+- `iter{N}_2_<backend>_on_<other_backend>.md` - クロスレビュー
+- `iter{N}_3_<backend>_meta.md` - メタレビュー
 - `iter{N}_4_synthesis.md` - 最終的な統合結果と修正内容
+
+`<backend>` は常に実際の `claude` または `codex` で、スロット名にはなりません。
+異種構成では従来のパスを維持します。同一バックエンド構成では、衝突防止のため
+変更のないファイル名を `artifacts/slot-a/` と `artifacts/slot-b/` に分けて格納します。
 
 各エージェント返信には `*.invocation.json` が対応し、フェーズ、Backend、ネイティブ
 権限／Sandbox モード、許可ツール、書き込み許可の有無を記録します。レビュー
@@ -279,9 +291,9 @@ SUMMARY: Found critical type mixing bug
 ## コストに関する考慮事項
 
 各イテレーションで6回のAPI呼び出し（3組の並列呼び出し）が発生します：
-- フェーズ1：2回（Claude + Codex）
-- フェーズ2：2回（Claude + Codex）
-- フェーズ3：2回（Claude + Codex）
+- フェーズ1：2回（スロット A + スロット B）
+- フェーズ2：2回（スロット A + スロット B）
+- フェーズ3：2回（スロット A + スロット B）
 - フェーズ4：1回（`--fixer` で選択したエージェント）
 
 最大3イテレーションの場合、最悪ケースで1回のレビューあたり約21回のAPI呼び出しになります。

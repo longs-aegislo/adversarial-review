@@ -355,7 +355,7 @@ test_custom_prompt_is_additive_and_review_phases_are_read_only() {
     repo_status_before="$(git -C "$SCRIPT_DIR" status --short)"
 
     if ! PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
-        --max-iters 1 --fixer codex --prompt "$custom_prompt" "$target" \
+        --max-iters 1 --fixer codex --prompt "$custom_prompt" claude codex "$target" \
         > "$output_file" 2>&1; then
         fail "Codex-fixer contract run failed:
 $(cat "$output_file")"
@@ -413,7 +413,7 @@ test_claude_fixer_is_writable_without_prompt_leakage() {
     printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
 
     if ! PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
-        --max-iters 1 --fixer claude --prompt "$custom_prompt" "$target" \
+        --max-iters 1 --fixer claude --prompt "$custom_prompt" claude codex "$target" \
         > "$output_file" 2>&1; then
         fail "Claude-fixer contract run failed:
 $(cat "$output_file")"
@@ -443,7 +443,7 @@ test_invalid_prompts_fail_before_agent_invocation() {
         : > "$FAKE_AGENT_LOG"
         set +e
         output="$(PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
-            --max-iters 1 --fixer codex --prompt "$prompt" "$target" 2>&1)"
+            --max-iters 1 --fixer codex --prompt "$prompt" claude codex "$target" 2>&1)"
         status=$?
         set -e
         [[ $status -ne 0 ]] || fail "invalid prompt must return nonzero: $prompt"
@@ -471,7 +471,7 @@ test_review_agent_failure_stops_with_diagnostics() {
     set +e
     FAKE_FAIL_PHASE=2 FAKE_FAIL_AGENT=claude PATH="$FAKE_BIN:$PATH" \
         "$SCRIPT_UNDER_TEST" --max-iters 1 --fixer codex \
-        --prompt "$custom_prompt" "$target" > "$output_file" 2>&1
+        --prompt "$custom_prompt" claude codex "$target" > "$output_file" 2>&1
     status=$?
     set -e
 
@@ -483,7 +483,7 @@ test_review_agent_failure_stops_with_diagnostics() {
     [[ -f "$artifact" ]] || fail "the failed agent artifact must be retained"
     assert_contains "$(cat "$artifact")" "simulated claude failure in phase 2" \
         "the retained artifact must contain failure diagnostics"
-    assert_contains "$(cat "$output_file")" "Phase 2 Claude" \
+    assert_contains "$(cat "$output_file")" "Phase 2 slot-a (claude)" \
         "the failure message must identify the failed phase and agent"
     [[ "$(git -C "$SCRIPT_DIR" hash-object prompts/initial_review.md)" == "$prompt_hash_before" ]] ||
         fail "failure handling must not modify the built-in prompt"
@@ -508,7 +508,7 @@ test_malformed_review_response_stops_the_workflow() {
     set +e
     FAKE_MALFORMED_PHASE=1 FAKE_MALFORMED_AGENT=claude PATH="$FAKE_BIN:$PATH" \
         "$SCRIPT_UNDER_TEST" --max-iters 1 --fixer codex \
-        --prompt "$custom_prompt" "$target" > "$output_file" 2>&1
+        --prompt "$custom_prompt" claude codex "$target" > "$output_file" 2>&1
     status=$?
     set -e
 
@@ -538,7 +538,7 @@ test_denied_write_attempt_stops_with_raw_diagnostics() {
         set +e
         FAKE_DENIED_WRITE_PHASE=2 FAKE_DENIED_WRITE_AGENT="$agent" \
             PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" --max-iters 1 \
-            --fixer codex --prompt "$custom_prompt" "$target" \
+            --fixer codex --prompt "$custom_prompt" claude codex "$target" \
             > "$output_file" 2>&1
         status=$?
         set -e
@@ -546,9 +546,9 @@ test_denied_write_attempt_stops_with_raw_diagnostics() {
         [[ $status -ne 0 ]] ||
             fail "a denied $agent write attempt must fail the run"
         if [[ "$agent" == "claude" ]]; then
-            agent_label="Claude"
+            agent_label="slot-a (claude)"
         else
-            agent_label="Codex"
+            agent_label="slot-b (codex)"
         fi
         assert_contains "$(cat "$output_file")" "Phase 2 $agent_label failed" \
             "the denied attempt must identify the failed phase and agent"
@@ -583,7 +583,7 @@ test_detected_target_write_stops_without_rollback() {
     set +e
     FAKE_FORCE_REVIEW_WRITE_PHASE=2 PATH="$FAKE_BIN:$PATH" \
         "$SCRIPT_UNDER_TEST" --max-iters 1 --fixer codex \
-        --prompt "$custom_prompt" "$target" > "$output_file" 2>&1
+        --prompt "$custom_prompt" claude codex "$target" > "$output_file" 2>&1
     status=$?
     set -e
 
@@ -618,7 +618,7 @@ test_fixer_failure_does_not_start_another_iteration() {
     set +e
     FAKE_FAIL_PHASE=4 FAKE_FAIL_AGENT=codex PATH="$FAKE_BIN:$PATH" \
         "$SCRIPT_UNDER_TEST" --max-iters 2 --fixer codex \
-        --prompt "$custom_prompt" "$target" > "$output_file" 2>&1
+        --prompt "$custom_prompt" claude codex "$target" > "$output_file" 2>&1
     status=$?
     set -e
 

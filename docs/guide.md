@@ -15,7 +15,9 @@ This fork's changes relative to upstream are maintained separately in
 
 ## Concept
 
-Two AI agents (Claude and GPT Codex) independently review code, then critique each other's findings through multiple rounds of debate. This adversarial process helps:
+Two configurable reviewer slots, each backed by Claude or Codex, independently
+review code and then critique each other's findings through multiple rounds of debate.
+The slots may use different backends or the same backend. This adversarial process helps:
 
 - **Find more issues**: Different models catch different problems
 - **Eliminate false positives**: Cross-validation filters out incorrect findings
@@ -27,8 +29,8 @@ Two AI agents (Claude and GPT Codex) independently review code, then critique ea
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Phase 1: Independent Reviews                               │
-│    Claude reviews code → claude_review.md                   │
-│    Codex reviews code  → codex_review.md                    │
+│    Slot A reviews code → <backend>_review.md                │
+│    Slot B reviews code → <backend>_review.md                │
 │    Agents are given a file path list (+ a git diff of what  │
 │    changed since the last iteration) and read whichever     │
 │    files they need themselves - full file contents are no   │
@@ -36,13 +38,13 @@ Two AI agents (Claude and GPT Codex) independently review code, then critique ea
 │    (runs in parallel)                                       │
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 2: Cross-Review                                      │
-│    Claude reviews Codex's findings → claude_on_codex.md     │
-│    Codex reviews Claude's findings → codex_on_claude.md     │
+│    Slot A reviews slot B's findings                         │
+│    Slot B reviews slot A's findings                         │
 │    (runs in parallel)                                       │
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 3: Meta-Review                                       │
-│    Claude responds to Codex's critique → claude_meta.md     │
-│    Codex responds to Claude's critique → codex_meta.md      │
+│    Slot A responds to slot B's critique                     │
+│    Slot B responds to slot A's critique                     │
 │    Each agent gets its own Phase 1 review, the other        │
 │    agent's Phase 1 review, its own Phase 2 cross-review,    │
 │    and the feedback it received - full context every time,  │
@@ -69,17 +71,17 @@ cd adversarial-review
 
 # Run on a target project (prompts interactively for which agent
 # implements Phase 4 fixes, if stdin is a TTY)
-./adversarial_review.sh ../my-project
+./adversarial_review.sh claude codex ../my-project
 
 # With options
-./adversarial_review.sh -m 5 -v ../my-project        # 5 iterations, verbose
-./adversarial_review.sh -f codex ../my-project        # Codex implements fixes
-./adversarial_review.sh -f claude ../my-project       # Claude implements fixes
-./adversarial_review.sh --base main ../my-project     # Review branch changes only
-./adversarial_review.sh --include-pre-existing ../my-project  # Fix historical findings too
+./adversarial_review.sh -m 5 -v claude codex ../my-project
+./adversarial_review.sh -f codex claude codex ../my-project
+./adversarial_review.sh -f claude claude codex ../my-project
+./adversarial_review.sh --base main claude codex ../my-project
+./adversarial_review.sh --include-pre-existing claude codex ../my-project
 
 # Dry run (see what would happen, no API calls)
-./adversarial_review.sh --dry-run --base main ../my-project
+./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
 ## Requirements
@@ -92,7 +94,7 @@ cd adversarial-review
 ## Usage
 
 ```bash
-./adversarial_review.sh [OPTIONS] <target_directory>
+./adversarial_review.sh [OPTIONS] <slot_a> <slot_b> <target_directory>
 
 OPTIONS:
     -h, --help              Show help
@@ -103,16 +105,24 @@ OPTIONS:
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
                             (if omitted, prompts interactively on a TTY;
                             defaults to codex when non-interactive)
+    --slot-a AGENT          Backend for reviewer slot A: claude | codex
+    --slot-b AGENT          Backend for reviewer slot B: claude | codex
+    --target-dir PATH       Project directory to review
     -b, --base REF          Review only files differing from this git ref,
                             including uncommitted and untracked source files
     --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
                             (default: report them without applying changes)
-    --status [DIR]          Show current status (for DIR if given)
-    --reset [DIR]           Reset all state (for DIR if given)
-    --reset-circuit [DIR]   Reset circuit breaker only (for DIR if given)
-    --circuit-status [DIR]  Show circuit breaker status (for DIR if given)
+    --status                Show current status for the required target
+    --reset                 Reset all state for the required target
+    --reset-circuit         Reset circuit breaker for the required target
+    --circuit-status        Show circuit breaker status for the required target
     --dry-run               Show what would happen without executing
 ```
+
+The three required inputs may each use their positional or long-flag form in
+any mixture. Both slots may use the same backend; the run continues with a
+warning that review diversity is reduced. The old single-positional form is
+rejected rather than reinterpreting the target path as slot A.
 
 `--base` is optional and never inferred. When it is set, Phase 1 stays scoped
 to reviewable source files that differ from the ref across committed, staged,
@@ -128,12 +138,11 @@ consult `git blame`/`git log` for the affected lines. Phase 4 normally fixes
 only `IN_SCOPE` findings and lists historical findings separately. Use
 `--include-pre-existing` only when you intentionally want both categories
 implemented. Dry-run output shows which Phase 4 policy will be assembled, and
-`--status <target_directory>` reports fixed/flagged counts by scope.
+`--status <slot_a> <slot_b> <target_directory>` reports fixed/flagged counts by scope.
 
 State is scoped per target directory (see State Directory below), so pass
-the same `<target_directory>` you reviewed to `--status`/`--reset`/etc. to
-inspect or reset that project's history specifically. Omitting it falls
-back to a shared/global bucket kept only for backward compatibility.
+the required slot assignments and the same `<target_directory>` you reviewed
+to `--status`/`--reset`/etc. to inspect or reset that project's history.
 
 ## Project Structure
 
@@ -168,9 +177,9 @@ This means:
   history, artifacts, or circuit breaker counters.
 - An OPEN circuit breaker (or a leftover `--dry-run`) from one project can't
   block or pollute a run against a different one.
-- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` all take an
-  optional target directory argument to scope to that project's state
-  specifically.
+- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` all require the
+  two slot assignments and target directory used to identify that project's
+  state.
 
 ## Circuit Breaker
 
@@ -182,10 +191,10 @@ Prevents runaway loops by detecting:
 
 ```bash
 # Check circuit breaker status for a specific project
-./adversarial_review.sh --circuit-status ../my-project
+./adversarial_review.sh --circuit-status claude codex ../my-project
 
 # Reset if stuck
-./adversarial_review.sh --reset-circuit ../my-project
+./adversarial_review.sh --reset-circuit claude codex ../my-project
 ```
 
 ## Customization
@@ -194,7 +203,7 @@ Prevents runaway loops by detecting:
 
 ```bash
 # Add review criteria for this run
-./adversarial_review.sh -p my_review_prompt.md ../project
+./adversarial_review.sh -p my_review_prompt.md claude codex ../project
 ```
 
 The file is read once during argument validation and added as a delimited
@@ -250,13 +259,16 @@ The loop exits when:
 ### Artifacts
 
 Each iteration produces:
-- `iter{N}_1_claude_review.md` - Claude's initial review
-- `iter{N}_1_codex_review.md` - Codex's initial review
-- `iter{N}_2_claude_on_codex.md` - Claude's cross-review
-- `iter{N}_2_codex_on_claude.md` - Codex's cross-review
-- `iter{N}_3_claude_meta.md` - Claude's meta-review
-- `iter{N}_3_codex_meta.md` - Codex's meta-review
+- `iter{N}_1_<backend>_review.md` - slot A's initial review
+- `iter{N}_1_<backend>_review.md` - slot B's initial review
+- `iter{N}_2_<backend>_on_<other_backend>.md` - cross-review
+- `iter{N}_3_<backend>_meta.md` - meta-review
 - `iter{N}_4_synthesis.md` - Final synthesis and fixes
+
+`<backend>` is the actual `claude` or `codex` assignment, never the slot name.
+Heterogeneous assignments retain the established paths. For a same-backend
+pair, the unchanged filenames live under `artifacts/slot-a/` and
+`artifacts/slot-b/` to prevent collisions.
 
 Every agent reply has a companion `*.invocation.json` recording the phase,
 backend, native enforcement mode, allowed tools, and whether write access was
@@ -289,9 +301,9 @@ Key findings from research:
 ## Cost Considerations
 
 Each iteration makes 6 API calls (3 parallel pairs):
-- Phase 1: 2 calls (Claude + Codex)
-- Phase 2: 2 calls (Claude + Codex)
-- Phase 3: 2 calls (Claude + Codex)
+- Phase 1: 2 calls (slot A + slot B)
+- Phase 2: 2 calls (slot A + slot B)
+- Phase 3: 2 calls (slot A + slot B)
 - Phase 4: 1 call (whichever agent `--fixer` selects)
 
 With 3 iterations max, worst case is ~21 API calls per review.

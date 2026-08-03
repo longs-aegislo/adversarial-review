@@ -29,25 +29,30 @@ Claude と Codex が対象プロジェクトを個別にレビューし、互い
 限ってフェーズ1のレビュー基準を追加し、必須の Issue・Scope・Status
 プロトコルを置き換えません。
 
+各実行では、2つのレビュースロットと対象ディレクトリを
+`slot-a slot-b target-dir` の順で明示する必要があります。3つとも長形式の
+オプションでも指定できます。各スロットは `claude` または `codex` を受け付け、
+同じバックエンドを2つに指定した場合も実行できますが、多様性低下の警告が出ます。
+
 ## クイックスタート
 
 ```bash
 cd adversarial-review
 
 # プロジェクトをレビュー
-./adversarial_review.sh ../my-project
+./adversarial_review.sh claude codex ../my-project
 
 # 指定した Git ref 以降の変更だけをレビュー
-./adversarial_review.sh --base main ../my-project
+./adversarial_review.sh --base main claude codex ../my-project
 
 # フェーズ4の修正エージェントを選択
-./adversarial_review.sh --fixer codex ../my-project
+./adversarial_review.sh --fixer codex claude codex ../my-project
 
 # 今回の実行にレビュー基準を追加
-./adversarial_review.sh --prompt security-review.md ../my-project
+./adversarial_review.sh --prompt security-review.md claude codex ../my-project
 
 # APIを呼ばず、スコープとフェーズ4ポリシーを確認
-./adversarial_review.sh --dry-run --base main ../my-project
+./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
 ## 必要要件

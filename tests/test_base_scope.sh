@@ -217,7 +217,7 @@ test_cli_rejects_non_git_target() {
     local target="$TEST_ROOT/not-git"
     mkdir -p "$target"
 
-    run_cli "$TEST_ROOT/not-git.out" --dry-run --base main "$target"
+    run_cli "$TEST_ROOT/not-git.out" --dry-run --base main claude codex "$target"
 
     [[ "$CLI_STATUS" -ne 0 ]] || fail "non-git base scope should fail"
     assert_contains "$CLI_OUTPUT" 'not a git working tree' \
@@ -232,7 +232,7 @@ test_cli_rejects_unknown_base() {
     git -C "$repo" add .
     git -C "$repo" commit -qm "base"
 
-    run_cli "$TEST_ROOT/bad-ref.out" --dry-run --base does-not-exist "$repo"
+    run_cli "$TEST_ROOT/bad-ref.out" --dry-run --base does-not-exist claude codex "$repo"
 
     [[ "$CLI_STATUS" -ne 0 ]] || fail "unknown base ref should fail"
     assert_contains "$CLI_OUTPUT" 'does not resolve' \
@@ -248,7 +248,7 @@ test_cli_rejects_empty_base_scope() {
     git -C "$repo" commit -qm "base"
     git -C "$repo" branch base
 
-    run_cli "$TEST_ROOT/empty-scope.out" --dry-run --base base "$repo"
+    run_cli "$TEST_ROOT/empty-scope.out" --dry-run --base base claude codex "$repo"
 
     [[ "$CLI_STATUS" -ne 0 ]] || fail "empty base scope should fail"
     assert_contains "$CLI_OUTPUT" 'No reviewable files differ from base' \
@@ -262,7 +262,7 @@ test_cli_ignores_ambient_base_ref() {
     echo 'echo review me' > "$target/app.sh"
 
     set +e
-    BASE_REF=does-not-exist "$SCRIPT_UNDER_TEST" --dry-run --max-iters 1 "$target" \
+    BASE_REF=does-not-exist "$SCRIPT_UNDER_TEST" --dry-run --max-iters 1 claude codex "$target" \
         > "$TEST_ROOT/ambient-base.out" 2>&1
     set -e
     local output
@@ -279,7 +279,7 @@ test_dry_run_reports_resolved_base_scope() {
     local repo="$TEST_ROOT/dry-run"
     make_scoped_repo "$repo"
 
-    run_cli "$TEST_ROOT/dry-run.out" --dry-run --max-iters 1 --base base "$repo"
+    run_cli "$TEST_ROOT/dry-run.out" --dry-run --max-iters 1 --base base claude codex "$repo"
 
     assert_contains "$CLI_OUTPUT" 'Scope: base-scoped (base)' \
         "dry-run should identify base-scoped mode"
@@ -288,7 +288,7 @@ test_dry_run_reports_resolved_base_scope() {
     assert_contains "$CLI_OUTPUT" 'src/feature.ts' \
         "dry-run should print the resolved file list"
 
-    run_cli "$TEST_ROOT/status.out" --status "$repo"
+    run_cli "$TEST_ROOT/status.out" --status claude codex "$repo"
     [[ "$CLI_STATUS" -eq 0 ]] || fail "status command should succeed after a scoped run"
     assert_contains "$CLI_OUTPUT" 'Scope:      base' \
         "status should surface the base ref persisted by the run"
