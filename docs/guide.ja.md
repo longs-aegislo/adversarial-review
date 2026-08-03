@@ -69,17 +69,17 @@ cd adversarial-review
 
 # 対象プロジェクトに対して実行（標準入力がTTYの場合、フェーズ4の
 # 修正実装をどちらのエージェントに任せるか対話的に尋ねられます）
-./adversarial_review.sh ../my-project
+./adversarial_review.sh claude codex ../my-project
 
 # オプション付き
-./adversarial_review.sh -m 5 -v ../my-project        # 5イテレーション、詳細出力
-./adversarial_review.sh -f codex ../my-project        # Codex が修正を実装
-./adversarial_review.sh -f claude ../my-project       # Claude が修正を実装
-./adversarial_review.sh --base main ../my-project     # ブランチ差分のみレビュー
-./adversarial_review.sh --include-pre-existing ../my-project  # 既存問題も修正
+./adversarial_review.sh -m 5 -v claude codex ../my-project
+./adversarial_review.sh -f codex claude codex ../my-project
+./adversarial_review.sh -f claude claude codex ../my-project
+./adversarial_review.sh --base main claude codex ../my-project
+./adversarial_review.sh --include-pre-existing claude codex ../my-project
 
 # ドライラン（実際にAPIを呼ばずに、何が実行されるかを確認）
-./adversarial_review.sh --dry-run --base main ../my-project
+./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
 ## 必要要件
@@ -92,7 +92,7 @@ cd adversarial-review
 ## 使い方
 
 ```bash
-./adversarial_review.sh [オプション] <対象ディレクトリ>
+./adversarial_review.sh [オプション] <slot_a> <slot_b> <対象ディレクトリ>
 
 オプション：
     -h, --help              ヘルプを表示
@@ -103,16 +103,24 @@ cd adversarial-review
     -f, --fixer AGENT       フェーズ4の修正実装担当：claude | codex
                             （省略時、TTYであれば対話的に尋ねる。
                             非対話環境では codex がデフォルト）
+    --slot-a AGENT          レビュースロット A のバックエンド：claude | codex
+    --slot-b AGENT          レビュースロット B のバックエンド：claude | codex
+    --target-dir PATH       レビュー対象のプロジェクトディレクトリ
     -b, --base REF          この Git ref との差分ファイルのみレビュー
                             （未コミット・未追跡のソースも含む）
     --include-pre-existing  フェーズ4で PRE_EXISTING も修正
                             （デフォルトは報告のみで変更しない）
-    --status [DIR]          現在の状態を表示（DIR指定時はそのプロジェクトのみ）
-    --reset [DIR]           すべての状態をリセット（DIR指定時はそのプロジェクトのみ）
-    --reset-circuit [DIR]   サーキットブレーカーのみリセット（DIR指定時はそのプロジェクトのみ）
-    --circuit-status [DIR]  サーキットブレーカーの状態を表示（DIR指定時はそのプロジェクトのみ）
+    --status                必須の対象ディレクトリに対応する状態を表示
+    --reset                 必須の対象ディレクトリに対応する全状態をリセット
+    --reset-circuit         必須の対象ディレクトリのサーキットブレーカーをリセット
+    --circuit-status        必須の対象ディレクトリのサーキットブレーカー状態を表示
     --dry-run               実行せずに何が行われるかを表示
 ```
+
+3つの必須入力は、それぞれ位置形式または長形式オプションで指定でき、自由に
+混在できます。両スロットに同じバックエンドを指定しても実行は継続しますが、
+レビュー多様性低下の警告が表示されます。従来の単一位置引数形式は拒否され、
+対象パスがスロット A として誤解釈されることはありません。
 
 `--base` は任意指定で、自動推測は行いません。指定するとフェーズ1は、
 その ref に対して差分のあるレビュー対象ソースだけに限定されます。
@@ -173,10 +181,10 @@ adversarial-review/
 
 ```bash
 # 特定プロジェクトのサーキットブレーカーの状態を確認
-./adversarial_review.sh --circuit-status ../my-project
+./adversarial_review.sh --circuit-status claude codex ../my-project
 
 # 詰まった場合はリセット
-./adversarial_review.sh --reset-circuit ../my-project
+./adversarial_review.sh --reset-circuit claude codex ../my-project
 ```
 
 ## カスタマイズ
@@ -185,7 +193,7 @@ adversarial-review/
 
 ```bash
 # 今回の実行にレビュー基準を追加
-./adversarial_review.sh -p my_review_prompt.md ../project
+./adversarial_review.sh -p my_review_prompt.md claude codex ../project
 ```
 
 このファイルは引数検証時に一度だけ読み込まれ、区切り付きの基準セクションとして

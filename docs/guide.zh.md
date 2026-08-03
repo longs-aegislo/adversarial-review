@@ -66,17 +66,17 @@ cd adversarial-review
 
 # 对目标项目运行（若 stdin 是交互终端，会询问由哪个智能体
 # 负责阶段四的修复实现）
-./adversarial_review.sh ../my-project
+./adversarial_review.sh claude codex ../my-project
 
 # 带选项运行
-./adversarial_review.sh -m 5 -v ../my-project        # 5 轮迭代，详细输出
-./adversarial_review.sh -f codex ../my-project        # 由 Codex 实施修复
-./adversarial_review.sh -f claude ../my-project       # 由 Claude 实施修复
-./adversarial_review.sh --base main ../my-project     # 只审查分支差异
-./adversarial_review.sh --include-pre-existing ../my-project  # 也修复历史问题
+./adversarial_review.sh -m 5 -v claude codex ../my-project
+./adversarial_review.sh -f codex claude codex ../my-project
+./adversarial_review.sh -f claude claude codex ../my-project
+./adversarial_review.sh --base main claude codex ../my-project
+./adversarial_review.sh --include-pre-existing claude codex ../my-project
 
 # 空跑（查看会执行什么，不会真正调用任何 API）
-./adversarial_review.sh --dry-run --base main ../my-project
+./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
 ## 依赖要求
@@ -89,7 +89,7 @@ cd adversarial-review
 ## 用法
 
 ```bash
-./adversarial_review.sh [选项] <目标目录>
+./adversarial_review.sh [选项] <slot_a> <slot_b> <目标目录>
 
 选项：
     -h, --help              显示帮助
@@ -100,16 +100,23 @@ cd adversarial-review
     -f, --fixer AGENT       阶段四由谁来实施修复：claude | codex
                             （省略时，在交互终端会询问；
                             非交互场景默认使用 codex）
+    --slot-a AGENT          审查槽位 A 的后端：claude | codex
+    --slot-b AGENT          审查槽位 B 的后端：claude | codex
+    --target-dir PATH       要审查的项目目录
     -b, --base REF          只审查相对该 Git ref 有差异的文件，
                             包括未提交和未跟踪的源文件
     --include-pre-existing  允许阶段四也修复 PRE_EXISTING 问题
                             （默认只报告，不应用修改）
-    --status [目录]          显示当前状态（给定目录时按该项目查看）
-    --reset [目录]           重置所有状态（给定目录时只重置该项目）
-    --reset-circuit [目录]   仅重置断路器（给定目录时只重置该项目）
-    --circuit-status [目录]  显示断路器状态（给定目录时只看该项目）
+    --status                显示必填目标目录对应的当前状态
+    --reset                 重置必填目标目录对应的所有状态
+    --reset-circuit         重置必填目标目录对应的断路器
+    --circuit-status        显示必填目标目录对应的断路器状态
     --dry-run               只展示会执行什么，不真正运行
 ```
+
+三个必填输入均可独立使用位置形式或长选项形式，并可任意混用。两个槽位可使用
+同一后端；运行会继续，但会警告审查多样性降低。旧的单位置参数形式会被拒绝，
+不会把目标路径误解释为槽位 A。
 
 `--base` 是可选的，并且不会自动推断。设置后，阶段一只审查相对该 ref
 发生差异的可审查源文件，包括已提交、已暂存、未暂存和未跟踪的工作；
@@ -167,10 +174,10 @@ adversarial-review/
 
 ```bash
 # 查看某个项目的断路器状态
-./adversarial_review.sh --circuit-status ../my-project
+./adversarial_review.sh --circuit-status claude codex ../my-project
 
 # 卡住时重置
-./adversarial_review.sh --reset-circuit ../my-project
+./adversarial_review.sh --reset-circuit claude codex ../my-project
 ```
 
 ## 自定义
@@ -179,7 +186,7 @@ adversarial-review/
 
 ```bash
 # 为本次运行追加审查标准
-./adversarial_review.sh -p my_review_prompt.md ../project
+./adversarial_review.sh -p my_review_prompt.md claude codex ../project
 ```
 
 脚本会在参数验证期间读取该文件一次，并把内容作为带边界标记的标准区段追加到

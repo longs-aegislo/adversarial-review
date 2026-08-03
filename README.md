@@ -31,25 +31,30 @@ Phases 1-3 run with read-only agent permissions; only the selected Phase 4
 fixer receives write access. `--prompt FILE` adds Phase 1 review criteria for
 that run without replacing the mandatory issue, scope, or status protocol.
 
+Every invocation now requires two reviewer backends and a target directory:
+`slot-a slot-b target-dir`. Each value also has a long-flag form. The slots
+accept `claude` or `codex`; assigning the same backend to both is supported
+with a reduced-diversity warning.
+
 ## Quick Start
 
 ```bash
 cd adversarial-review
 
 # Review a project
-./adversarial_review.sh ../my-project
+./adversarial_review.sh claude codex ../my-project
 
 # Review only changes since a Git ref
-./adversarial_review.sh --base main ../my-project
+./adversarial_review.sh --base main claude codex ../my-project
 
 # Choose the Phase 4 fixer
-./adversarial_review.sh --fixer codex ../my-project
+./adversarial_review.sh --fixer codex claude codex ../my-project
 
 # Add review criteria for this run
-./adversarial_review.sh --prompt security-review.md ../my-project
+./adversarial_review.sh --prompt security-review.md claude codex ../my-project
 
 # Preview scope and Phase 4 policy without API calls
-./adversarial_review.sh --dry-run --base main ../my-project
+./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
 ## Requirements

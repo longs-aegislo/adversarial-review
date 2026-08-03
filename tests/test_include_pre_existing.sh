@@ -61,7 +61,7 @@ test_phase_4_defaults_to_in_scope_fixes_only() {
     local target="$TEST_ROOT/default-policy"
     make_target "$target"
 
-    run_cli "$TEST_ROOT/default.out" --dry-run --max-iters 1 "$target"
+    run_cli "$TEST_ROOT/default.out" --dry-run --max-iters 1 claude codex "$target"
 
     assert_contains "$CLI_OUTPUT" \
         'Phase 4 scope policy: fix IN_SCOPE findings; flag PRE_EXISTING findings without applying them' \
@@ -76,13 +76,13 @@ test_include_pre_existing_opts_phase_4_into_both_categories() {
     make_target "$target"
 
     run_cli "$TEST_ROOT/include.out" \
-        --dry-run --max-iters 1 --include-pre-existing "$target"
+        --dry-run --max-iters 1 --include-pre-existing claude codex "$target"
 
     assert_contains "$CLI_OUTPUT" \
         'Phase 4 scope policy: fix IN_SCOPE and PRE_EXISTING findings (--include-pre-existing enabled)' \
         "dry-run should expose the explicit whole-repo cleanup policy"
 
-    run_cli "$TEST_ROOT/status.out" --status "$target"
+    run_cli "$TEST_ROOT/status.out" --status claude codex "$target"
     assert_contains "$CLI_OUTPUT" 'Pre-existing fixes: included' \
         "status should retain the explicit Phase 4 scope policy"
     pass "--include-pre-existing opts Phase 4 into both categories"
@@ -93,7 +93,7 @@ test_ambient_environment_cannot_enable_pre_existing_fixes() {
     make_target "$target"
 
     set +e
-    INCLUDE_PRE_EXISTING=1 "$SCRIPT_UNDER_TEST" --dry-run --max-iters 1 "$target" \
+    INCLUDE_PRE_EXISTING=1 "$SCRIPT_UNDER_TEST" --dry-run --max-iters 1 claude codex "$target" \
         > "$TEST_ROOT/ambient.out" 2>&1
     set -e
     local output

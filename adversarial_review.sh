@@ -9,7 +9,7 @@
 # Based on patterns from asimov-ralph (https://github.com/frankbria/ralph-claude-code)
 #
 # Usage:
-#   ./adversarial_review.sh [OPTIONS] <target_dir>
+#   ./adversarial_review.sh [OPTIONS] <slot_a> <slot_b> <target_dir>
 #
 # Options:
 #   -h, --help              Show help message
@@ -18,12 +18,15 @@
 #   -v, --verbose           Verbose output
 #   -t, --timeout MIN       Timeout per agent call in minutes (default: 10)
 #   -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
+#   --slot-a AGENT          Backend for reviewer slot A: claude | codex
+#   --slot-b AGENT          Backend for reviewer slot B: claude | codex
+#   --target-dir PATH       Project to review
 #   -b, --base REF          Review only files differing from this git ref
 #   --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings
-#   --status [DIR]          Show current status (scoped to DIR if given)
-#   --reset [DIR]           Reset artifacts and tracking (scoped to DIR if given)
-#   --reset-circuit [DIR]   Reset circuit breaker (scoped to DIR if given)
-#   --circuit-status [DIR]  Show circuit breaker status (scoped to DIR if given)
+#   --status                Show current status for the required target
+#   --reset                 Reset artifacts and tracking for the required target
+#   --reset-circuit         Reset circuit breaker for the required target
+#   --circuit-status        Show circuit breaker status for the required target
 #   --dry-run               Show what would be done without executing
 #
 # State (tracking.json, circuit breaker, artifacts/) is scoped per target
@@ -59,12 +62,26 @@ resolve_state_dir() {
     echo "$STATE_ROOT/${slug}-${hash}"
 }
 
+_prescan_slot_a=""
+_prescan_slot_b=""
 _prescan_target_dir=""
 _prescan_args=("$@")
 _prescan_i=0
 while [[ $_prescan_i -lt ${#_prescan_args[@]} ]]; do
     _arg="${_prescan_args[$_prescan_i]}"
     case "$_arg" in
+        --slot-a)
+            _prescan_slot_a="${_prescan_args[$((_prescan_i + 1))]:-}"
+            ((_prescan_i+=2)) || true
+            ;;
+        --slot-b)
+            _prescan_slot_b="${_prescan_args[$((_prescan_i + 1))]:-}"
+            ((_prescan_i+=2)) || true
+            ;;
+        --target-dir)
+            _prescan_target_dir="${_prescan_args[$((_prescan_i + 1))]:-}"
+            ((_prescan_i+=2)) || true
+            ;;
         -m|--max-iters|-p|--prompt|-t|--timeout|-f|--fixer|-b|--base)
             ((_prescan_i+=2)) || true
             ;;
@@ -75,12 +92,18 @@ while [[ $_prescan_i -lt ${#_prescan_args[@]} ]]; do
             ((_prescan_i+=1)) || true
             ;;
         *)
-            _prescan_target_dir="$_arg"
-            break
+            if [[ -z "$_prescan_slot_a" ]]; then
+                _prescan_slot_a="$_arg"
+            elif [[ -z "$_prescan_slot_b" ]]; then
+                _prescan_slot_b="$_arg"
+            elif [[ -z "$_prescan_target_dir" ]]; then
+                _prescan_target_dir="$_arg"
+            fi
+            ((_prescan_i+=1)) || true
             ;;
     esac
 done
-unset _prescan_args _prescan_i _arg
+unset _prescan_args _prescan_i _arg _prescan_slot_a _prescan_slot_b
 
 AR_STATE_DIR="$(resolve_state_dir "$_prescan_target_dir")"
 unset _prescan_target_dir
@@ -103,6 +126,8 @@ VERBOSE="${VERBOSE:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-10}"
 FIXER="${FIXER:-}"
+SLOT_A=""
+SLOT_B=""
 BASE_REF=""
 BASE_COMMIT=""
 INCLUDE_PRE_EXISTING=0
@@ -258,29 +283,29 @@ wait_for_review_agents() {
     local phase_label="$3"
     local target_dir="$4"
     local target_before="$5"
-    local claude_pid="$6"
-    local codex_pid="$7"
-    local claude_out="$8"
-    local codex_out="$9"
-    local claude_rc=0
-    local codex_rc=0
+    local slot_a_pid="$6"
+    local slot_b_pid="$7"
+    local slot_a_out="$8"
+    local slot_b_out="$9"
+    local slot_a_rc=0
+    local slot_b_rc=0
     local target_changed=0
 
-    wait "$claude_pid" || claude_rc=$?
-    wait "$codex_pid" || codex_rc=$?
+    wait "$slot_a_pid" || slot_a_rc=$?
+    wait "$slot_b_pid" || slot_b_rc=$?
     verify_review_target_unchanged "$iteration" "$phase_key" "$phase_label" \
         "$target_dir" "$target_before" || target_changed=$?
 
-    if [[ $claude_rc -ne 0 ]]; then
-        record_agent_failure "$iteration" "$phase_key" "$phase_label" "Claude" \
-            "agent exited with code $claude_rc" "$claude_out"
+    if [[ $slot_a_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "$phase_key" "$phase_label" \
+            "slot-a ($SLOT_A)" "agent exited with code $slot_a_rc" "$slot_a_out"
     fi
-    if [[ $codex_rc -ne 0 ]]; then
-        record_agent_failure "$iteration" "$phase_key" "$phase_label" "Codex" \
-            "agent exited with code $codex_rc" "$codex_out"
+    if [[ $slot_b_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "$phase_key" "$phase_label" \
+            "slot-b ($SLOT_B)" "agent exited with code $slot_b_rc" "$slot_b_out"
     fi
 
-    [[ $claude_rc -eq 0 && $codex_rc -eq 0 && $target_changed -eq 0 ]]
+    [[ $slot_a_rc -eq 0 && $slot_b_rc -eq 0 && $target_changed -eq 0 ]]
 }
 
 parse_required_status() {
@@ -370,11 +395,13 @@ get_timeout_cmd() {
 check_dependencies() {
     local missing=()
 
-    if ! command -v claude &> /dev/null; then
+    if [[ "$SLOT_A" == "claude" || "$SLOT_B" == "claude" || "$FIXER" == "claude" ]] &&
+       ! command -v claude &> /dev/null; then
         missing+=("claude CLI (npm install -g @anthropic-ai/claude-code)")
     fi
 
-    if ! command -v codex &> /dev/null; then
+    if [[ "$SLOT_A" == "codex" || "$SLOT_B" == "codex" || "$FIXER" == "codex" ]] &&
+       ! command -v codex &> /dev/null; then
         missing+=("codex CLI (npm install -g @openai/codex)")
     fi
 
@@ -406,6 +433,8 @@ init_tracking() {
     "iteration": 0,
     "status": "pending",
     "target_dir": null,
+    "slot_a": null,
+    "slot_b": null,
     "base_ref": null,
     "include_pre_existing": false,
     "in_scope_fixed": 0,
@@ -784,13 +813,55 @@ run_backend() {
 # a globally-unique agent tag instead.
 agent_id_header() {
     local agent_tag="$1"
-    echo "# YOUR AGENT ID: ${agent_tag}
+    local slot_name="$2"
+    echo "# REVIEWER SLOT: ${slot_name}
+
+# YOUR AGENT ID: ${agent_tag}
 
 Prefix every issue ID you produce in this response with this tag, e.g.
 \`${agent_tag}-1\`, \`${agent_tag}-2\`, ... The other agent is reviewing the
 same code independently and will use a different tag, so these IDs must
 stay globally unique once both of your findings are merged together in
 later phases."
+}
+
+reviewer_tag() {
+    local slot_name="$1"
+    local backend="$2"
+    local tag
+    tag="$(printf '%s' "$backend" | tr '[:lower:]' '[:upper:]')"
+    if [[ "$SLOT_A" == "$SLOT_B" ]]; then
+        [[ "$slot_name" == "slot-a" ]] && echo "${tag}-A" || echo "${tag}-B"
+    else
+        echo "$tag"
+    fi
+}
+
+review_artifact() {
+    local iteration="$1"
+    local phase="$2"
+    local slot_name="$3"
+    local backend other_backend suffix=""
+    if [[ "$slot_name" == "slot-a" ]]; then
+        backend="$SLOT_A"
+        other_backend="$SLOT_B"
+    else
+        backend="$SLOT_B"
+        other_backend="$SLOT_A"
+        [[ "$SLOT_A" == "$SLOT_B" ]] && suffix="_2"
+    fi
+
+    case "$phase" in
+        1) echo "$ARTIFACTS_DIR/iter${iteration}_1_${backend}_review${suffix}.md" ;;
+        2) echo "$ARTIFACTS_DIR/iter${iteration}_2_${backend}_on_${other_backend}${suffix}.md" ;;
+        3) echo "$ARTIFACTS_DIR/iter${iteration}_3_${backend}_meta${suffix}.md" ;;
+    esac
+}
+
+render_other_reviewer_prompt() {
+    local template="$1"
+    local other_backend="$2"
+    printf '%s' "${template//\{\{OTHER_REVIEWER_NAME\}\}/$other_backend}"
 }
 
 # ============================================================================
@@ -883,68 +954,72 @@ $file_list
 $scope_classification_context
 $diff_section"
 
-    local claude_prompt="$(agent_id_header "CLAUDE")
+    local slot_a_tag slot_b_tag
+    slot_a_tag="$(reviewer_tag "slot-a" "$SLOT_A")"
+    slot_b_tag="$(reviewer_tag "slot-b" "$SLOT_B")"
+    local slot_a_prompt="$(agent_id_header "$slot_a_tag" "slot-a")
 
 $common_prompt"
-    local codex_prompt="$(agent_id_header "CODEX")
+    local slot_b_prompt="$(agent_id_header "$slot_b_tag" "slot-b")
 
 $common_prompt"
 
-    local claude_out="$ARTIFACTS_DIR/iter${iteration}_1_claude_review.md"
-    local codex_out="$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md"
+    local slot_a_out slot_b_out
+    slot_a_out="$(review_artifact "$iteration" 1 "slot-a")"
+    slot_b_out="$(review_artifact "$iteration" 1 "slot-b")"
     local target_before
     target_before="$(target_tree_fingerprint "$target_dir")"
 
     # Run in parallel
-    run_backend "claude" "$claude_prompt" "$claude_out" "$target_dir" \
+    run_backend "$SLOT_A" "$slot_a_prompt" "$slot_a_out" "$target_dir" \
         "read-only" "phase_1" &
-    local claude_pid=$!
+    local slot_a_pid=$!
 
-    run_backend "codex" "$codex_prompt" "$codex_out" "$target_dir" \
+    run_backend "$SLOT_B" "$slot_b_prompt" "$slot_b_out" "$target_dir" \
         "read-only" "phase_1" &
-    local codex_pid=$!
+    local slot_b_pid=$!
 
     if ! wait_for_review_agents "$iteration" "phase_1" "Phase 1" \
-        "$target_dir" "$target_before" "$claude_pid" "$codex_pid" \
-        "$claude_out" "$codex_out"; then
+        "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
+        "$slot_a_out" "$slot_b_out"; then
         return "$PHASE_1_FAILED"
     fi
 
     [[ "$DRY_RUN" == "1" ]] && return "$PHASE_1_CONTINUE"
 
     # Parse results
-    local claude_status
-    local codex_status
-    if ! claude_status="$(parse_required_status "$iteration" "phase_1" \
-        "Phase 1" "Claude" "$claude_out" "REVIEW_STATUS")"; then
+    local slot_a_status
+    local slot_b_status
+    if ! slot_a_status="$(parse_required_status "$iteration" "phase_1" \
+        "Phase 1" "slot-a ($SLOT_A)" "$slot_a_out" "REVIEW_STATUS")"; then
         return "$PHASE_1_FAILED"
     fi
-    if ! codex_status="$(parse_required_status "$iteration" "phase_1" \
-        "Phase 1" "Codex" "$codex_out" "REVIEW_STATUS")"; then
+    if ! slot_b_status="$(parse_required_status "$iteration" "phase_1" \
+        "Phase 1" "slot-b ($SLOT_B)" "$slot_b_out" "REVIEW_STATUS")"; then
         return "$PHASE_1_FAILED"
     fi
-    log_scope_errors "$claude_status" "Phase 1 Claude"
-    log_scope_errors "$codex_status" "Phase 1 Codex"
+    log_scope_errors "$slot_a_status" "Phase 1 slot-a ($SLOT_A)"
+    log_scope_errors "$slot_b_status" "Phase 1 slot-b ($SLOT_B)"
 
-    local claude_exit=$(echo "$claude_status" | jq -r '.exit_signal // false')
-    local codex_exit=$(echo "$codex_status" | jq -r '.exit_signal // false')
+    local slot_a_exit=$(echo "$slot_a_status" | jq -r '.exit_signal // false')
+    local slot_b_exit=$(echo "$slot_b_status" | jq -r '.exit_signal // false')
 
-    add_to_history "$iteration" "phase_1" "claude" "$claude_status"
-    add_to_history "$iteration" "phase_1" "codex" "$codex_status"
+    add_to_history "$iteration" "phase_1" "$SLOT_A" "$slot_a_status"
+    add_to_history "$iteration" "phase_1" "$SLOT_B" "$slot_b_status"
 
     # Check for dual NO_ISSUES
-    if [[ "$claude_exit" == "true" ]] && [[ "$codex_exit" == "true" ]]; then
+    if [[ "$slot_a_exit" == "true" ]] && [[ "$slot_b_exit" == "true" ]]; then
         log_success "Both agents report NO_ISSUES"
         return "$PHASE_1_CLEAN"
     fi
 
-    local claude_issues=$(echo "$claude_status" | jq -r '.issues_found // 0')
-    local codex_issues=$(echo "$codex_status" | jq -r '.issues_found // 0')
-    local claude_summary=$(echo "$claude_status" | jq -r '.summary // "(no summary)"')
-    local codex_summary=$(echo "$codex_status" | jq -r '.summary // "(no summary)"')
+    local slot_a_issues=$(echo "$slot_a_status" | jq -r '.issues_found // 0')
+    local slot_b_issues=$(echo "$slot_b_status" | jq -r '.issues_found // 0')
+    local slot_a_summary=$(echo "$slot_a_status" | jq -r '.summary // "(no summary)"')
+    local slot_b_summary=$(echo "$slot_b_status" | jq -r '.summary // "(no summary)"')
 
-    log_info "Claude found: $claude_issues issues - $claude_summary"
-    log_info "Codex found: $codex_issues issues - $codex_summary"
+    log_info "Slot A ($SLOT_A) found: $slot_a_issues issues - $slot_a_summary"
+    log_info "Slot B ($SLOT_B) found: $slot_b_issues issues - $slot_b_summary"
 
     return "$PHASE_1_CONTINUE"
 }
@@ -958,75 +1033,81 @@ run_phase_2() {
 
     log_info "=== Phase 2: Cross-Review ==="
 
-    local claude_review="$ARTIFACTS_DIR/iter${iteration}_1_claude_review.md"
-    local codex_review="$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md"
+    local slot_a_review slot_b_review
+    slot_a_review="$(review_artifact "$iteration" 1 "slot-a")"
+    slot_b_review="$(review_artifact "$iteration" 1 "slot-b")"
 
     local cross_prompt=$(cat "$PROMPTS_DIR/cross_review.md")
+    local slot_a_cross_prompt slot_b_cross_prompt
+    slot_a_cross_prompt="$(render_other_reviewer_prompt "$cross_prompt" "$SLOT_B")"
+    slot_b_cross_prompt="$(render_other_reviewer_prompt "$cross_prompt" "$SLOT_A")"
+    local slot_a_tag slot_b_tag
+    slot_a_tag="$(reviewer_tag "slot-a" "$SLOT_A")"
+    slot_b_tag="$(reviewer_tag "slot-b" "$SLOT_B")"
 
-    # Claude reviews Codex
-    local claude_prompt="$(agent_id_header "CLAUDE")
+    local slot_a_prompt="$(agent_id_header "$slot_a_tag" "slot-a")
 
-$cross_prompt
-
----
-# THE OTHER AGENT'S REVIEW TO ANALYZE
-
-$(cat "$codex_review")
-"
-
-    # Codex reviews Claude
-    local codex_prompt="$(agent_id_header "CODEX")
-
-$cross_prompt
+$slot_a_cross_prompt
 
 ---
 # THE OTHER AGENT'S REVIEW TO ANALYZE
 
-$(cat "$claude_review")
+$(cat "$slot_b_review")
 "
 
-    local claude_out="$ARTIFACTS_DIR/iter${iteration}_2_claude_on_codex.md"
-    local codex_out="$ARTIFACTS_DIR/iter${iteration}_2_codex_on_claude.md"
+    local slot_b_prompt="$(agent_id_header "$slot_b_tag" "slot-b")
+
+$slot_b_cross_prompt
+
+---
+# THE OTHER AGENT'S REVIEW TO ANALYZE
+
+$(cat "$slot_a_review")
+"
+
+    local slot_a_out slot_b_out
+    slot_a_out="$(review_artifact "$iteration" 2 "slot-a")"
+    slot_b_out="$(review_artifact "$iteration" 2 "slot-b")"
     local target_before
     target_before="$(target_tree_fingerprint "$target_dir")"
 
-    run_backend "claude" "$claude_prompt" "$claude_out" "$target_dir" \
+    run_backend "$SLOT_A" "$slot_a_prompt" "$slot_a_out" "$target_dir" \
         "read-only" "phase_2" &
-    local claude_pid=$!
+    local slot_a_pid=$!
 
-    run_backend "codex" "$codex_prompt" "$codex_out" "$target_dir" \
+    run_backend "$SLOT_B" "$slot_b_prompt" "$slot_b_out" "$target_dir" \
         "read-only" "phase_2" &
-    local codex_pid=$!
+    local slot_b_pid=$!
 
     if ! wait_for_review_agents "$iteration" "phase_2" "Phase 2" \
-        "$target_dir" "$target_before" "$claude_pid" "$codex_pid" \
-        "$claude_out" "$codex_out"; then
+        "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
+        "$slot_a_out" "$slot_b_out"; then
         return 1
     fi
 
     [[ "$DRY_RUN" == "1" ]] && return 0
 
-    local claude_status
-    local codex_status
-    if ! claude_status="$(parse_required_status "$iteration" "phase_2" \
-        "Phase 2" "Claude" "$claude_out" "CROSS_REVIEW_STATUS")"; then
+    local slot_a_status
+    local slot_b_status
+    if ! slot_a_status="$(parse_required_status "$iteration" "phase_2" \
+        "Phase 2" "slot-a ($SLOT_A)" "$slot_a_out" "CROSS_REVIEW_STATUS")"; then
         return 1
     fi
-    if ! codex_status="$(parse_required_status "$iteration" "phase_2" \
-        "Phase 2" "Codex" "$codex_out" "CROSS_REVIEW_STATUS")"; then
+    if ! slot_b_status="$(parse_required_status "$iteration" "phase_2" \
+        "Phase 2" "slot-b ($SLOT_B)" "$slot_b_out" "CROSS_REVIEW_STATUS")"; then
         return 1
     fi
-    log_scope_errors "$claude_status" "Phase 2 Claude"
-    log_scope_errors "$codex_status" "Phase 2 Codex"
+    log_scope_errors "$slot_a_status" "Phase 2 slot-a ($SLOT_A)"
+    log_scope_errors "$slot_b_status" "Phase 2 slot-b ($SLOT_B)"
 
-    add_to_history "$iteration" "phase_2" "claude" "$claude_status"
-    add_to_history "$iteration" "phase_2" "codex" "$codex_status"
+    add_to_history "$iteration" "phase_2" "$SLOT_A" "$slot_a_status"
+    add_to_history "$iteration" "phase_2" "$SLOT_B" "$slot_b_status"
 
-    local claude_summary=$(echo "$claude_status" | jq -r '.summary // "(no summary)"')
-    local codex_summary=$(echo "$codex_status" | jq -r '.summary // "(no summary)"')
+    local slot_a_summary=$(echo "$slot_a_status" | jq -r '.summary // "(no summary)"')
+    local slot_b_summary=$(echo "$slot_b_status" | jq -r '.summary // "(no summary)"')
 
-    log_info "Claude on Codex's review: $claude_summary"
-    log_info "Codex on Claude's review: $codex_summary"
+    log_info "Slot A ($SLOT_A) on slot B ($SLOT_B): $slot_a_summary"
+    log_info "Slot B ($SLOT_B) on slot A ($SLOT_A): $slot_b_summary"
 
     log_success "Cross-review complete"
 }
@@ -1040,12 +1121,19 @@ run_phase_3() {
 
     log_info "=== Phase 3: Meta-Review ==="
 
-    local codex_on_claude="$ARTIFACTS_DIR/iter${iteration}_2_codex_on_claude.md"
-    local claude_on_codex="$ARTIFACTS_DIR/iter${iteration}_2_claude_on_codex.md"
-    local claude_review="$ARTIFACTS_DIR/iter${iteration}_1_claude_review.md"
-    local codex_review="$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md"
+    local slot_a_on_b slot_b_on_a slot_a_review slot_b_review
+    slot_a_on_b="$(review_artifact "$iteration" 2 "slot-a")"
+    slot_b_on_a="$(review_artifact "$iteration" 2 "slot-b")"
+    slot_a_review="$(review_artifact "$iteration" 1 "slot-a")"
+    slot_b_review="$(review_artifact "$iteration" 1 "slot-b")"
 
     local meta_prompt=$(cat "$PROMPTS_DIR/meta_review.md")
+    local slot_a_meta_prompt slot_b_meta_prompt
+    slot_a_meta_prompt="$(render_other_reviewer_prompt "$meta_prompt" "$SLOT_B")"
+    slot_b_meta_prompt="$(render_other_reviewer_prompt "$meta_prompt" "$SLOT_A")"
+    local slot_a_tag slot_b_tag
+    slot_a_tag="$(reviewer_tag "slot-a" "$SLOT_A")"
+    slot_b_tag="$(reviewer_tag "slot-b" "$SLOT_B")"
 
     # Each phase runs as a fresh, stateless CLI invocation with no memory of
     # earlier phases, so the meta-review prompt has to re-supply everything
@@ -1055,100 +1143,99 @@ run_phase_3() {
     # this, an agent has no way to rule on the other side's issues at all in
     # Phase 3, and they silently vanish from the consensus list.
 
-    # Claude responds to Codex's feedback, with full context restored
-    local claude_prompt="$(agent_id_header "CLAUDE")
+    local slot_a_prompt="$(agent_id_header "$slot_a_tag" "slot-a")
 
-$meta_prompt
-
----
-# YOUR ORIGINAL REVIEW (Phase 1)
-
-$(cat "$claude_review")
-
----
-# THE OTHER AGENT'S ORIGINAL REVIEW (Phase 1)
-
-$(cat "$codex_review")
-
----
-# YOUR OWN CROSS-REVIEW OF THEIR FINDINGS (Phase 2)
-
-$(cat "$claude_on_codex")
-
----
-# FEEDBACK ON YOUR ORIGINAL REVIEW (Phase 2)
-
-$(cat "$codex_on_claude")
-"
-
-    # Codex responds to Claude's feedback, with full context restored
-    local codex_prompt="$(agent_id_header "CODEX")
-
-$meta_prompt
+$slot_a_meta_prompt
 
 ---
 # YOUR ORIGINAL REVIEW (Phase 1)
 
-$(cat "$codex_review")
+$(cat "$slot_a_review")
 
 ---
 # THE OTHER AGENT'S ORIGINAL REVIEW (Phase 1)
 
-$(cat "$claude_review")
+$(cat "$slot_b_review")
 
 ---
 # YOUR OWN CROSS-REVIEW OF THEIR FINDINGS (Phase 2)
 
-$(cat "$codex_on_claude")
+$(cat "$slot_a_on_b")
 
 ---
 # FEEDBACK ON YOUR ORIGINAL REVIEW (Phase 2)
 
-$(cat "$claude_on_codex")
+$(cat "$slot_b_on_a")
 "
 
-    local claude_out="$ARTIFACTS_DIR/iter${iteration}_3_claude_meta.md"
-    local codex_out="$ARTIFACTS_DIR/iter${iteration}_3_codex_meta.md"
+    local slot_b_prompt="$(agent_id_header "$slot_b_tag" "slot-b")
+
+$slot_b_meta_prompt
+
+---
+# YOUR ORIGINAL REVIEW (Phase 1)
+
+$(cat "$slot_b_review")
+
+---
+# THE OTHER AGENT'S ORIGINAL REVIEW (Phase 1)
+
+$(cat "$slot_a_review")
+
+---
+# YOUR OWN CROSS-REVIEW OF THEIR FINDINGS (Phase 2)
+
+$(cat "$slot_b_on_a")
+
+---
+# FEEDBACK ON YOUR ORIGINAL REVIEW (Phase 2)
+
+$(cat "$slot_a_on_b")
+"
+
+    local slot_a_out slot_b_out
+    slot_a_out="$(review_artifact "$iteration" 3 "slot-a")"
+    slot_b_out="$(review_artifact "$iteration" 3 "slot-b")"
     local target_before
     target_before="$(target_tree_fingerprint "$target_dir")"
 
-    run_backend "claude" "$claude_prompt" "$claude_out" "$target_dir" \
+    run_backend "$SLOT_A" "$slot_a_prompt" "$slot_a_out" "$target_dir" \
         "read-only" "phase_3" &
-    local claude_pid=$!
+    local slot_a_pid=$!
 
-    run_backend "codex" "$codex_prompt" "$codex_out" "$target_dir" \
+    run_backend "$SLOT_B" "$slot_b_prompt" "$slot_b_out" "$target_dir" \
         "read-only" "phase_3" &
-    local codex_pid=$!
+    local slot_b_pid=$!
 
     if ! wait_for_review_agents "$iteration" "phase_3" "Phase 3" \
-        "$target_dir" "$target_before" "$claude_pid" "$codex_pid" \
-        "$claude_out" "$codex_out"; then
+        "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
+        "$slot_a_out" "$slot_b_out"; then
         return 1
     fi
 
     [[ "$DRY_RUN" == "1" ]] && return 0
 
-    local claude_status
-    local codex_status
-    if ! claude_status="$(parse_required_status "$iteration" "phase_3" \
-        "Phase 3" "Claude" "$claude_out" "META_REVIEW_STATUS")"; then
+    local slot_a_status
+    local slot_b_status
+    if ! slot_a_status="$(parse_required_status "$iteration" "phase_3" \
+        "Phase 3" "slot-a ($SLOT_A)" "$slot_a_out" "META_REVIEW_STATUS")"; then
         return 1
     fi
-    if ! codex_status="$(parse_required_status "$iteration" "phase_3" \
-        "Phase 3" "Codex" "$codex_out" "META_REVIEW_STATUS")"; then
+    if ! slot_b_status="$(parse_required_status "$iteration" "phase_3" \
+        "Phase 3" "slot-b ($SLOT_B)" "$slot_b_out" "META_REVIEW_STATUS")"; then
         return 1
     fi
-    log_scope_errors "$claude_status" "Phase 3 Claude"
-    log_scope_errors "$codex_status" "Phase 3 Codex"
+    log_scope_errors "$slot_a_status" "Phase 3 slot-a ($SLOT_A)"
+    log_scope_errors "$slot_b_status" "Phase 3 slot-b ($SLOT_B)"
 
-    add_to_history "$iteration" "phase_3" "claude" "$claude_status"
-    add_to_history "$iteration" "phase_3" "codex" "$codex_status"
+    add_to_history "$iteration" "phase_3" "$SLOT_A" "$slot_a_status"
+    add_to_history "$iteration" "phase_3" "$SLOT_B" "$slot_b_status"
 
-    local claude_summary=$(echo "$claude_status" | jq -r '.summary // "(no summary)"')
-    local codex_summary=$(echo "$codex_status" | jq -r '.summary // "(no summary)"')
+    local slot_a_summary=$(echo "$slot_a_status" | jq -r '.summary // "(no summary)"')
+    local slot_b_summary=$(echo "$slot_b_status" | jq -r '.summary // "(no summary)"')
 
-    log_info "Claude meta-review: $claude_summary"
-    log_info "Codex meta-review: $codex_summary"
+    log_info "Slot A ($SLOT_A) meta-review: $slot_a_summary"
+    log_info "Slot B ($SLOT_B) meta-review: $slot_b_summary"
 
     log_success "Meta-review complete"
 }
@@ -1164,6 +1251,8 @@ run_phase_4() {
 
     local synthesis_prompt
     synthesis_prompt="$(cat "$PROMPTS_DIR/synthesis.md")"
+    synthesis_prompt="${synthesis_prompt//\{\{SLOT_A_REVIEWER_NAME\}\}/$SLOT_A}"
+    synthesis_prompt="${synthesis_prompt//\{\{SLOT_B_REVIEWER_NAME\}\}/$SLOT_B}"
     local scope_policy
     if [[ "$INCLUDE_PRE_EXISTING" == "1" ]]; then
         scope_policy="# PHASE 4 SCOPE POLICY
@@ -1184,6 +1273,14 @@ severity, and suggested fix."
             "Phase 4 scope policy: fix IN_SCOPE findings; flag PRE_EXISTING findings without applying them"
     fi
 
+    local slot_a_review slot_b_review slot_a_cross slot_b_cross slot_a_meta slot_b_meta
+    slot_a_review="$(review_artifact "$iteration" 1 "slot-a")"
+    slot_b_review="$(review_artifact "$iteration" 1 "slot-b")"
+    slot_a_cross="$(review_artifact "$iteration" 2 "slot-a")"
+    slot_b_cross="$(review_artifact "$iteration" 2 "slot-b")"
+    slot_a_meta="$(review_artifact "$iteration" 3 "slot-a")"
+    slot_b_meta="$(review_artifact "$iteration" 3 "slot-b")"
+
     # Gather all artifacts
     local context="$synthesis_prompt
 
@@ -1195,27 +1292,27 @@ $scope_policy
 
 ## Phase 1: Independent Reviews
 
-### Claude's Review
-$(cat "$ARTIFACTS_DIR/iter${iteration}_1_claude_review.md")
+### Slot A ($SLOT_A) Review
+$(cat "$slot_a_review")
 
-### Codex's Review
-$(cat "$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md")
+### Slot B ($SLOT_B) Review
+$(cat "$slot_b_review")
 
 ## Phase 2: Cross-Reviews
 
-### Claude's Analysis of Codex
-$(cat "$ARTIFACTS_DIR/iter${iteration}_2_claude_on_codex.md")
+### Slot A ($SLOT_A) Analysis of Slot B ($SLOT_B)
+$(cat "$slot_a_cross")
 
-### Codex's Analysis of Claude
-$(cat "$ARTIFACTS_DIR/iter${iteration}_2_codex_on_claude.md")
+### Slot B ($SLOT_B) Analysis of Slot A ($SLOT_A)
+$(cat "$slot_b_cross")
 
 ## Phase 3: Meta-Reviews
 
-### Claude's Response
-$(cat "$ARTIFACTS_DIR/iter${iteration}_3_claude_meta.md")
+### Slot A ($SLOT_A) Response
+$(cat "$slot_a_meta")
 
-### Codex's Response
-$(cat "$ARTIFACTS_DIR/iter${iteration}_3_codex_meta.md")
+### Slot B ($SLOT_B) Response
+$(cat "$slot_b_meta")
 
 ---
 Working directory: $target_dir
@@ -1271,11 +1368,11 @@ Working directory: $target_dir
     # Record for circuit breaker
     local agents_agree=0
     # Check if both agents found similar issues
-    local claude_meta=$(parse_status_block "$ARTIFACTS_DIR/iter${iteration}_3_claude_meta.md" "META_REVIEW_STATUS" 2>/dev/null || echo '{}')
-    local consensus=$(echo "$claude_meta" | jq -r '.consensus_reached // "NO"')
+    local slot_a_meta_status=$(parse_status_block "$slot_a_meta" "META_REVIEW_STATUS" 2>/dev/null || echo '{}')
+    local consensus=$(echo "$slot_a_meta_status" | jq -r '.consensus_reached // "NO"')
     [[ "$consensus" == "YES" || "$consensus" == "true" ]] && agents_agree=1
 
-    local issues_hash=$(cat "$ARTIFACTS_DIR/iter${iteration}_1_claude_review.md" "$ARTIFACTS_DIR/iter${iteration}_1_codex_review.md" | shasum -a 256 | cut -d' ' -f1)
+    local issues_hash=$(cat "$slot_a_review" "$slot_b_review" | shasum -a 256 | cut -d' ' -f1)
 
     record_iteration_result "$iteration" "$files_modified" "$agents_agree" "$issues_hash"
 
@@ -1297,6 +1394,8 @@ run_review_loop() {
 
     log_info "Starting Adversarial Review Loop"
     log_info "Target: $target_dir"
+    log_info "Slot A reviewer: $SLOT_A"
+    log_info "Slot B reviewer: $SLOT_B"
     log_info "Max iterations: $MAX_ITERATIONS"
     log_info "Timeout: ${TIMEOUT_MINUTES}m per agent"
     if [[ -n "$BASE_REF" ]]; then
@@ -1313,6 +1412,8 @@ run_review_loop() {
 
     log_verbose "Updating tracking state..."
     update_tracking "target_dir" "$target_dir"
+    update_tracking "slot_a" "$SLOT_A"
+    update_tracking "slot_b" "$SLOT_B"
     update_tracking "base_ref" "${BASE_REF:-whole-directory}"
     update_tracking "include_pre_existing" "$([[ "$INCLUDE_PRE_EXISTING" == "1" ]] && echo true || echo false)"
     update_tracking "status" "in_progress"
@@ -1392,6 +1493,8 @@ show_status() {
     echo ""
     log_info "=== Adversarial Review Status ==="
     log_info "State dir: $AR_DIR"
+    log_info "Slot A reviewer: $SLOT_A"
+    log_info "Slot B reviewer: $SLOT_B"
     echo ""
 
     if [[ ! -f "$TRACKING_FILE" ]]; then
@@ -1401,6 +1504,8 @@ show_status() {
 
     jq -r '
         "Target:     \(.target_dir // "none")",
+        "Slot A:     \(.slot_a // "unknown")",
+        "Slot B:     \(.slot_b // "unknown")",
         "Scope:      \(.base_ref // "whole-directory")",
         "Pre-existing fixes: \(if .include_pre_existing then "included" else "report only" end)",
         "In-scope fixed:     \(.in_scope_fixed // 0)",
@@ -1443,7 +1548,8 @@ show_help() {
 Adversarial Review: Multi-Agent Code Review with Claude + Codex
 
 USAGE:
-    ./adversarial_review.sh [OPTIONS] <target_directory>
+    ./adversarial_review.sh [OPTIONS] <slot_a> <slot_b> <target_directory>
+    ./adversarial_review.sh [OPTIONS] --slot-a AGENT --slot-b AGENT --target-dir PATH
 
 OPTIONS:
     -h, --help              Show this help
@@ -1455,6 +1561,9 @@ OPTIONS:
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
                             (if omitted, prompts interactively on a TTY;
                             defaults to codex when non-interactive)
+    --slot-a AGENT          Backend for reviewer slot A: claude | codex
+    --slot-b AGENT          Backend for reviewer slot B: claude | codex
+    --target-dir PATH       Project directory to review
     -b, --base REF          Review only files differing from this git ref,
                             including uncommitted and untracked source files
     --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
@@ -1472,7 +1581,7 @@ STATE:
     directory to --status/--reset/etc. to scope to that project.
 
 PHASES:
-    1. Independent Review   Claude and Codex review code in parallel
+    1. Independent Review   Slot A and slot B review code in parallel
     2. Cross-Review         Each reviews the other's findings
     3. Meta-Review          Each reviews feedback on their review
     4. Synthesis            Claude or Codex synthesizes and implements fixes
@@ -1490,11 +1599,11 @@ REQUIREMENTS:
     - coreutils (macOS): brew install coreutils (for timeout)
 
 EXAMPLES:
-    ./adversarial_review.sh ../my-project
-    ./adversarial_review.sh --base main ../my-project
-    ./adversarial_review.sh -m 5 -v ../my-project
-    ./adversarial_review.sh --dry-run ../my-project
-    ./adversarial_review.sh --status
+    ./adversarial_review.sh claude codex ../my-project
+    ./adversarial_review.sh --slot-a codex --slot-b claude --target-dir ../my-project
+    ./adversarial_review.sh codex --slot-b claude --target-dir ../my-project
+    ./adversarial_review.sh --dry-run claude codex ../my-project
+    ./adversarial_review.sh --status claude codex ../my-project
 
 EOF
 }
@@ -1505,6 +1614,7 @@ EOF
 main() {
     local target_dir=""
     local custom_prompt=""
+    local action="review"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -1513,6 +1623,7 @@ main() {
                 exit 0
                 ;;
             -m|--max-iters)
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
                 MAX_ITERATIONS="$2"
                 shift 2
                 ;;
@@ -1529,11 +1640,31 @@ main() {
                 shift
                 ;;
             -t|--timeout)
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
                 TIMEOUT_MINUTES="$2"
                 shift 2
                 ;;
             -f|--fixer)
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
                 FIXER="$2"
+                shift 2
+                ;;
+            --slot-a)
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
+                [[ -z "$SLOT_A" ]] || { log_error "slot-a was specified more than once"; exit 1; }
+                SLOT_A="$2"
+                shift 2
+                ;;
+            --slot-b)
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
+                [[ -z "$SLOT_B" ]] || { log_error "slot-b was specified more than once"; exit 1; }
+                SLOT_B="$2"
+                shift 2
+                ;;
+            --target-dir)
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
+                [[ -z "$target_dir" ]] || { log_error "target-dir was specified more than once"; exit 1; }
+                target_dir="$2"
                 shift 2
                 ;;
             -b|--base)
@@ -1549,22 +1680,20 @@ main() {
                 shift
                 ;;
             --status)
-                show_status
-                exit 0
+                action="status"
+                shift
                 ;;
             --reset)
-                reset_all
-                exit 0
+                action="reset"
+                shift
                 ;;
             --reset-circuit)
-                init_circuit_breaker
-                reset_circuit_breaker "Manual reset"
-                exit 0
+                action="reset-circuit"
+                shift
                 ;;
             --circuit-status)
-                init_circuit_breaker
-                show_circuit_status
-                exit 0
+                action="circuit-status"
+                shift
                 ;;
             --dry-run)
                 DRY_RUN=1
@@ -1576,23 +1705,68 @@ main() {
                 exit 1
                 ;;
             *)
-                target_dir="$1"
+                if [[ -z "$SLOT_A" ]]; then
+                    SLOT_A="$1"
+                elif [[ -z "$SLOT_B" ]]; then
+                    SLOT_B="$1"
+                elif [[ -z "$target_dir" ]]; then
+                    target_dir="$1"
+                else
+                    log_error "Unexpected positional argument: $1"
+                    exit 1
+                fi
                 shift
                 ;;
         esac
     done
 
+    if [[ -z "$SLOT_A" ]]; then
+        log_error "No slot-a backend specified (expected 'claude' or 'codex')"
+        exit 1
+    fi
+    if [[ -z "$SLOT_B" ]]; then
+        log_error "No slot-b backend specified (expected 'claude' or 'codex'); the old single-positional form is no longer supported"
+        exit 1
+    fi
     if [[ -z "$target_dir" ]]; then
-        log_error "No target directory specified"
+        log_error "No target directory specified (use positional 3 or --target-dir)"
         echo ""
         show_help
         exit 1
+    fi
+
+    if [[ "$SLOT_A" != "claude" && "$SLOT_A" != "codex" ]]; then
+        log_error "Invalid slot-a backend: $SLOT_A (must be 'claude' or 'codex')"
+        exit 1
+    fi
+    if [[ "$SLOT_B" != "claude" && "$SLOT_B" != "codex" ]]; then
+        log_error "Invalid slot-b backend: $SLOT_B (must be 'claude' or 'codex')"
+        exit 1
+    fi
+
+    if [[ "$SLOT_A" == "$SLOT_B" ]]; then
+        log_warning "Both reviewer slots use '$SLOT_A'; reduced review diversity is expected"
     fi
 
     if [[ ! -d "$target_dir" ]]; then
         log_error "Directory does not exist: $target_dir"
         exit 1
     fi
+
+    case "$action" in
+        status) show_status; exit 0 ;;
+        reset) reset_all; exit 0 ;;
+        reset-circuit)
+            init_circuit_breaker
+            reset_circuit_breaker "Manual reset"
+            exit 0
+            ;;
+        circuit-status)
+            init_circuit_breaker
+            show_circuit_status
+            exit 0
+            ;;
+    esac
 
     if [[ -n "$BASE_REF" ]]; then
         if [[ "$(git -C "$target_dir" rev-parse --is-inside-work-tree 2>/dev/null || true)" != "true" ]]; then

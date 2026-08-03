@@ -2,6 +2,7 @@
 
 You are reviewing feedback that another AI agent provided about YOUR original review.
 This is your opportunity to defend, concede, or refine your positions.
+The other reviewer uses the {{OTHER_REVIEWER_NAME}} backend.
 
 You have read access to the actual project in the current working
 directory - re-check the actual source before defending or conceding a
@@ -96,7 +97,7 @@ NEW_ISSUES_REJECTED: 0
 REMAINING_DISAGREEMENTS: 0
 CONSENSUS_REACHED: YES
 SCOPE_DISAGREEMENTS: 1
-ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CODEX-1=PRE_EXISTING, CODEX-ADD-1=IN_SCOPE
+ISSUE_SCOPES: REVIEWER-A-1=IN_SCOPE, REVIEWER-B-1=PRE_EXISTING, REVIEWER-B-ADD-1=IN_SCOPE
 SUMMARY: Agreed on 6 issues, withdrew 1 false positive
 ---END_META_REVIEW_STATUS---
 ```
@@ -111,7 +112,7 @@ NEW_ISSUES_REJECTED: 2
 REMAINING_DISAGREEMENTS: 2
 CONSENSUS_REACHED: PARTIAL
 SCOPE_DISAGREEMENTS: 1
-ISSUE_SCOPES: CLAUDE-1=PRE_EXISTING, CODEX-1=IN_SCOPE
+ISSUE_SCOPES: REVIEWER-A-1=PRE_EXISTING, REVIEWER-B-1=IN_SCOPE
 SUMMARY: Agree on 4 issues, dispute severity of 2 others
 ---END_META_REVIEW_STATUS---
 ```
@@ -122,8 +123,8 @@ At the end of your response, provide a clear list:
 
 ```
 ---CONSENSUS_ISSUES---
-1. [AGREED] [IN_SCOPE] CLAUDE-1 file.py:123 - Description (SEVERITY)
-2. [AGREED] [PRE_EXISTING] CODEX-1 file.py:456 - Description (SEVERITY)
-3. [DISPUTED] [PRE_EXISTING] CODEX-2 file.py:789 - Description (Your view vs Their view)
+1. [AGREED] [IN_SCOPE] REVIEWER-A-1 file.py:123 - Description (SEVERITY)
+2. [AGREED] [PRE_EXISTING] REVIEWER-B-1 file.py:456 - Description (SEVERITY)
+3. [DISPUTED] [PRE_EXISTING] REVIEWER-B-2 file.py:789 - Description (Your view vs Their view)
 ---END_CONSENSUS_ISSUES---
 ```

@@ -69,17 +69,17 @@ cd adversarial-review
 
 # Run on a target project (prompts interactively for which agent
 # implements Phase 4 fixes, if stdin is a TTY)
-./adversarial_review.sh ../my-project
+./adversarial_review.sh claude codex ../my-project
 
 # With options
-./adversarial_review.sh -m 5 -v ../my-project        # 5 iterations, verbose
-./adversarial_review.sh -f codex ../my-project        # Codex implements fixes
-./adversarial_review.sh -f claude ../my-project       # Claude implements fixes
-./adversarial_review.sh --base main ../my-project     # Review branch changes only
-./adversarial_review.sh --include-pre-existing ../my-project  # Fix historical findings too
+./adversarial_review.sh -m 5 -v claude codex ../my-project
+./adversarial_review.sh -f codex claude codex ../my-project
+./adversarial_review.sh -f claude claude codex ../my-project
+./adversarial_review.sh --base main claude codex ../my-project
+./adversarial_review.sh --include-pre-existing claude codex ../my-project
 
 # Dry run (see what would happen, no API calls)
-./adversarial_review.sh --dry-run --base main ../my-project
+./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
 ## Requirements
@@ -92,7 +92,7 @@ cd adversarial-review
 ## Usage
 
 ```bash
-./adversarial_review.sh [OPTIONS] <target_directory>
+./adversarial_review.sh [OPTIONS] <slot_a> <slot_b> <target_directory>
 
 OPTIONS:
     -h, --help              Show help
@@ -103,16 +103,24 @@ OPTIONS:
     -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
                             (if omitted, prompts interactively on a TTY;
                             defaults to codex when non-interactive)
+    --slot-a AGENT          Backend for reviewer slot A: claude | codex
+    --slot-b AGENT          Backend for reviewer slot B: claude | codex
+    --target-dir PATH       Project directory to review
     -b, --base REF          Review only files differing from this git ref,
                             including uncommitted and untracked source files
     --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
                             (default: report them without applying changes)
-    --status [DIR]          Show current status (for DIR if given)
-    --reset [DIR]           Reset all state (for DIR if given)
-    --reset-circuit [DIR]   Reset circuit breaker only (for DIR if given)
-    --circuit-status [DIR]  Show circuit breaker status (for DIR if given)
+    --status                Show current status for the required target
+    --reset                 Reset all state for the required target
+    --reset-circuit         Reset circuit breaker for the required target
+    --circuit-status        Show circuit breaker status for the required target
     --dry-run               Show what would happen without executing
 ```
+
+The three required inputs may each use their positional or long-flag form in
+any mixture. Both slots may use the same backend; the run continues with a
+warning that review diversity is reduced. The old single-positional form is
+rejected rather than reinterpreting the target path as slot A.
 
 `--base` is optional and never inferred. When it is set, Phase 1 stays scoped
 to reviewable source files that differ from the ref across committed, staged,
@@ -182,10 +190,10 @@ Prevents runaway loops by detecting:
 
 ```bash
 # Check circuit breaker status for a specific project
-./adversarial_review.sh --circuit-status ../my-project
+./adversarial_review.sh --circuit-status claude codex ../my-project
 
 # Reset if stuck
-./adversarial_review.sh --reset-circuit ../my-project
+./adversarial_review.sh --reset-circuit claude codex ../my-project
 ```
 
 ## Customization
@@ -194,7 +202,7 @@ Prevents runaway loops by detecting:
 
 ```bash
 # Add review criteria for this run
-./adversarial_review.sh -p my_review_prompt.md ../project
+./adversarial_review.sh -p my_review_prompt.md claude codex ../project
 ```
 
 The file is read once during argument validation and added as a delimited

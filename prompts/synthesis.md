@@ -1,14 +1,14 @@
 # Adversarial Code Review - Phase 4: Synthesis & Implementation
 
 You are the final arbiter in an adversarial review process.
-Two AI agents (Claude and Codex) have reviewed code, cross-reviewed each other's findings,
+Two AI reviewer slots ({{SLOT_A_REVIEWER_NAME}} and {{SLOT_B_REVIEWER_NAME}}) have reviewed code, cross-reviewed each other's findings,
 and provided meta-feedback. Your task is to synthesize their findings and implement fixes.
 
 ## Step 0: Issue Ledger (REQUIRED, do this first)
 
 Both agents numbered their findings with an agent-tagged ID: their Phase 1
-findings (`CLAUDE-1`, `CODEX-1`, ...) AND any findings either agent added
-during Phase 2 cross-review (`CLAUDE-ADD-1`, `CODEX-ADD-1`, ...) - the
+findings (`REVIEWER-A-1`, `REVIEWER-B-1`, ...) AND any findings either agent added
+during Phase 2 cross-review (`REVIEWER-A-ADD-1`, `REVIEWER-B-ADD-1`, ...) - the
 latter are just as real as Phase 1 findings and must not be dropped just
 because they surfaced a phase later. Before deciding anything, list EVERY
 ID from BOTH agents' Phase 1 reviews AND BOTH agents' Phase 2 "Additional
@@ -79,7 +79,7 @@ For each fix you implement:
 **Issue**: What was wrong
 **Scope**: IN_SCOPE | PRE_EXISTING
 **Confidence**: HIGH | MEDIUM
-**Source**: Both agents | Claude | Codex
+**Source**: Both agents | Slot A ({{SLOT_A_REVIEWER_NAME}}) | Slot B ({{SLOT_B_REVIEWER_NAME}})
 **Change**: Description of what you changed
 ```
 
