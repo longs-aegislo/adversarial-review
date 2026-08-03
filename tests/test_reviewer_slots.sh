@@ -190,7 +190,11 @@ esac
 printf '%s\n' "$response" > "$output_file"
 jq -cn '{type: "turn.completed", usage: {input_tokens: 1, output_tokens: 1}}'
 EOF
-chmod +x "$FAKE_BIN/codex"
+cat > "$FAKE_BIN/claude" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+chmod +x "$FAKE_BIN/codex" "$FAKE_BIN/claude"
 
 test_same_backend_prompts_and_artifacts_are_distinct() {
     local target="$TEST_ROOT/prompts-target"
@@ -211,14 +215,39 @@ test_same_backend_prompts_and_artifacts_are_distinct() {
         "slot B meta-review prompt should name slot A's backend"
 
     state_dir="$(find "$AR_STATE_ROOT" -type d -name 'prompts-target*' -print -quit)"
-    [[ -f "$state_dir/artifacts/iter1_1_codex_review.md" ]] ||
-        fail "first Codex artifact should keep the established backend filename"
-    [[ -f "$state_dir/artifacts/iter1_1_codex_review_2.md" ]] ||
-        fail "second same-backend artifact should be preserved without collision"
+    [[ -f "$state_dir/artifacts/slot-a/iter1_1_codex_review.md" ]] ||
+        fail "slot A should keep the established backend filename"
+    [[ -f "$state_dir/artifacts/slot-b/iter1_1_codex_review.md" ]] ||
+        fail "slot B should keep the established backend filename without collision"
     pass "same-backend prompts substitute names and artifacts remain distinct"
+}
+
+test_default_fixer_is_validated_before_review() {
+    local target="$TEST_ROOT/default-fixer-target"
+    local output_file="$TEST_ROOT/default-fixer.out"
+    local claude_only_bin="$TEST_ROOT/claude-only-bin"
+    local output status
+    make_target "$target"
+    mkdir -p "$claude_only_bin"
+    cp "$FAKE_BIN/claude" "$claude_only_bin/claude"
+
+    set +e
+    PATH="$claude_only_bin:/usr/bin:/bin" bash "$SCRIPT_UNDER_TEST" \
+        --dry-run claude claude "$target" > "$output_file" 2>&1
+    status=$?
+    set -e
+    output="$(cat "$output_file")"
+
+    [[ $status -ne 0 ]] || fail "missing default Codex fixer dependency must fail"
+    assert_contains "$output" "codex CLI" \
+        "dependency preflight should include the resolved default fixer"
+    [[ "$output" != *"Starting Adversarial Review Loop"* ]] ||
+        fail "missing default fixer dependency must fail before review starts"
+    pass "default fixer is resolved before dependency validation"
 }
 
 test_cli_forms_and_validation
 test_same_backend_prompts_and_artifacts_are_distinct
+test_default_fixer_is_validated_before_review
 
 echo "1..$tests_run"

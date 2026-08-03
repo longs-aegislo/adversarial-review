@@ -15,7 +15,8 @@
 
 ## 核心理念
 
-两个 AI 智能体（Claude 和 GPT Codex）各自独立审查代码，然后通过多轮辩论互相批判对方的发现。这种对抗式流程有助于：
+两个可配置的审查槽位分别由 Claude 或 Codex 后端执行，各自独立审查代码，
+再通过多轮辩论互相批判对方的发现。两个槽位可使用不同或相同的后端。这种对抗式流程有助于：
 
 - **发现更多问题**：不同模型能捕捉到不同的问题
 - **消除误报**：交叉验证能过滤掉不正确的发现
@@ -27,21 +28,21 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  阶段一：独立审查                                             │
-│    Claude 审查代码 → claude_review.md                        │
-│    Codex 审查代码  → codex_review.md                         │
+│    槽位 A 审查代码 → <backend>_review.md                     │
+│    槽位 B 审查代码 → <backend>_review.md                     │
 │    两个智能体只拿到一份文件路径清单（从第二轮起还会附上         │
 │    自上一轮以来的 git diff），需要用自己的工具去读取想看的     │
 │    文件——不再把整个代码库的文件内容直接塞进 prompt             │
 │    （并行执行）                                               │
 ├─────────────────────────────────────────────────────────────┤
 │  阶段二：交叉审查                                             │
-│    Claude 审查 Codex 的发现 → claude_on_codex.md              │
-│    Codex 审查 Claude 的发现 → codex_on_claude.md              │
+│    槽位 A 审查槽位 B 的发现                                   │
+│    槽位 B 审查槽位 A 的发现                                   │
 │    （并行执行）                                               │
 ├─────────────────────────────────────────────────────────────┤
 │  阶段三：元审查（Meta-Review）                                │
-│    Claude 回应 Codex 的批评 → claude_meta.md                  │
-│    Codex 回应 Claude 的批评 → codex_meta.md                   │
+│    槽位 A 回应槽位 B 的批评                                   │
+│    槽位 B 回应槽位 A 的批评                                   │
 │    每个智能体都会拿到：自己第一阶段的审查结果、对方第一阶段的  │
 │    审查结果、自己在第二阶段对对方发现的交叉审查，以及自己收到  │
 │    的反馈——每次都是完整上下文，避免发现在共识阶段悄悄消失      │
@@ -240,13 +241,15 @@ SUMMARY: Found critical type mixing bug
 ### 产出文件（Artifacts）
 
 每轮迭代会产生：
-- `iter{N}_1_claude_review.md` - Claude 的初始审查
-- `iter{N}_1_codex_review.md` - Codex 的初始审查
-- `iter{N}_2_claude_on_codex.md` - Claude 的交叉审查
-- `iter{N}_2_codex_on_claude.md` - Codex 的交叉审查
-- `iter{N}_3_claude_meta.md` - Claude 的元审查
-- `iter{N}_3_codex_meta.md` - Codex 的元审查
+- `iter{N}_1_<backend>_review.md` - 槽位 A 的初始审查
+- `iter{N}_1_<backend>_review.md` - 槽位 B 的初始审查
+- `iter{N}_2_<backend>_on_<other_backend>.md` - 交叉审查
+- `iter{N}_3_<backend>_meta.md` - 元审查
 - `iter{N}_4_synthesis.md` - 最终综合结果与修复内容
+
+`<backend>` 始终使用实际的 `claude` 或 `codex`，不会改成槽位名。异构配置保留
+既有路径；同后端配置中，未改变的文件名分别放在 `artifacts/slot-a/` 与
+`artifacts/slot-b/` 下，以避免文件冲突。
 
 每份智能体回复都有对应的 `*.invocation.json`，记录阶段、Backend、原生权限／
 Sandbox 模式、允许的工具以及是否授权写入。审查调用还会保留结构化
@@ -276,9 +279,9 @@ Sandbox 模式、允许的工具以及是否授权写入。审查调用还会保
 ## 成本考量
 
 每轮迭代会产生 6 次 API 调用（3 组并行调用）：
-- 阶段一：2 次调用（Claude + Codex）
-- 阶段二：2 次调用（Claude + Codex）
-- 阶段三：2 次调用（Claude + Codex）
+- 阶段一：2 次调用（槽位 A + 槽位 B）
+- 阶段二：2 次调用（槽位 A + 槽位 B）
+- 阶段三：2 次调用（槽位 A + 槽位 B）
 - 阶段四：1 次调用（由 `--fixer` 选定的那个智能体）
 
 最多 3 轮迭代时，最坏情况约为每次审查 21 次 API 调用。

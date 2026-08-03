@@ -15,7 +15,9 @@ This fork's changes relative to upstream are maintained separately in
 
 ## Concept
 
-Two AI agents (Claude and GPT Codex) independently review code, then critique each other's findings through multiple rounds of debate. This adversarial process helps:
+Two configurable reviewer slots, each backed by Claude or Codex, independently
+review code and then critique each other's findings through multiple rounds of debate.
+The slots may use different backends or the same backend. This adversarial process helps:
 
 - **Find more issues**: Different models catch different problems
 - **Eliminate false positives**: Cross-validation filters out incorrect findings
@@ -27,8 +29,8 @@ Two AI agents (Claude and GPT Codex) independently review code, then critique ea
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Phase 1: Independent Reviews                               │
-│    Claude reviews code → claude_review.md                   │
-│    Codex reviews code  → codex_review.md                    │
+│    Slot A reviews code → <backend>_review.md                │
+│    Slot B reviews code → <backend>_review.md                │
 │    Agents are given a file path list (+ a git diff of what  │
 │    changed since the last iteration) and read whichever     │
 │    files they need themselves - full file contents are no   │
@@ -36,13 +38,13 @@ Two AI agents (Claude and GPT Codex) independently review code, then critique ea
 │    (runs in parallel)                                       │
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 2: Cross-Review                                      │
-│    Claude reviews Codex's findings → claude_on_codex.md     │
-│    Codex reviews Claude's findings → codex_on_claude.md     │
+│    Slot A reviews slot B's findings                         │
+│    Slot B reviews slot A's findings                         │
 │    (runs in parallel)                                       │
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 3: Meta-Review                                       │
-│    Claude responds to Codex's critique → claude_meta.md     │
-│    Codex responds to Claude's critique → codex_meta.md      │
+│    Slot A responds to slot B's critique                     │
+│    Slot B responds to slot A's critique                     │
 │    Each agent gets its own Phase 1 review, the other        │
 │    agent's Phase 1 review, its own Phase 2 cross-review,    │
 │    and the feedback it received - full context every time,  │
@@ -258,13 +260,16 @@ The loop exits when:
 ### Artifacts
 
 Each iteration produces:
-- `iter{N}_1_claude_review.md` - Claude's initial review
-- `iter{N}_1_codex_review.md` - Codex's initial review
-- `iter{N}_2_claude_on_codex.md` - Claude's cross-review
-- `iter{N}_2_codex_on_claude.md` - Codex's cross-review
-- `iter{N}_3_claude_meta.md` - Claude's meta-review
-- `iter{N}_3_codex_meta.md` - Codex's meta-review
+- `iter{N}_1_<backend>_review.md` - slot A's initial review
+- `iter{N}_1_<backend>_review.md` - slot B's initial review
+- `iter{N}_2_<backend>_on_<other_backend>.md` - cross-review
+- `iter{N}_3_<backend>_meta.md` - meta-review
 - `iter{N}_4_synthesis.md` - Final synthesis and fixes
+
+`<backend>` is the actual `claude` or `codex` assignment, never the slot name.
+Heterogeneous assignments retain the established paths. For a same-backend
+pair, the unchanged filenames live under `artifacts/slot-a/` and
+`artifacts/slot-b/` to prevent collisions.
 
 Every agent reply has a companion `*.invocation.json` recording the phase,
 backend, native enforcement mode, allowed tools, and whether write access was
@@ -297,9 +302,9 @@ Key findings from research:
 ## Cost Considerations
 
 Each iteration makes 6 API calls (3 parallel pairs):
-- Phase 1: 2 calls (Claude + Codex)
-- Phase 2: 2 calls (Claude + Codex)
-- Phase 3: 2 calls (Claude + Codex)
+- Phase 1: 2 calls (slot A + slot B)
+- Phase 2: 2 calls (slot A + slot B)
+- Phase 3: 2 calls (slot A + slot B)
 - Phase 4: 1 call (whichever agent `--fixer` selects)
 
 With 3 iterations max, worst case is ~21 API calls per review.

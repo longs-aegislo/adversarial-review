@@ -841,20 +841,24 @@ review_artifact() {
     local iteration="$1"
     local phase="$2"
     local slot_name="$3"
-    local backend other_backend suffix=""
+    local backend other_backend artifact_dir="$ARTIFACTS_DIR"
     if [[ "$slot_name" == "slot-a" ]]; then
         backend="$SLOT_A"
         other_backend="$SLOT_B"
     else
         backend="$SLOT_B"
         other_backend="$SLOT_A"
-        [[ "$SLOT_A" == "$SLOT_B" ]] && suffix="_2"
+    fi
+
+    if [[ "$SLOT_A" == "$SLOT_B" ]]; then
+        artifact_dir="$ARTIFACTS_DIR/$slot_name"
+        mkdir -p "$artifact_dir"
     fi
 
     case "$phase" in
-        1) echo "$ARTIFACTS_DIR/iter${iteration}_1_${backend}_review${suffix}.md" ;;
-        2) echo "$ARTIFACTS_DIR/iter${iteration}_2_${backend}_on_${other_backend}${suffix}.md" ;;
-        3) echo "$ARTIFACTS_DIR/iter${iteration}_3_${backend}_meta${suffix}.md" ;;
+        1) echo "$artifact_dir/iter${iteration}_1_${backend}_review.md" ;;
+        2) echo "$artifact_dir/iter${iteration}_2_${backend}_on_${other_backend}.md" ;;
+        3) echo "$artifact_dir/iter${iteration}_3_${backend}_meta.md" ;;
     esac
 }
 
@@ -1568,17 +1572,18 @@ OPTIONS:
                             including uncommitted and untracked source files
     --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
                             (default: report them without applying changes)
-    --status [DIR]          Show current status (scoped to DIR if given)
-    --reset [DIR]           Reset all state (scoped to DIR if given)
-    --reset-circuit [DIR]   Reset circuit breaker only (scoped to DIR if given)
-    --circuit-status [DIR]  Show circuit breaker status (scoped to DIR if given)
+    --status                Show current status for the required target
+    --reset                 Reset all state for the required target
+    --reset-circuit         Reset circuit breaker for the required target
+    --circuit-status        Show circuit breaker status for the required target
     --dry-run               Show what would happen without executing
 
 STATE:
     All state (tracking.json, circuit breaker, artifacts/) is scoped per
     target directory under state/<slug>/, so reviewing one project can't
     pollute or trip a circuit breaker for another. Pass the same target
-    directory to --status/--reset/etc. to scope to that project.
+    slot assignments and target directory to --status/--reset/etc. to scope
+    to that project.
 
 PHASES:
     1. Independent Review   Slot A and slot B review code in parallel
@@ -1803,8 +1808,6 @@ main() {
         log_info "Using additional review criteria: $custom_prompt"
     fi
 
-    check_dependencies
-
     if [[ -z "$FIXER" ]]; then
         if [[ "$DRY_RUN" == "1" || ! -t 0 ]]; then
             FIXER="codex"
@@ -1822,6 +1825,8 @@ main() {
         log_error "Invalid --fixer value: $FIXER (must be 'claude' or 'codex')"
         exit 1
     fi
+
+    check_dependencies
 
     log_info "Phase 4 fixes will be implemented by: $FIXER"
 
