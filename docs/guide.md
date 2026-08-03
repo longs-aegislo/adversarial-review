@@ -138,12 +138,11 @@ consult `git blame`/`git log` for the affected lines. Phase 4 normally fixes
 only `IN_SCOPE` findings and lists historical findings separately. Use
 `--include-pre-existing` only when you intentionally want both categories
 implemented. Dry-run output shows which Phase 4 policy will be assembled, and
-`--status <target_directory>` reports fixed/flagged counts by scope.
+`--status <slot_a> <slot_b> <target_directory>` reports fixed/flagged counts by scope.
 
 State is scoped per target directory (see State Directory below), so pass
-the same `<target_directory>` you reviewed to `--status`/`--reset`/etc. to
-inspect or reset that project's history specifically. Omitting it falls
-back to a shared/global bucket kept only for backward compatibility.
+the required slot assignments and the same `<target_directory>` you reviewed
+to `--status`/`--reset`/etc. to inspect or reset that project's history.
 
 ## Project Structure
 
@@ -178,9 +177,9 @@ This means:
   history, artifacts, or circuit breaker counters.
 - An OPEN circuit breaker (or a leftover `--dry-run`) from one project can't
   block or pollute a run against a different one.
-- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` all take an
-  optional target directory argument to scope to that project's state
-  specifically.
+- `--status`/`--reset`/`--circuit-status`/`--reset-circuit` all require the
+  two slot assignments and target directory used to identify that project's
+  state.
 
 ## Circuit Breaker
 
