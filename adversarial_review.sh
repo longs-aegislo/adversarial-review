@@ -862,10 +862,14 @@ review_artifact() {
     esac
 }
 
-render_other_reviewer_prompt() {
+render_reviewer_prompt() {
     local template="$1"
     local other_backend="$2"
-    printf '%s' "${template//\{\{OTHER_REVIEWER_NAME\}\}/$other_backend}"
+    local self_tag="$3"
+    local other_tag="$4"
+    template="${template//\{\{OTHER_REVIEWER_NAME\}\}/$other_backend}"
+    template="${template//\{\{SELF_REVIEWER_TAG\}\}/$self_tag}"
+    printf '%s' "${template//\{\{OTHER_REVIEWER_TAG\}\}/$other_tag}"
 }
 
 # ============================================================================
@@ -961,12 +965,15 @@ $diff_section"
     local slot_a_tag slot_b_tag
     slot_a_tag="$(reviewer_tag "slot-a" "$SLOT_A")"
     slot_b_tag="$(reviewer_tag "slot-b" "$SLOT_B")"
+    local slot_a_common slot_b_common
+    slot_a_common="${common_prompt//\{\{SELF_REVIEWER_TAG\}\}/$slot_a_tag}"
+    slot_b_common="${common_prompt//\{\{SELF_REVIEWER_TAG\}\}/$slot_b_tag}"
     local slot_a_prompt="$(agent_id_header "$slot_a_tag" "slot-a")
 
-$common_prompt"
+$slot_a_common"
     local slot_b_prompt="$(agent_id_header "$slot_b_tag" "slot-b")
 
-$common_prompt"
+$slot_b_common"
 
     local slot_a_out slot_b_out
     slot_a_out="$(review_artifact "$iteration" 1 "slot-a")"
@@ -1043,11 +1050,11 @@ run_phase_2() {
 
     local cross_prompt=$(cat "$PROMPTS_DIR/cross_review.md")
     local slot_a_cross_prompt slot_b_cross_prompt
-    slot_a_cross_prompt="$(render_other_reviewer_prompt "$cross_prompt" "$SLOT_B")"
-    slot_b_cross_prompt="$(render_other_reviewer_prompt "$cross_prompt" "$SLOT_A")"
     local slot_a_tag slot_b_tag
     slot_a_tag="$(reviewer_tag "slot-a" "$SLOT_A")"
     slot_b_tag="$(reviewer_tag "slot-b" "$SLOT_B")"
+    slot_a_cross_prompt="$(render_reviewer_prompt "$cross_prompt" "$SLOT_B" "$slot_a_tag" "$slot_b_tag")"
+    slot_b_cross_prompt="$(render_reviewer_prompt "$cross_prompt" "$SLOT_A" "$slot_b_tag" "$slot_a_tag")"
 
     local slot_a_prompt="$(agent_id_header "$slot_a_tag" "slot-a")
 
@@ -1133,11 +1140,11 @@ run_phase_3() {
 
     local meta_prompt=$(cat "$PROMPTS_DIR/meta_review.md")
     local slot_a_meta_prompt slot_b_meta_prompt
-    slot_a_meta_prompt="$(render_other_reviewer_prompt "$meta_prompt" "$SLOT_B")"
-    slot_b_meta_prompt="$(render_other_reviewer_prompt "$meta_prompt" "$SLOT_A")"
     local slot_a_tag slot_b_tag
     slot_a_tag="$(reviewer_tag "slot-a" "$SLOT_A")"
     slot_b_tag="$(reviewer_tag "slot-b" "$SLOT_B")"
+    slot_a_meta_prompt="$(render_reviewer_prompt "$meta_prompt" "$SLOT_B" "$slot_a_tag" "$slot_b_tag")"
+    slot_b_meta_prompt="$(render_reviewer_prompt "$meta_prompt" "$SLOT_A" "$slot_b_tag" "$slot_a_tag")"
 
     # Each phase runs as a fresh, stateless CLI invocation with no memory of
     # earlier phases, so the meta-review prompt has to re-supply everything
@@ -1257,6 +1264,11 @@ run_phase_4() {
     synthesis_prompt="$(cat "$PROMPTS_DIR/synthesis.md")"
     synthesis_prompt="${synthesis_prompt//\{\{SLOT_A_REVIEWER_NAME\}\}/$SLOT_A}"
     synthesis_prompt="${synthesis_prompt//\{\{SLOT_B_REVIEWER_NAME\}\}/$SLOT_B}"
+    local slot_a_tag slot_b_tag
+    slot_a_tag="$(reviewer_tag "slot-a" "$SLOT_A")"
+    slot_b_tag="$(reviewer_tag "slot-b" "$SLOT_B")"
+    synthesis_prompt="${synthesis_prompt//\{\{SLOT_A_REVIEWER_TAG\}\}/$slot_a_tag}"
+    synthesis_prompt="${synthesis_prompt//\{\{SLOT_B_REVIEWER_TAG\}\}/$slot_b_tag}"
     local scope_policy
     if [[ "$INCLUDE_PRE_EXISTING" == "1" ]]; then
         scope_policy="# PHASE 4 SCOPE POLICY
