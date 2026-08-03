@@ -21,7 +21,7 @@ other agent's description on faith.
 ## Analysis Guidelines
 
 The other agent numbered their findings with their own agent tag (e.g.
-`REVIEWER-A-1`, `REVIEWER-B-3`, ...). You MUST address every single one of their
+`{{OTHER_REVIEWER_TAG}}-1`, `{{OTHER_REVIEWER_TAG}}-3`, ...). You MUST address every single one of their
 IDs individually, using their exact ID string - do not summarize several
 of them together in prose and do not silently skip any. Missing an ID
 here means it will look unresolved to whoever synthesizes the final
@@ -50,12 +50,12 @@ either one.
 ## Verdict Ledger (REQUIRED, before the status block)
 
 Immediately before the status block, list every one of their IDs (their
-exact ID strings, e.g. `REVIEWER-B-1`) with your one-word verdict, so it can be
+exact ID strings, e.g. `{{OTHER_REVIEWER_TAG}}-1`) with your one-word verdict, so it can be
 cross-checked mechanically:
 
 ```
-VERDICTS: REVIEWER-B-1=VALID, REVIEWER-B-2=INVALID, REVIEWER-B-3=UNCLEAR, ...
-SCOPE_VERDICTS: REVIEWER-B-1=IN_SCOPE, REVIEWER-B-2=PRE_EXISTING, REVIEWER-B-3=PRE_EXISTING, ...
+VERDICTS: {{OTHER_REVIEWER_TAG}}-1=VALID, {{OTHER_REVIEWER_TAG}}-2=INVALID, {{OTHER_REVIEWER_TAG}}-3=UNCLEAR, ...
+SCOPE_VERDICTS: {{OTHER_REVIEWER_TAG}}-1=IN_SCOPE, {{OTHER_REVIEWER_TAG}}-2=PRE_EXISTING, {{OTHER_REVIEWER_TAG}}-3=PRE_EXISTING, ...
 ```
 
 The count of entries in VERDICTS MUST equal the number of findings the
@@ -65,7 +65,7 @@ other agent reported.
 
 After reviewing their findings, add any issues YOU found that they missed.
 Give each one an ID using your own agent tag with an `-ADD-` suffix (e.g.
-`REVIEWER-A-ADD-1`, `REVIEWER-A-ADD-2`, ...) so the synthesis phase can track these
+`{{SELF_REVIEWER_TAG}}-ADD-1`, `{{SELF_REVIEWER_TAG}}-ADD-2`, ...) so the synthesis phase can track these
 alongside the Phase 1 findings instead of them getting silently dropped.
 Follow the same format as Phase 1:
 - ID, File, Line, Severity, Scope, Issue, Fix
@@ -103,7 +103,7 @@ SUMMARY: <one line assessment>
 FINDINGS_VALIDATED: 5
 FINDINGS_CHALLENGED: 1
 FINDINGS_ADDED: 2
-ISSUE_SCOPES: REVIEWER-B-1=IN_SCOPE, REVIEWER-B-2=PRE_EXISTING, REVIEWER-A-ADD-1=IN_SCOPE, REVIEWER-A-ADD-2=PRE_EXISTING
+ISSUE_SCOPES: {{OTHER_REVIEWER_TAG}}-1=IN_SCOPE, {{OTHER_REVIEWER_TAG}}-2=PRE_EXISTING, {{SELF_REVIEWER_TAG}}-ADD-1=IN_SCOPE, {{SELF_REVIEWER_TAG}}-ADD-2=PRE_EXISTING
 AGREEMENT_LEVEL: FULL
 CONFIDENCE: HIGH
 SUMMARY: Strong review, one false positive, added two edge cases
@@ -116,7 +116,7 @@ SUMMARY: Strong review, one false positive, added two edge cases
 FINDINGS_VALIDATED: 1
 FINDINGS_CHALLENGED: 4
 FINDINGS_ADDED: 3
-ISSUE_SCOPES: REVIEWER-B-1=PRE_EXISTING, REVIEWER-A-ADD-1=IN_SCOPE, REVIEWER-A-ADD-2=PRE_EXISTING, REVIEWER-A-ADD-3=IN_SCOPE
+ISSUE_SCOPES: {{OTHER_REVIEWER_TAG}}-1=PRE_EXISTING, {{SELF_REVIEWER_TAG}}-ADD-1=IN_SCOPE, {{SELF_REVIEWER_TAG}}-ADD-2=PRE_EXISTING, {{SELF_REVIEWER_TAG}}-ADD-3=IN_SCOPE
 AGREEMENT_LEVEL: LOW
 CONFIDENCE: MEDIUM
 SUMMARY: Many false positives, missed critical security issues

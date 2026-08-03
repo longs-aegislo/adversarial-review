@@ -51,7 +51,7 @@ Focus on these areas:
 ## Output Format
 
 Number every issue you report using the agent tag given to you above
-(e.g. `REVIEWER-A-1`, `REVIEWER-A-2`, ... or `REVIEWER-B-1`, `REVIEWER-B-2`, ...) - these IDs
+(e.g. `{{SELF_REVIEWER_TAG}}-1`, `{{SELF_REVIEWER_TAG}}-2`, ...) - these IDs
 are how the other agent, the meta-review, and the final synthesis will
 refer back to your findings, so every issue MUST have one, in the order
 you list them.
@@ -113,7 +113,7 @@ CRITICAL_COUNT: 1
 HIGH_COUNT: 1
 MEDIUM_COUNT: 1
 LOW_COUNT: 0
-ISSUE_SCOPES: REVIEWER-A-1=IN_SCOPE, REVIEWER-A-2=PRE_EXISTING, REVIEWER-A-3=IN_SCOPE
+ISSUE_SCOPES: {{SELF_REVIEWER_TAG}}-1=IN_SCOPE, {{SELF_REVIEWER_TAG}}-2=PRE_EXISTING, {{SELF_REVIEWER_TAG}}-3=IN_SCOPE
 CONFIDENCE: HIGH
 EXIT_SIGNAL: false
 SUMMARY: Found critical type mixing bug and two medium issues

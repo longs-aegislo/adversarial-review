@@ -7,8 +7,8 @@ and provided meta-feedback. Your task is to synthesize their findings and implem
 ## Step 0: Issue Ledger (REQUIRED, do this first)
 
 Both agents numbered their findings with an agent-tagged ID: their Phase 1
-findings (`REVIEWER-A-1`, `REVIEWER-B-1`, ...) AND any findings either agent added
-during Phase 2 cross-review (`REVIEWER-A-ADD-1`, `REVIEWER-B-ADD-1`, ...) - the
+findings (`{{SLOT_A_REVIEWER_TAG}}-1`, `{{SLOT_B_REVIEWER_TAG}}-1`, ...) AND any findings either agent added
+during Phase 2 cross-review (`{{SLOT_A_REVIEWER_TAG}}-ADD-1`, `{{SLOT_B_REVIEWER_TAG}}-ADD-1`, ...) - the
 latter are just as real as Phase 1 findings and must not be dropped just
 because they surfaced a phase later. Before deciding anything, list EVERY
 ID from BOTH agents' Phase 1 reviews AND BOTH agents' Phase 2 "Additional

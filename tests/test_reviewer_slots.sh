@@ -210,9 +210,21 @@ test_same_backend_prompts_and_artifacts_are_distinct() {
     assert_contains "$(cat "$FAKE_PROMPT_DIR/2-CODEX-A.txt")" \
         "The other reviewer uses the codex backend." \
         "slot A cross-review prompt should name slot B's backend"
+    assert_contains "$(cat "$FAKE_PROMPT_DIR/1-CODEX-A.txt")" \
+        '`CODEX-A-1`, `CODEX-A-2`' \
+        "slot A initial-review examples should use its runtime tag"
+    assert_contains "$(cat "$FAKE_PROMPT_DIR/2-CODEX-A.txt")" \
+        '`CODEX-B-1`' \
+        "slot A cross-review examples should use slot B's runtime tag"
     assert_contains "$(cat "$FAKE_PROMPT_DIR/3-CODEX-B.txt")" \
         "The other reviewer uses the codex backend." \
         "slot B meta-review prompt should name slot A's backend"
+    assert_contains "$(cat "$FAKE_PROMPT_DIR/3-CODEX-B.txt")" \
+        'CODEX-B-1=IN_SCOPE, CODEX-A-1=PRE_EXISTING' \
+        "slot B meta-review examples should use both runtime tags"
+    if grep -R -E -q '\{\{[^}]*REVIEWER_TAG\}\}|REVIEWER-[AB]' "$FAKE_PROMPT_DIR"; then
+        fail "rendered prompts must not retain placeholder or nonexistent reviewer IDs"
+    fi
 
     state_dir="$(find "$AR_STATE_ROOT" -type d -name 'prompts-target*' -print -quit)"
     [[ -f "$state_dir/artifacts/slot-a/iter1_1_codex_review.md" ]] ||
