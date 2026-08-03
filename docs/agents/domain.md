@@ -1,6 +1,6 @@
 # Domain Docs Layout
 
-**Single-context.** This is one cohesive shell tool, not a monorepo — no workspace/package boundaries.
+**Single-context.** This is one cohesive shell tool, not a monorepo; it has no workspace or package boundaries.
 
 - `CONTEXT.md` at the repo root holds the domain glossary.
-- `docs/adr/` at the repo root holds architecture decision records (empty so far — none recorded yet).
+- `docs/adr/` at the repo root holds architecture decision records.
