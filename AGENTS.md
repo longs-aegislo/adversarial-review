@@ -1,11 +1,7 @@
 # Repository Instructions
 
-## GitHub identity and tooling
-
-- 本机处理 `SysAegislo/*` 仓库时，默认使用本地 `gh` CLI，不使用 GitHub App Connector。
-- GitHub App Connector 绑定的是个人 GitHub 账号，不得用于 `SysAegislo/*` 的读取或写入操作。
-- 对 `SysAegislo/*` 执行 GitHub 写操作前，先确认本地仓库的 `origin` 和当前 `gh` 认证身份。
-- 如果 GitHub App 与 `gh` CLI 的访问结果不同，以已认证的 `gh` CLI 为准。
+> 若当前目录存在 `AGENTS.local.md`，也一并读取——其中是本机/个人账号相关、
+> 不适合共享或提交的指令，作为对本文件的补充。
 
 ## GitHub comment formatting and signature
 
@@ -30,35 +26,6 @@ Use the five default triage labels: `needs-triage`, `needs-info`, `ready-for-age
 ### Domain docs
 
 Single-context: `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
-
-## Quick Start (Handoff Summary)
-
-**What this is:** Multi-agent adversarial code review tool. Claude + GPT Codex review code independently, cross-review each other's findings, debate via meta-review, then Claude synthesizes and implements fixes.
-
-**To run:**
-```bash
-cd /Users/alec/kernel/adversarial-review
-./adversarial_review.sh ../some-project      # Real run
-./adversarial_review.sh --dry-run ../project # Test without API calls
-./adversarial_review.sh --status             # Check state
-./adversarial_review.sh --reset              # Reset all state
-```
-
-**Dependencies:**
-```bash
-npm install -g @openai/codex  # If not installed
-brew install coreutils        # For timeout on macOS (gtimeout)
-```
-
-**Current status:** Prototype complete, dry-run tested. Ready for real testing.
-
-**Next steps:**
-1. Test with actual Claude + Codex API calls
-2. Add bats tests following ralph's pattern
-3. Tune prompts based on real review results
-4. Add cost tracking
-
----
 
 ## Repository Overview
 
