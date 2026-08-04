@@ -106,13 +106,21 @@ test_both_modes_errors_before_dependency_check() {
 
 test_review_only_mode_prints_no_migration_notice() {
     local target="$TEST_ROOT/review-only-target"
-    local output
+    local output status
     make_target "$target"
     : > "$FAKE_AGENT_LOG"
 
+    set +e
     output="$(PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
-        --dry-run --max-iters 1 --review-only claude codex "$target" 2>&1)" || true
+        --dry-run --max-iters 1 --review-only claude codex "$target" 2>&1)"
+    status=$?
+    set -e
 
+    [[ $status -eq 1 ]] || fail "--review-only dry-run must exit with the current max-iterations status: $output"
+    assert_contains "$output" "[DRY RUN]" \
+        "--review-only must reach normal dry-run execution"
+    assert_contains "$output" "Reached max iterations (1)" \
+        "--review-only must complete the configured dry-run iteration"
     assert_not_contains "$output" "implicit" \
         "explicitly choosing --review-only must not print the migration notice"
     pass "--review-only alone runs without a migration notice"
@@ -120,13 +128,21 @@ test_review_only_mode_prints_no_migration_notice() {
 
 test_apply_fixes_mode_prints_no_migration_notice() {
     local target="$TEST_ROOT/apply-fixes-target"
-    local output
+    local output status
     make_target "$target"
     : > "$FAKE_AGENT_LOG"
 
+    set +e
     output="$(PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
-        --dry-run --max-iters 1 --apply-fixes claude codex "$target" 2>&1)" || true
+        --dry-run --max-iters 1 --apply-fixes claude codex "$target" 2>&1)"
+    status=$?
+    set -e
 
+    [[ $status -eq 1 ]] || fail "--apply-fixes dry-run must exit with the current max-iterations status: $output"
+    assert_contains "$output" "[DRY RUN]" \
+        "--apply-fixes must reach normal dry-run execution"
+    assert_contains "$output" "Reached max iterations (1)" \
+        "--apply-fixes must complete the configured dry-run iteration"
     assert_not_contains "$output" "implicit" \
         "explicitly choosing --apply-fixes must not print the migration notice"
     pass "--apply-fixes alone runs without a migration notice"
@@ -134,13 +150,21 @@ test_apply_fixes_mode_prints_no_migration_notice() {
 
 test_no_mode_prints_migration_notice() {
     local target="$TEST_ROOT/no-mode-target"
-    local output
+    local output status
     make_target "$target"
     : > "$FAKE_AGENT_LOG"
 
+    set +e
     output="$(PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
-        --dry-run --max-iters 1 claude codex "$target" 2>&1)" || true
+        --dry-run --max-iters 1 claude codex "$target" 2>&1)"
+    status=$?
+    set -e
 
+    [[ $status -eq 1 ]] || fail "implicit-mode dry-run must exit with the current max-iterations status: $output"
+    assert_contains "$output" "[DRY RUN]" \
+        "implicit mode must reach normal dry-run execution"
+    assert_contains "$output" "Reached max iterations (1)" \
+        "implicit mode must complete the configured dry-run iteration"
     assert_contains "$output" "implicit" \
         "omitting both mode flags must print a migration notice about the implicit default"
     pass "omitting both --review-only and --apply-fixes prints a migration notice"
