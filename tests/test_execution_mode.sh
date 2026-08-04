@@ -81,7 +81,7 @@ test_both_modes_is_a_startup_error() {
     status=$?
     set -e
 
-    [[ $status -ne 0 ]] || fail "specifying both modes must exit non-zero"
+    [[ $status -eq 64 ]] || fail "specifying both modes must use invalid-invocation status 64, got $status"
     assert_contains "$output" "mutually exclusive" \
         "the error must explain the modes are mutually exclusive"
     [[ ! -s "$FAKE_AGENT_LOG" ]] ||
@@ -98,7 +98,7 @@ test_both_modes_errors_before_dependency_check() {
     status=$?
     set -e
 
-    [[ $status -ne 0 ]] || fail "both modes with no slots/target must still exit non-zero"
+    [[ $status -eq 64 ]] || fail "missing required arguments must use invalid-invocation status 64, got $status"
     assert_contains "$output" "No slot-a backend specified" \
         "missing slot-a is reported first, before mode validation runs"
     pass "mode validation is reached only after required slot/target arguments are present"
@@ -116,7 +116,7 @@ test_review_only_mode_prints_no_migration_notice() {
     status=$?
     set -e
 
-    [[ $status -eq 1 ]] || fail "--review-only dry-run must exit with the current max-iterations status: $output"
+    [[ $status -eq 12 ]] || fail "--review-only max-iterations must use incomplete-review status 12: $output"
     assert_contains "$output" "[DRY RUN]" \
         "--review-only must reach normal dry-run execution"
     assert_contains "$output" "Reached max iterations (1)" \
@@ -138,7 +138,7 @@ test_apply_fixes_mode_prints_no_migration_notice() {
     status=$?
     set -e
 
-    [[ $status -eq 1 ]] || fail "--apply-fixes dry-run must exit with the current max-iterations status: $output"
+    [[ $status -eq 12 ]] || fail "--apply-fixes max-iterations must use incomplete-review status 12: $output"
     assert_contains "$output" "[DRY RUN]" \
         "--apply-fixes must reach normal dry-run execution"
     assert_contains "$output" "Reached max iterations (1)" \
@@ -160,7 +160,7 @@ test_no_mode_prints_migration_notice() {
     status=$?
     set -e
 
-    [[ $status -eq 1 ]] || fail "implicit-mode dry-run must exit with the current max-iterations status: $output"
+    [[ $status -eq 12 ]] || fail "implicit-mode max-iterations must use incomplete-review status 12: $output"
     assert_contains "$output" "[DRY RUN]" \
         "implicit mode must reach normal dry-run execution"
     assert_contains "$output" "Reached max iterations (1)" \
@@ -182,7 +182,7 @@ test_both_modes_error_fires_before_fixer_selection_and_agent_calls() {
     status=$?
     set -e
 
-    [[ $status -ne 0 ]] || fail "both modes must still exit non-zero even with a valid target"
+    [[ $status -eq 64 ]] || fail "mode conflict must use invalid-invocation status 64, got $status"
     assert_contains "$output" "mutually exclusive" \
         "the mode-exclusivity error must fire"
     assert_not_contains "$output" "Phase 4 fixes will be implemented by" \
@@ -217,6 +217,54 @@ test_management_commands_unaffected_by_mode_validation() {
     pass "management commands (--status et al.) are unaffected by mode validation"
 }
 
+test_open_circuit_uses_incomplete_review_status() {
+    local target="$TEST_ROOT/open-circuit-target"
+    local output status circuit_file circuit_tmp tracking_file
+    make_target "$target"
+
+    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --circuit-status claude codex "$target" >/dev/null 2>&1
+    circuit_file="$(find "$AR_STATE_ROOT" -name .circuit_breaker.json -print -quit)"
+    circuit_tmp="$TEST_ROOT/open-circuit.json"
+    jq '.state = "OPEN" | .reason = "test circuit"' \
+        "$circuit_file" > "$circuit_tmp"
+    mv "$circuit_tmp" "$circuit_file"
+
+    set +e
+    output="$(PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --dry-run --apply-fixes claude codex "$target" 2>&1)"
+    status=$?
+    set -e
+
+    [[ $status -eq 12 ]] || fail "open circuit must use incomplete-review status 12, got $status"
+    assert_contains "$output" "Circuit breaker is OPEN" \
+        "open-circuit output must identify the incomplete-review reason"
+    tracking_file="$(find "$AR_STATE_ROOT" -name tracking.json -print -quit)"
+    [[ "$(jq -r '.status' "$tracking_file")" == "circuit_open" ]] ||
+        fail "tracking must distinguish circuit-open from max-iterations"
+    pass "open circuit uses incomplete-review status and remains distinguishable in tracking"
+}
+
+test_invalid_numeric_options_use_invalid_invocation_status() {
+    local target="$TEST_ROOT/invalid-numeric-target"
+    local option value output status
+    make_target "$target"
+
+    for option in --max-iters --timeout; do
+        value=invalid
+        set +e
+        output="$(PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+            "$option" "$value" --apply-fixes claude codex "$target" 2>&1)"
+        status=$?
+        set -e
+        [[ $status -eq 64 ]] ||
+            fail "$option invalid value must use status 64, got $status"
+        assert_contains "$output" "positive integer" \
+            "$option invalid value must explain its numeric contract"
+    done
+    pass "invalid numeric options use invalid-invocation status"
+}
+
 test_both_modes_is_a_startup_error
 test_both_modes_errors_before_dependency_check
 test_review_only_mode_prints_no_migration_notice
@@ -224,5 +272,7 @@ test_apply_fixes_mode_prints_no_migration_notice
 test_no_mode_prints_migration_notice
 test_both_modes_error_fires_before_fixer_selection_and_agent_calls
 test_management_commands_unaffected_by_mode_validation
+test_open_circuit_uses_incomplete_review_status
+test_invalid_numeric_options_use_invalid_invocation_status
 
 echo "1..$tests_run"

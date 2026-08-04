@@ -147,6 +147,21 @@ PHASE_1_FAILED=2
 PHASE_4_COMPLETE=0
 PHASE_4_CONTINUE=1
 PHASE_4_FAILED=2
+PHASE_4_REVIEW_ONLY_FINDINGS=3
+PHASE_4_APPLY_FIXES_FINDINGS=4
+PHASE_WRITE_BOUNDARY_VIOLATION=65
+PHASE_AGENT_RESPONSE_FAILURE=66
+
+# Stable public process exit statuses. These are an external API; internal
+# phase and backend return values must be mapped to this contract at the CLI
+# boundary rather than leaking through unchanged.
+EXIT_CLEAN=0
+EXIT_REVIEW_ONLY_FINDINGS=10
+EXIT_APPLY_FIXES_FINDINGS=11
+EXIT_INCOMPLETE_REVIEW=12
+EXIT_INVALID_INVOCATION=64
+EXIT_AGENT_BACKEND_FAILURE=70
+EXIT_WRITE_BOUNDARY_VIOLATION=77
 
 # Colors
 RED='\033[0;31m'
@@ -318,7 +333,24 @@ wait_for_review_agents() {
             "slot-b ($SLOT_B)" "agent exited with code $slot_b_rc" "$slot_b_out"
     fi
 
-    [[ $slot_a_rc -eq 0 && $slot_b_rc -eq 0 && $target_changed -eq 0 ]]
+    if [[ $target_changed -ne 0 ||
+          $slot_a_rc -eq $PHASE_WRITE_BOUNDARY_VIOLATION ||
+          $slot_b_rc -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+        return "$PHASE_WRITE_BOUNDARY_VIOLATION"
+    fi
+    if [[ $slot_a_rc -ne 0 || $slot_b_rc -ne 0 ]]; then
+        return "$PHASE_1_FAILED"
+    fi
+    return 0
+}
+
+map_phase_failure_exit() {
+    local phase_result="$1"
+    if [[ $phase_result -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+        echo "$EXIT_WRITE_BOUNDARY_VIOLATION"
+    else
+        echo "$EXIT_AGENT_BACKEND_FAILURE"
+    fi
 }
 
 parse_required_status() {
@@ -427,7 +459,7 @@ check_dependencies() {
         for dep in "${missing[@]}"; do
             echo "  - $dep"
         done
-        exit 1
+        exit "$EXIT_AGENT_BACKEND_FAILURE"
     fi
 
     # Check for timeout command (warn but don't fail)
@@ -682,12 +714,12 @@ run_claude() {
         if ! jq -e . "$raw_log" >/dev/null 2>&1; then
             log_warning "Claude returned a malformed stream-json transcript"
             cp "$raw_log" "$output_file"
-            exit_code=65
+            exit_code=$PHASE_AGENT_RESPONSE_FAILURE
         elif ! jq -r -s 'map(select(.type == "result")) | last | .result // empty' \
             "$raw_log" > "$output_file" || [[ ! -s "$output_file" ]]; then
             log_warning "Claude stream-json transcript has no final result"
             cp "$raw_log" "$output_file"
-            exit_code=65
+            exit_code=$PHASE_AGENT_RESPONSE_FAILURE
         fi
     fi
     if [[ "$structured_review" == "true" && ! -s "$output_file" &&
@@ -1034,10 +1066,12 @@ $slot_b_common"
         "read-only" "phase_1" &
     local slot_b_pid=$!
 
-    if ! wait_for_review_agents "$iteration" "phase_1" "Phase 1" \
+    local wait_result=0
+    wait_for_review_agents "$iteration" "phase_1" "Phase 1" \
         "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
-        "$slot_a_out" "$slot_b_out"; then
-        return "$PHASE_1_FAILED"
+        "$slot_a_out" "$slot_b_out" || wait_result=$?
+    if [[ $wait_result -ne 0 ]]; then
+        return "$wait_result"
     fi
 
     [[ "$DRY_RUN" == "1" ]] && return "$PHASE_1_CONTINUE"
@@ -1134,10 +1168,12 @@ $(cat "$slot_a_review")
         "read-only" "phase_2" &
     local slot_b_pid=$!
 
-    if ! wait_for_review_agents "$iteration" "phase_2" "Phase 2" \
+    local wait_result=0
+    wait_for_review_agents "$iteration" "phase_2" "Phase 2" \
         "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
-        "$slot_a_out" "$slot_b_out"; then
-        return 1
+        "$slot_a_out" "$slot_b_out" || wait_result=$?
+    if [[ $wait_result -ne 0 ]]; then
+        return "$wait_result"
     fi
 
     [[ "$DRY_RUN" == "1" ]] && return 0
@@ -1262,10 +1298,12 @@ $(cat "$slot_a_on_b")
         "read-only" "phase_3" &
     local slot_b_pid=$!
 
-    if ! wait_for_review_agents "$iteration" "phase_3" "Phase 3" \
+    local wait_result=0
+    wait_for_review_agents "$iteration" "phase_3" "Phase 3" \
         "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
-        "$slot_a_out" "$slot_b_out"; then
-        return 1
+        "$slot_a_out" "$slot_b_out" || wait_result=$?
+    if [[ $wait_result -ne 0 ]]; then
+        return "$wait_result"
     fi
 
     [[ "$DRY_RUN" == "1" ]] && return 0
@@ -1440,11 +1478,14 @@ Working directory: $target_dir
     if [[ "$backend_mode" == "read-only" ]] &&
        ! verify_review_target_unchanged "$iteration" "phase_4" "Phase 4" \
             "$target_dir" "$target_before"; then
-        return "$PHASE_4_FAILED"
+        return "$PHASE_WRITE_BOUNDARY_VIOLATION"
     fi
     if [[ $fixer_rc -ne 0 ]]; then
         record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
             "agent exited with code $fixer_rc" "$output_file"
+        if [[ $fixer_rc -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+            return "$PHASE_WRITE_BOUNDARY_VIOLATION"
+        fi
         return "$PHASE_4_FAILED"
     fi
 
@@ -1458,6 +1499,8 @@ Working directory: $target_dir
     fi
     local exit_signal=$(echo "$status" | jq -r '.exit_signal // false')
     local files_modified=$(echo "$status" | jq -r '.files_modified // 0')
+    local issues_skipped
+    issues_skipped="$(echo "$status" | jq -r '.issues_skipped // 0')"
     local in_scope_fixed
     in_scope_fixed="$(echo "$status" | jq -r '.in_scope_fixed // 0')"
     local pre_existing_fixed
@@ -1505,8 +1548,14 @@ Working directory: $target_dir
     if [[ "$exit_signal" == "true" ]]; then
         if [[ "$EXECUTION_MODE" == "review-only" ]]; then
             log_success "Read-only synthesis complete"
+            if [[ $issues_skipped -gt 0 || $pre_existing_flagged -gt 0 ]]; then
+                return "$PHASE_4_REVIEW_ONLY_FINDINGS"
+            fi
         else
             log_success "Synthesis complete - no more issues"
+            if [[ $issues_skipped -gt 0 || $pre_existing_flagged -gt 0 ]]; then
+                return "$PHASE_4_APPLY_FIXES_FINDINGS"
+            fi
         fi
         return "$PHASE_4_COMPLETE"
     fi
@@ -1567,7 +1616,7 @@ run_review_loop() {
             log_error "Circuit breaker is OPEN - halting"
             show_circuit_status
             update_tracking "status" "circuit_open"
-            return 1
+            return "$EXIT_INCOMPLETE_REVIEW"
         fi
 
         echo ""
@@ -1585,22 +1634,26 @@ run_review_loop() {
             else
                 log_success "Review complete - both agents report clean code"
                 update_tracking "status" "clean"
-                return 0
+                return "$EXIT_CLEAN"
             fi
         elif [[ $phase_1_result -ne $PHASE_1_CONTINUE ]]; then
-            return 1
+            return "$(map_phase_failure_exit "$phase_1_result")"
         fi
         echo ""
 
         # Phase 2
-        if ! run_phase_2 "$target_dir" "$iteration"; then
-            return 1
+        local phase_2_result=0
+        run_phase_2 "$target_dir" "$iteration" || phase_2_result=$?
+        if [[ $phase_2_result -ne 0 ]]; then
+            return "$(map_phase_failure_exit "$phase_2_result")"
         fi
         echo ""
 
         # Phase 3
-        if ! run_phase_3 "$target_dir" "$iteration"; then
-            return 1
+        local phase_3_result=0
+        run_phase_3 "$target_dir" "$iteration" || phase_3_result=$?
+        if [[ $phase_3_result -ne 0 ]]; then
+            return "$(map_phase_failure_exit "$phase_3_result")"
         fi
         echo ""
 
@@ -1615,9 +1668,19 @@ run_review_loop() {
                 log_success "Synthesis complete"
                 update_tracking "status" "clean"
             fi
-            return 0
+            return "$EXIT_CLEAN"
+        elif [[ $phase_4_result -eq $PHASE_4_REVIEW_ONLY_FINDINGS ]]; then
+            log_warning "Review-only completed with unresolved findings"
+            update_tracking "status" "review_complete_findings"
+            return "$EXIT_REVIEW_ONLY_FINDINGS"
+        elif [[ $phase_4_result -eq $PHASE_4_APPLY_FIXES_FINDINGS ]]; then
+            log_warning "Apply-fixes completed with unresolved findings"
+            update_tracking "status" "fixes_complete_findings"
+            return "$EXIT_APPLY_FIXES_FINDINGS"
         elif [[ $phase_4_result -eq $PHASE_4_FAILED ]]; then
-            return 1
+            return "$EXIT_AGENT_BACKEND_FAILURE"
+        elif [[ $phase_4_result -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+            return "$EXIT_WRITE_BOUNDARY_VIOLATION"
         fi
         echo ""
 
@@ -1627,7 +1690,7 @@ run_review_loop() {
 
     log_warning "Reached max iterations ($MAX_ITERATIONS)"
     update_tracking "status" "max_iterations"
-    return 1
+    return "$EXIT_INCOMPLETE_REVIEW"
 }
 
 # ============================================================================
@@ -1734,6 +1797,15 @@ OPTIONS:
     --circuit-status        Show circuit breaker status for the required target
     --dry-run               Show what would happen without executing
 
+EXIT STATUSES:
+    0   Clean review (management-command success also remains 0)
+    10  Review-only completed with unresolved findings
+    11  Apply-fixes completed with unresolved or pre-existing findings
+    12  Incomplete review (max iterations or open circuit breaker)
+    64  Invalid invocation rejected before Agent execution
+    70  Agent/backend unavailable, failed, timed out, or malformed response
+    77  Read-only write-boundary violation
+
 STATE:
     All state (tracking.json, circuit breaker, artifacts/) is scoped per
     target directory under state/<slug>/, so reviewing one project can't
@@ -1784,14 +1856,14 @@ main() {
                 exit 0
                 ;;
             -m|--max-iters)
-                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit "$EXIT_INVALID_INVOCATION"; }
                 MAX_ITERATIONS="$2"
                 shift 2
                 ;;
             -p|--prompt)
                 if [[ $# -lt 2 ]]; then
                     log_error "Missing value for $1"
-                    exit 1
+                    exit "$EXIT_INVALID_INVOCATION"
                 fi
                 custom_prompt="$2"
                 shift 2
@@ -1801,37 +1873,37 @@ main() {
                 shift
                 ;;
             -t|--timeout)
-                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit "$EXIT_INVALID_INVOCATION"; }
                 TIMEOUT_MINUTES="$2"
                 shift 2
                 ;;
             -f|--fixer)
-                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit "$EXIT_INVALID_INVOCATION"; }
                 FIXER="$2"
                 shift 2
                 ;;
             --slot-a)
-                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
-                [[ -z "$SLOT_A" ]] || { log_error "slot-a was specified more than once"; exit 1; }
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit "$EXIT_INVALID_INVOCATION"; }
+                [[ -z "$SLOT_A" ]] || { log_error "slot-a was specified more than once"; exit "$EXIT_INVALID_INVOCATION"; }
                 SLOT_A="$2"
                 shift 2
                 ;;
             --slot-b)
-                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
-                [[ -z "$SLOT_B" ]] || { log_error "slot-b was specified more than once"; exit 1; }
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit "$EXIT_INVALID_INVOCATION"; }
+                [[ -z "$SLOT_B" ]] || { log_error "slot-b was specified more than once"; exit "$EXIT_INVALID_INVOCATION"; }
                 SLOT_B="$2"
                 shift 2
                 ;;
             --target-dir)
-                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit 1; }
-                [[ -z "$target_dir" ]] || { log_error "target-dir was specified more than once"; exit 1; }
+                [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit "$EXIT_INVALID_INVOCATION"; }
+                [[ -z "$target_dir" ]] || { log_error "target-dir was specified more than once"; exit "$EXIT_INVALID_INVOCATION"; }
                 target_dir="$2"
                 shift 2
                 ;;
             -b|--base)
                 if [[ $# -lt 2 ]]; then
                     log_error "Missing value for $1"
-                    exit 1
+                    exit "$EXIT_INVALID_INVOCATION"
                 fi
                 BASE_REF="$2"
                 shift 2
@@ -1871,7 +1943,7 @@ main() {
             -*)
                 log_error "Unknown option: $1"
                 show_help
-                exit 1
+                exit "$EXIT_INVALID_INVOCATION"
                 ;;
             *)
                 if [[ -z "$SLOT_A" ]]; then
@@ -1882,7 +1954,7 @@ main() {
                     target_dir="$1"
                 else
                     log_error "Unexpected positional argument: $1"
-                    exit 1
+                    exit "$EXIT_INVALID_INVOCATION"
                 fi
                 shift
                 ;;
@@ -1891,26 +1963,35 @@ main() {
 
     if [[ -z "$SLOT_A" ]]; then
         log_error "No slot-a backend specified (expected 'claude' or 'codex')"
-        exit 1
+        exit "$EXIT_INVALID_INVOCATION"
     fi
     if [[ -z "$SLOT_B" ]]; then
         log_error "No slot-b backend specified (expected 'claude' or 'codex'); the old single-positional form is no longer supported"
-        exit 1
+        exit "$EXIT_INVALID_INVOCATION"
     fi
     if [[ -z "$target_dir" ]]; then
         log_error "No target directory specified (use positional 3 or --target-dir)"
         echo ""
         show_help
-        exit 1
+        exit "$EXIT_INVALID_INVOCATION"
     fi
 
     if [[ "$SLOT_A" != "claude" && "$SLOT_A" != "codex" ]]; then
         log_error "Invalid slot-a backend: $SLOT_A (must be 'claude' or 'codex')"
-        exit 1
+        exit "$EXIT_INVALID_INVOCATION"
     fi
     if [[ "$SLOT_B" != "claude" && "$SLOT_B" != "codex" ]]; then
         log_error "Invalid slot-b backend: $SLOT_B (must be 'claude' or 'codex')"
-        exit 1
+        exit "$EXIT_INVALID_INVOCATION"
+    fi
+
+    if [[ ! "$MAX_ITERATIONS" =~ ^[1-9][0-9]*$ ]]; then
+        log_error "Invalid --max-iters value: $MAX_ITERATIONS (must be a positive integer)"
+        exit "$EXIT_INVALID_INVOCATION"
+    fi
+    if [[ ! "$TIMEOUT_MINUTES" =~ ^[1-9][0-9]*$ ]]; then
+        log_error "Invalid --timeout value: $TIMEOUT_MINUTES (must be a positive integer)"
+        exit "$EXIT_INVALID_INVOCATION"
     fi
 
     if [[ "$SLOT_A" == "$SLOT_B" ]]; then
@@ -1919,7 +2000,7 @@ main() {
 
     if [[ ! -d "$target_dir" ]]; then
         log_error "Directory does not exist: $target_dir"
-        exit 1
+        exit "$EXIT_INVALID_INVOCATION"
     fi
 
     case "$action" in
@@ -1939,7 +2020,7 @@ main() {
 
     if [[ "$REVIEW_ONLY" == "1" && "$APPLY_FIXES" == "1" ]]; then
         log_error "--review-only and --apply-fixes are mutually exclusive"
-        exit 1
+        exit "$EXIT_INVALID_INVOCATION"
     elif [[ "$REVIEW_ONLY" != "1" && "$APPLY_FIXES" != "1" ]]; then
         log_warning "Neither --review-only nor --apply-fixes was specified; using today's implicit Phase 4 behavior (write access is kept). This implicit default may be removed in a future version — automation, skills, and plugins invoking this CLI should pass one of the two flags explicitly."
     fi
@@ -1948,34 +2029,34 @@ main() {
     if [[ -n "$BASE_REF" ]]; then
         if [[ "$(git -C "$target_dir" rev-parse --is-inside-work-tree 2>/dev/null || true)" != "true" ]]; then
             log_error "Cannot use --base: target is not a git working tree: $target_dir"
-            exit 1
+            exit "$EXIT_INVALID_INVOCATION"
         fi
 
         if ! BASE_COMMIT="$(git -C "$target_dir" rev-parse --verify --quiet --end-of-options "${BASE_REF}^{commit}")"; then
             log_error "Base ref '$BASE_REF' does not resolve to a commit in target: $target_dir"
-            exit 1
+            exit "$EXIT_INVALID_INVOCATION"
         fi
 
         local scoped_files
         scoped_files="$(collect_file_list "$target_dir" "$BASE_COMMIT")"
         if [[ -z "$scoped_files" ]]; then
             log_error "No reviewable files differ from base '$BASE_REF'"
-            exit 1
+            exit "$EXIT_INVALID_INVOCATION"
         fi
     fi
 
     if [[ -n "$custom_prompt" ]]; then
         if [[ ! -f "$custom_prompt" ]]; then
             log_error "Custom prompt is not a regular file: $custom_prompt"
-            exit 1
+            exit "$EXIT_INVALID_INVOCATION"
         fi
         if [[ ! -r "$custom_prompt" ]]; then
             log_error "Custom prompt is not readable: $custom_prompt"
-            exit 1
+            exit "$EXIT_INVALID_INVOCATION"
         fi
         if ! CUSTOM_REVIEW_CRITERIA="$(< "$custom_prompt")"; then
             log_error "Could not read custom prompt: $custom_prompt"
-            exit 1
+            exit "$EXIT_INVALID_INVOCATION"
         fi
         log_info "Using additional review criteria: $custom_prompt"
     fi
@@ -1995,7 +2076,7 @@ main() {
 
     if [[ "$FIXER" != "claude" && "$FIXER" != "codex" ]]; then
         log_error "Invalid --fixer value: $FIXER (must be 'claude' or 'codex')"
-        exit 1
+        exit "$EXIT_INVALID_INVOCATION"
     fi
 
     check_dependencies

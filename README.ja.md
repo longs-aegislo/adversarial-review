@@ -75,6 +75,7 @@ cd adversarial-review
 
 - [詳細ガイド](docs/guide.ja.md) — CLI全体、レビューフェーズ、状態管理、
   成果物、カスタマイズ、コストに関する説明
+- [プロセス終了ステータス](docs/exit-statuses.ja.md) — CI と自動化向けの安定した契約
 - [Fork変更履歴](docs/fork-notes.ja.md) — アップストリームとの差分と修正
 - [ドメイン用語集](CONTEXT.md) — 実装で使用する共通用語
 - [ツール比較評価](docs/evaluations/tool-bakeoff/README.md) — Chorus、

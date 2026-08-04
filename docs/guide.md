@@ -124,6 +124,10 @@ OPTIONS:
     --dry-run               Show what would happen without executing
 ```
 
+For automation, see the stable [process exit status contract](exit-statuses.md).
+It distinguishes clean completion, findings that remain, incomplete reviews,
+invalid invocations, backend failures, and write-boundary violations.
+
 The three required inputs may each use their positional or long-flag form in
 any mixture. Both slots may use the same backend; the run continues with a
 warning that review diversity is reduced. The old single-positional form is

@@ -205,8 +205,49 @@ STATUS
         ;;
 esac
 
-if [[ "$phase" -eq 1 && "${FAKE_PHASE1_CLEAN:-}" == "1" ]]; then
-    response="NO_ISSUES"
+if [[ "${FAKE_PHASE1_CLEAN:-}" == "1" ]]; then
+    case "$phase" in
+        1) response="NO_ISSUES" ;;
+        2) response='---CROSS_REVIEW_STATUS---
+FINDINGS_VALIDATED: 0
+FINDINGS_CHALLENGED: 0
+FINDINGS_ADDED: 0
+ISSUE_SCOPES: NONE
+AGREEMENT_LEVEL: FULL
+CONFIDENCE: HIGH
+SUMMARY: No findings to cross-review
+---END_CROSS_REVIEW_STATUS---' ;;
+        3) response='---META_REVIEW_STATUS---
+POSITIONS_DEFENDED: 0
+POSITIONS_CONCEDED: 0
+NEW_ISSUES_ACCEPTED: 0
+NEW_ISSUES_REJECTED: 0
+REMAINING_DISAGREEMENTS: 0
+CONSENSUS_REACHED: YES
+SCOPE_DISAGREEMENTS: 0
+ISSUE_SCOPES: NONE
+SUMMARY: Clean review confirmed
+---END_META_REVIEW_STATUS---' ;;
+        4) response='## Unresolved in-scope findings
+
+- None.
+
+## Pre-existing issues noticed, not fixed
+
+- None.
+
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 0
+MEDIUM_CONFIDENCE_FIXES: 0
+ISSUES_SKIPPED: 0
+FILES_MODIFIED: 0
+IN_SCOPE_FIXED: 0
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+EXIT_SIGNAL: true
+SUMMARY: Review confirmed clean
+---END_SYNTHESIS_STATUS---' ;;
+    esac
 elif [[ "$phase" -eq 1 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
     response="${response/CLAUDE-1/CLAUDE-1\n\nCLAUDE-2 pre-existing finding}"
     response="${response/ISSUES_FOUND: 1/ISSUES_FOUND: 2}"
@@ -390,8 +431,49 @@ SUMMARY: Codex applied the fix
         ;;
 esac
 
-if [[ "$phase" -eq 1 && "${FAKE_PHASE1_CLEAN:-}" == "1" ]]; then
-    response='NO_ISSUES'
+if [[ "${FAKE_PHASE1_CLEAN:-}" == "1" ]]; then
+    case "$phase" in
+        1) response='NO_ISSUES' ;;
+        2) response='---CROSS_REVIEW_STATUS---
+FINDINGS_VALIDATED: 0
+FINDINGS_CHALLENGED: 0
+FINDINGS_ADDED: 0
+ISSUE_SCOPES: NONE
+AGREEMENT_LEVEL: FULL
+CONFIDENCE: HIGH
+SUMMARY: No findings to cross-review
+---END_CROSS_REVIEW_STATUS---' ;;
+        3) response='---META_REVIEW_STATUS---
+POSITIONS_DEFENDED: 0
+POSITIONS_CONCEDED: 0
+NEW_ISSUES_ACCEPTED: 0
+NEW_ISSUES_REJECTED: 0
+REMAINING_DISAGREEMENTS: 0
+CONSENSUS_REACHED: YES
+SCOPE_DISAGREEMENTS: 0
+ISSUE_SCOPES: NONE
+SUMMARY: Clean review confirmed
+---END_META_REVIEW_STATUS---' ;;
+        4) response='## Unresolved in-scope findings
+
+- None.
+
+## Pre-existing issues noticed, not fixed
+
+- None.
+
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 0
+MEDIUM_CONFIDENCE_FIXES: 0
+ISSUES_SKIPPED: 0
+FILES_MODIFIED: 0
+IN_SCOPE_FIXED: 0
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+EXIT_SIGNAL: true
+SUMMARY: Review confirmed clean
+---END_SYNTHESIS_STATUS---' ;;
+    esac
 elif [[ "$phase" -eq 1 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
     response="${response/CODEX-1/CODEX-1\n\nCODEX-2 pre-existing finding}"
     response="${response/ISSUES_FOUND: 1/ISSUES_FOUND: 2}"
@@ -553,7 +635,7 @@ test_review_only_phase_4_is_read_only_and_preserves_target() {
     local target="$TEST_ROOT/review-only-target"
     local custom_prompt="$TEST_ROOT/review-only-criteria.md"
     local output_file="$TEST_ROOT/review-only.out"
-    local content_before mtime_before state_dir synthesis invocation_metadata
+    local content_before mtime_before state_dir synthesis invocation_metadata status
     make_target "$target"
 
     : > "$FAKE_AGENT_LOG"
@@ -562,13 +644,15 @@ test_review_only_phase_4_is_read_only_and_preserves_target() {
     content_before="$(cat "$target/app.sh")"
     mtime_before="$(file_mtime "$target/app.sh")"
 
-    if ! PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+    set +e
+    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
         --review-only --max-iters 1 --fixer codex \
         --prompt "$custom_prompt" claude codex "$target" \
-        > "$output_file" 2>&1; then
-        fail "review-only contract run failed:
+        > "$output_file" 2>&1
+    status=$?
+    set -e
+    [[ $status -eq 10 ]] || fail "review-only findings must use status 10, got $status:
 $(cat "$output_file")"
-    fi
 
     [[ "$(cat "$target/app.sh")" == "$content_before" ]] ||
         fail "review-only must preserve target file content"
@@ -585,7 +669,7 @@ $(cat "$output_file")"
         "review-only synthesis must report unresolved in-scope findings"
     assert_contains "$(cat "$synthesis")" "Pre-existing issues noticed, not fixed" \
         "review-only synthesis must report pre-existing findings separately"
-    [[ "$(jq -r '.status' "$state_dir/tracking.json")" == "review_complete" ]] ||
+    [[ "$(jq -r '.status' "$state_dir/tracking.json")" == "review_complete_findings" ]] ||
         fail "review-only completion must not mark unresolved findings as clean"
 
     invocation_metadata="$(find "$state_dir" -name '*.invocation.json' \
@@ -659,6 +743,31 @@ $(cat "$output_file")"
     pass "review-only runs all four phases when Phase 1 reports no issues"
 }
 
+test_apply_fixes_clean_phase_1_exits_clean() {
+    local target="$TEST_ROOT/apply-clean-target"
+    local custom_prompt="$TEST_ROOT/apply-clean-criteria.md"
+    local output_file="$TEST_ROOT/apply-clean.out"
+    local status
+    make_target "$target"
+
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Apply clean criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+    set +e
+    FAKE_PHASE1_CLEAN=1 PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --apply-fixes --max-iters 1 --fixer codex \
+        --prompt "$custom_prompt" claude codex "$target" \
+        > "$output_file" 2>&1
+    status=$?
+    set -e
+
+    [[ $status -eq 0 ]] || fail "clean Phase 1 must use clean status 0, got $status"
+    [[ "$(grep -Ec '^(claude|codex)\|[234]\|' "$FAKE_AGENT_LOG")" -eq 0 ]] ||
+        fail "apply-fixes must stop after a clean Phase 1"
+    pass "clean Phase 1 exits with clean status"
+}
+
 test_review_only_rejects_noncompliant_synthesis() {
     local failure_mode target custom_prompt output_file status
 
@@ -679,8 +788,8 @@ test_review_only_rejects_noncompliant_synthesis() {
         status=$?
         set -e
 
-        [[ $status -ne 0 ]] ||
-            fail "review-only must reject $failure_mode synthesis output"
+        [[ $status -eq 70 ]] ||
+            fail "invalid review-only synthesis must use agent/backend-failure status 70, got $status"
         assert_contains "$(cat "$output_file")" "review-only synthesis" \
             "review-only validation failure must explain the contract breach"
     done
@@ -688,7 +797,7 @@ test_review_only_rejects_noncompliant_synthesis() {
 }
 
 test_pre_existing_findings_remain_report_only_in_both_modes() {
-    local mode target custom_prompt output_file state_dir synthesis
+    local mode target custom_prompt output_file state_dir synthesis status expected_status
 
     for mode in review-only apply-fixes; do
         target="$TEST_ROOT/$mode-pre-existing-target"
@@ -699,13 +808,17 @@ test_pre_existing_findings_remain_report_only_in_both_modes() {
         export FAKE_CUSTOM_CRITERIA="$mode pre-existing criteria"
         printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
 
-        if ! FAKE_PRE_EXISTING_FINDING=1 PATH="$FAKE_BIN:$PATH" \
+        set +e
+        FAKE_PRE_EXISTING_FINDING=1 PATH="$FAKE_BIN:$PATH" \
             "$SCRIPT_UNDER_TEST" "--$mode" --max-iters 1 --fixer codex \
             --prompt "$custom_prompt" claude codex "$target" \
-            > "$output_file" 2>&1; then
-            fail "$mode pre-existing contract run failed:
+            > "$output_file" 2>&1
+        status=$?
+        set -e
+        [[ "$mode" == "review-only" ]] && expected_status=10 || expected_status=11
+        [[ $status -eq $expected_status ]] ||
+            fail "$mode findings must use status $expected_status, got $status:
 $(cat "$output_file")"
-        fi
 
         state_dir="$(find "$AR_STATE_ROOT" -type d \
             -name "$mode-pre-existing-target*" -print -quit)"
@@ -743,7 +856,7 @@ test_invalid_prompts_fail_before_agent_invocation() {
             --max-iters 1 --fixer codex --prompt "$prompt" claude codex "$target" 2>&1)"
         status=$?
         set -e
-        [[ $status -ne 0 ]] || fail "invalid prompt must return nonzero: $prompt"
+        [[ $status -eq 64 ]] || fail "invalid prompt must use status 64, got $status: $prompt"
         [[ ! -s "$FAKE_AGENT_LOG" ]] ||
             fail "invalid prompt must fail before either agent starts: $prompt"
         assert_contains "$output" "Custom prompt" \
@@ -772,7 +885,7 @@ test_review_agent_failure_stops_with_diagnostics() {
     status=$?
     set -e
 
-    [[ $status -ne 0 ]] || fail "a failed review agent must fail the run"
+    [[ $status -eq 70 ]] || fail "a failed review agent must use status 70, got $status"
     [[ "$(grep -Ec '^(claude|codex)\|3\|' "$FAKE_AGENT_LOG")" -eq 0 ]] ||
         fail "the workflow must not advance after a Phase 2 agent failure"
     state_dir="$(find "$AR_STATE_ROOT" -type d -name 'failing-review-target*' -print -quit)"
@@ -809,7 +922,7 @@ test_malformed_review_response_stops_the_workflow() {
     status=$?
     set -e
 
-    [[ $status -ne 0 ]] || fail "a malformed review response must fail the run"
+    [[ $status -eq 70 ]] || fail "a malformed review response must use status 70, got $status"
     assert_contains "$(cat "$output_file")" \
         "malformed stream-json transcript" \
         "the failure should explain that the structured response is invalid"
@@ -840,8 +953,8 @@ test_denied_write_attempt_stops_with_raw_diagnostics() {
         status=$?
         set -e
 
-        [[ $status -ne 0 ]] ||
-            fail "a denied $agent write attempt must fail the run"
+        [[ $status -eq 77 ]] ||
+            fail "a denied $agent write attempt must use status 77, got $status"
         if [[ "$agent" == "claude" ]]; then
             agent_label="slot-a (claude)"
         else
@@ -884,7 +997,7 @@ test_detected_target_write_stops_without_rollback() {
     status=$?
     set -e
 
-    [[ $status -ne 0 ]] || fail "a detected target write must fail the run"
+    [[ $status -eq 77 ]] || fail "a detected target write must use status 77, got $status"
     assert_contains "$(cat "$output_file")" \
         "target changed during a read-only review phase" \
         "the boundary failure must explain that target evidence changed"
@@ -919,7 +1032,7 @@ test_fixer_failure_does_not_start_another_iteration() {
     status=$?
     set -e
 
-    [[ $status -ne 0 ]] || fail "a failed Phase 4 fixer must fail the run"
+    [[ $status -eq 70 ]] || fail "a failed Phase 4 fixer must use status 70, got $status"
     [[ "$(grep -c '^codex|4|' "$FAKE_AGENT_LOG")" -eq 1 ]] ||
         fail "a failed fixer must not start another review iteration"
     tracking="$(find "$AR_STATE_ROOT" -type f -path \
@@ -934,6 +1047,7 @@ test_claude_fixer_is_writable_without_prompt_leakage
 test_review_only_phase_4_is_read_only_and_preserves_target
 test_apply_fixes_authorizes_only_phase_4_and_records_mode
 test_review_only_runs_all_phases_when_phase_1_is_clean
+test_apply_fixes_clean_phase_1_exits_clean
 test_review_only_rejects_noncompliant_synthesis
 test_pre_existing_findings_remain_report_only_in_both_modes
 test_invalid_prompts_fail_before_agent_invocation

@@ -250,7 +250,7 @@ test_default_fixer_is_validated_before_review() {
     set -e
     output="$(cat "$output_file")"
 
-    [[ $status -ne 0 ]] || fail "missing default Codex fixer dependency must fail"
+    [[ $status -eq 70 ]] || fail "missing default Codex fixer must use status 70, got $status"
     assert_contains "$output" "codex CLI" \
         "dependency preflight should include the resolved default fixer"
     [[ "$output" != *"Starting Adversarial Review Loop"* ]] ||

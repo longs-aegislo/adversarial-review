@@ -219,7 +219,7 @@ test_cli_rejects_non_git_target() {
 
     run_cli "$TEST_ROOT/not-git.out" --dry-run --base main claude codex "$target"
 
-    [[ "$CLI_STATUS" -ne 0 ]] || fail "non-git base scope should fail"
+    [[ "$CLI_STATUS" -eq 64 ]] || fail "non-git base scope must use status 64, got $CLI_STATUS"
     assert_contains "$CLI_OUTPUT" 'not a git working tree' \
         "non-git base scope should explain the failure"
     pass "CLI rejects --base for a non-git target"
@@ -234,7 +234,7 @@ test_cli_rejects_unknown_base() {
 
     run_cli "$TEST_ROOT/bad-ref.out" --dry-run --base does-not-exist claude codex "$repo"
 
-    [[ "$CLI_STATUS" -ne 0 ]] || fail "unknown base ref should fail"
+    [[ "$CLI_STATUS" -eq 64 ]] || fail "unknown base ref must use status 64, got $CLI_STATUS"
     assert_contains "$CLI_OUTPUT" 'does not resolve' \
         "unknown base ref should explain the failure"
     pass "CLI rejects an unknown base ref"
@@ -250,7 +250,7 @@ test_cli_rejects_empty_base_scope() {
 
     run_cli "$TEST_ROOT/empty-scope.out" --dry-run --base base claude codex "$repo"
 
-    [[ "$CLI_STATUS" -ne 0 ]] || fail "empty base scope should fail"
+    [[ "$CLI_STATUS" -eq 64 ]] || fail "empty base scope must use status 64, got $CLI_STATUS"
     assert_contains "$CLI_OUTPUT" 'No reviewable files differ from base' \
         "empty base scope should explain that there is nothing to review"
     pass "CLI rejects an empty base scope"
