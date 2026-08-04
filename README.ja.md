@@ -67,6 +67,24 @@ cd adversarial-review
 ./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
+## 自動化契約
+
+| モード | Agent 呼び出し | Target への書き込み | 完了後も finding が残る場合 |
+| --- | --- | --- | ---: |
+| `--review-only` | 4フェーズすべて | なし | `10` |
+| `--apply-fixes` | レビューと許可された修正／検証 | フェーズ4で可能 | `11` |
+| 両方省略（従来動作） | `--apply-fixes` と同じ | フェーズ4で可能 | `11` |
+
+従来の暗黙モードは移行警告を表示し、将来削除される可能性があります。新しい自動化は
+必ずモードを明示してください。`--dry-run` はプレビュー専用で、Agent を呼び出さず
+レビュー結論も生成しないため、`--review-only` の代わりにはなりません。
+
+安定した終了ステータスは `0` clean、`10` review-only findings、`11` apply-fixes
+findings、`12` incomplete review、`64` invalid invocation、`70` Agent/Backend
+failure、`77` write-boundary violation です。完全なバージョン付き JSON 結果には
+`--result-file PATH` を追加してください。[結果ファイル契約](docs/result-file.ja.md)に
+全フィールド、オブジェクト例、外側の LLM/Skill 向けルーティング指針があります。
+
 ## 必要要件
 
 - **claude CLI**：`npm install -g @anthropic-ai/claude-code`

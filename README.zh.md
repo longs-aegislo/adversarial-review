@@ -63,6 +63,24 @@ cd adversarial-review
 ./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
+## 自动化契约
+
+| 模式 | Agent 调用 | Target 写入 | 完成但仍有 findings 的状态 |
+| --- | --- | --- | ---: |
+| `--review-only` | 完整四阶段 | 绝不写入 | `10` |
+| `--apply-fixes` | 审查阶段及获准的修复／验证工作 | 阶段四可写入 | `11` |
+| 两者都不传（旧行为） | 与 `--apply-fixes` 相同 | 阶段四可写入 | `11` |
+
+旧隐式模式会打印迁移提示，未来可能移除；新增自动化必须显式选择模式。
+`--dry-run` 只做预览：它不调用 Agent，也不产生审查结论，因此不能替代
+`--review-only`。
+
+稳定退出状态为：`0` 无问题、`10` review-only 仍有 findings、`11` apply-fixes
+仍有 findings、`12` 审查未完成、`64` 调用无效、`70` Agent/Backend 失败、`77`
+写入边界违规。增加 `--result-file PATH` 可获得完整的版本化 JSON 结果；
+[结果文件契约](docs/result-file.zh.md)包含全部字段、示例对象及外层 LLM/Skill 的
+路由指引。
+
 ## 依赖要求
 
 - **claude CLI**：`npm install -g @anthropic-ai/claude-code`

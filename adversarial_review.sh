@@ -2146,7 +2146,9 @@ OPTIONS:
     --reset                 Reset all state for the required target
     --reset-circuit         Reset circuit breaker for the required target
     --circuit-status        Show circuit breaker status for the required target
-    --dry-run               Show what would happen without executing
+    --dry-run               Preview execution without calling Agents or
+                            producing review conclusions; not a substitute
+                            for --review-only
 
 EXIT STATUSES:
     0   Clean review (management-command success also remains 0)

@@ -170,6 +170,17 @@ test_no_mode_prints_migration_notice() {
     pass "omitting both --review-only and --apply-fixes prints a migration notice"
 }
 
+test_help_distinguishes_dry_run_from_review_only() {
+    local output
+
+    output="$($SCRIPT_UNDER_TEST --help)"
+    assert_contains "$output" "without calling Agents" \
+        "--help must explain that dry-run does not call Agents"
+    assert_contains "$output" "producing review conclusions; not a substitute" \
+        "--help must explain that dry-run cannot substitute for review-only"
+    pass "help distinguishes dry-run preview from a real review-only run"
+}
+
 test_both_modes_error_fires_before_fixer_selection_and_agent_calls() {
     local target="$TEST_ROOT/both-modes-valid-target"
     local output status
@@ -283,6 +294,7 @@ test_both_modes_errors_before_dependency_check
 test_review_only_mode_prints_no_migration_notice
 test_apply_fixes_mode_prints_no_migration_notice
 test_no_mode_prints_migration_notice
+test_help_distinguishes_dry_run_from_review_only
 test_both_modes_error_fires_before_fixer_selection_and_agent_calls
 test_management_commands_unaffected_by_mode_validation
 test_open_circuit_uses_incomplete_review_status

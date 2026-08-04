@@ -117,7 +117,8 @@ cd adversarial-review
     --reset                 重置必填目标目录对应的所有状态
     --reset-circuit         重置必填目标目录对应的断路器
     --circuit-status        显示必填目标目录对应的断路器状态
-    --dry-run               只展示会执行什么，不真正运行
+    --dry-run               不调用 Agent、不产生审查结论地预览；
+                            不能替代 --review-only
 ```
 
 自动化调用请参阅稳定的[进程退出状态契约](exit-statuses.zh.md)。该契约区分
@@ -153,7 +154,29 @@ cd adversarial-review
 复用阶段一至三的只读 Backend 契约，分别报告尚未解决的 `IN_SCOPE` 与
 `PRE_EXISTING` findings，且不会声称已经修复。两者都省略时，行为仍与当前
 隐式的 apply-fixes 一致，并打印迁移提示；新增的自动化、Skill、Plugin 应显式
-传入其中一个 flag。
+传入其中一个 flag。这个兼容默认行为未来可能被移除。
+
+| 模式 | 是否运行 Agent | 阶段四 Target 权限 | 用途 |
+| --- | --- | --- | --- |
+| `--review-only` | 是，完整四阶段 | 只读 | 产生真实审查及未解决 finding 报告。 |
+| `--apply-fixes` | 是 | 可写 | 应用获准修复并报告遗留项。 |
+| `--dry-run`（可搭配任一模式） | 否 | 无 Agent 权限 | 只预览范围与策略；不产生审查结论，不能替代 `--review-only`。 |
+
+稳定进程退出状态如下：
+
+| 状态 | 分类 |
+| ---: | --- |
+| `0` | 审查无问题 |
+| `10` | Review-only 完成但仍有 findings |
+| `11` | Apply-fixes 完成但仍有 findings |
+| `12` | 审查未完成 |
+| `64` | 调用无效 |
+| `70` | Agent/Backend 失败 |
+| `77` | 写入边界违规 |
+
+精确定义见[退出状态契约](exit-statuses.zh.md)。机器消费者可查阅
+[结果文件契约](result-file.zh.md)，其中包含全部字段、JSON 示例以及外层
+LLM/Skill 的决策示例。
 
 状态是按目标目录隔离的（见下方"状态目录"一节），所以想查看或重置某个项目的历史，需要把必填的槽位配置和当初审查它时用的 `<目标目录>` 传给 `--status`/`--reset` 等命令。
 
