@@ -144,6 +144,7 @@ REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
 PHASE_1_CLEAN=0
 PHASE_1_CONTINUE=1
 PHASE_1_FAILED=2
+PHASE_REVIEW_FAILED=2
 PHASE_4_COMPLETE=0
 PHASE_4_CONTINUE=1
 PHASE_4_FAILED=2
@@ -339,7 +340,7 @@ wait_for_review_agents() {
         return "$PHASE_WRITE_BOUNDARY_VIOLATION"
     fi
     if [[ $slot_a_rc -ne 0 || $slot_b_rc -ne 0 ]]; then
-        return "$PHASE_1_FAILED"
+        return "$PHASE_REVIEW_FAILED"
     fi
     return 0
 }
@@ -407,8 +408,6 @@ audit_codex_review_transcript() {
         [
             .[] |
             select(
-                .type == "error" or
-                .type == "turn.failed" or
                 (
                     (.type == "item.started" or .type == "item.completed") and
                     .item.type == "file_change"
@@ -775,7 +774,12 @@ run_codex() {
     if [[ "$structured_review" == "true" && $exit_code -eq 0 ]]; then
         if ! jq -e . "$raw_log" >/dev/null 2>&1; then
             log_warning "Codex returned a malformed JSONL transcript"
-            exit_code=65
+            exit_code=$PHASE_AGENT_RESPONSE_FAILURE
+        elif jq -e -s \
+            'any(.[]; .type == "error" or .type == "turn.failed")' \
+            "$raw_log" >/dev/null; then
+            log_warning "Codex reported a failed turn"
+            exit_code=$PHASE_AGENT_RESPONSE_FAILURE
         fi
     fi
 
@@ -804,6 +808,9 @@ run_backend() {
             run_claude "$prompt" "$output_file" "$working_dir" "false" \
                 "$REVIEW_AVAILABLE_TOOLS" "$REVIEW_ALLOWED_TOOLS" "$phase" ||
                 exit_code=$?
+            if [[ $exit_code -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+                exit_code=$PHASE_AGENT_RESPONSE_FAILURE
+            fi
             if [[ $exit_code -eq 0 && "$DRY_RUN" != "1" ]] &&
                ! audit_claude_review_transcript "$raw_log"; then
                 log_warning "Claude attempted a tool outside the read-only review contract"
@@ -814,10 +821,16 @@ run_backend() {
             run_claude "$prompt" "$output_file" "$working_dir" "true" "" "" \
                 "$phase" ||
                 exit_code=$?
+            if [[ $exit_code -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+                exit_code=$PHASE_AGENT_RESPONSE_FAILURE
+            fi
             ;;
         codex:read-only|codex:workspace-write)
             run_codex "$prompt" "$output_file" "$working_dir" "$mode" "$phase" ||
                 exit_code=$?
+            if [[ $exit_code -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+                exit_code=$PHASE_AGENT_RESPONSE_FAILURE
+            fi
             if [[ $exit_code -eq 0 && "$mode" == "read-only" &&
                   "$DRY_RUN" != "1" ]] &&
                ! audit_codex_review_transcript "$raw_log"; then
@@ -1066,13 +1079,9 @@ $slot_b_common"
         "read-only" "phase_1" &
     local slot_b_pid=$!
 
-    local wait_result=0
     wait_for_review_agents "$iteration" "phase_1" "Phase 1" \
         "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
-        "$slot_a_out" "$slot_b_out" || wait_result=$?
-    if [[ $wait_result -ne 0 ]]; then
-        return "$wait_result"
-    fi
+        "$slot_a_out" "$slot_b_out" || return $?
 
     [[ "$DRY_RUN" == "1" ]] && return "$PHASE_1_CONTINUE"
 
@@ -1168,13 +1177,9 @@ $(cat "$slot_a_review")
         "read-only" "phase_2" &
     local slot_b_pid=$!
 
-    local wait_result=0
     wait_for_review_agents "$iteration" "phase_2" "Phase 2" \
         "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
-        "$slot_a_out" "$slot_b_out" || wait_result=$?
-    if [[ $wait_result -ne 0 ]]; then
-        return "$wait_result"
-    fi
+        "$slot_a_out" "$slot_b_out" || return $?
 
     [[ "$DRY_RUN" == "1" ]] && return 0
 
@@ -1298,13 +1303,9 @@ $(cat "$slot_a_on_b")
         "read-only" "phase_3" &
     local slot_b_pid=$!
 
-    local wait_result=0
     wait_for_review_agents "$iteration" "phase_3" "Phase 3" \
         "$target_dir" "$target_before" "$slot_a_pid" "$slot_b_pid" \
-        "$slot_a_out" "$slot_b_out" || wait_result=$?
-    if [[ $wait_result -ne 0 ]]; then
-        return "$wait_result"
-    fi
+        "$slot_a_out" "$slot_b_out" || return $?
 
     [[ "$DRY_RUN" == "1" ]] && return 0
 
@@ -1985,15 +1986,6 @@ main() {
         exit "$EXIT_INVALID_INVOCATION"
     fi
 
-    if [[ ! "$MAX_ITERATIONS" =~ ^[1-9][0-9]*$ ]]; then
-        log_error "Invalid --max-iters value: $MAX_ITERATIONS (must be a positive integer)"
-        exit "$EXIT_INVALID_INVOCATION"
-    fi
-    if [[ ! "$TIMEOUT_MINUTES" =~ ^[1-9][0-9]*$ ]]; then
-        log_error "Invalid --timeout value: $TIMEOUT_MINUTES (must be a positive integer)"
-        exit "$EXIT_INVALID_INVOCATION"
-    fi
-
     if [[ "$SLOT_A" == "$SLOT_B" ]]; then
         log_warning "Both reviewer slots use '$SLOT_A'; reduced review diversity is expected"
     fi
@@ -2017,6 +2009,15 @@ main() {
             exit 0
             ;;
     esac
+
+    if [[ ! "$MAX_ITERATIONS" =~ ^[1-9][0-9]*$ ]]; then
+        log_error "Invalid --max-iters value: $MAX_ITERATIONS (must be a positive integer)"
+        exit "$EXIT_INVALID_INVOCATION"
+    fi
+    if [[ ! "$TIMEOUT_MINUTES" =~ ^[1-9][0-9]*$ ]]; then
+        log_error "Invalid --timeout value: $TIMEOUT_MINUTES (must be a positive integer)"
+        exit "$EXIT_INVALID_INVOCATION"
+    fi
 
     if [[ "$REVIEW_ONLY" == "1" && "$APPLY_FIXES" == "1" ]]; then
         log_error "--review-only and --apply-fixes are mutually exclusive"

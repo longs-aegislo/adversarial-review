@@ -533,6 +533,12 @@ if [[ "$json_mode" == "true" ]]; then
             }
         }'
     fi
+    if [[ "${FAKE_TURN_FAILURE_PHASE:-}" == "$phase" ]]; then
+        jq -cn '{
+            type: "turn.failed",
+            error: {message: "simulated ordinary backend turn failure"}
+        }'
+    fi
     jq -cn '{type: "turn.completed", usage: {input_tokens: 1, output_tokens: 1}}'
 else
     printf '%s\n' "fake codex phase $phase complete"
@@ -979,6 +985,31 @@ test_denied_write_attempt_stops_with_raw_diagnostics() {
     pass "Claude and Codex denied writes are fatal with raw diagnostics"
 }
 
+test_codex_turn_failure_is_not_a_write_violation() {
+    local target="$TEST_ROOT/codex-turn-failure-target"
+    local custom_prompt="$TEST_ROOT/codex-turn-failure-criteria.md"
+    local output_file="$TEST_ROOT/codex-turn-failure.out"
+    local status
+    make_target "$target"
+
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Codex turn failure criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+    set +e
+    FAKE_TURN_FAILURE_PHASE=2 PATH="$FAKE_BIN:$PATH" \
+        "$SCRIPT_UNDER_TEST" --max-iters 1 --fixer codex \
+        --prompt "$custom_prompt" claude codex "$target" > "$output_file" 2>&1
+    status=$?
+    set -e
+
+    [[ $status -eq 70 ]] ||
+        fail "ordinary Codex turn failure must use backend status 70, got $status"
+    assert_contains "$(cat "$output_file")" "Codex reported a failed turn" \
+        "ordinary turn failures must retain backend diagnostics"
+    pass "ordinary Codex turn failure remains distinct from write violations"
+}
+
 test_detected_target_write_stops_without_rollback() {
     local target="$TEST_ROOT/detected-write-target"
     local custom_prompt="$TEST_ROOT/detected-write-criteria.md"
@@ -1054,6 +1085,7 @@ test_invalid_prompts_fail_before_agent_invocation
 test_review_agent_failure_stops_with_diagnostics
 test_malformed_review_response_stops_the_workflow
 test_denied_write_attempt_stops_with_raw_diagnostics
+test_codex_turn_failure_is_not_a_write_violation
 test_detected_target_write_stops_without_rollback
 test_fixer_failure_does_not_start_another_iteration
 

@@ -214,6 +214,17 @@ test_management_commands_unaffected_by_mode_validation() {
     assert_not_contains "$output" "mutually exclusive" \
         "--status must short-circuit before the mode-exclusivity check runs"
 
+    set +e
+    output="$(PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --status --max-iters invalid --timeout invalid \
+        claude codex "$target" 2>&1)"
+    status=$?
+    set -e
+    [[ $status -eq 0 ]] ||
+        fail "--status must retain precedence over review-only numeric validation: $output"
+    assert_not_contains "$output" "positive integer" \
+        "management commands must ignore review-only numeric options as before"
+
     pass "management commands (--status et al.) are unaffected by mode validation"
 }
 
@@ -224,7 +235,8 @@ test_open_circuit_uses_incomplete_review_status() {
 
     PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
         --circuit-status claude codex "$target" >/dev/null 2>&1
-    circuit_file="$(find "$AR_STATE_ROOT" -name .circuit_breaker.json -print -quit)"
+    circuit_file="$(find "$AR_STATE_ROOT" -path \
+        '*open-circuit-target*/.circuit_breaker.json' -print -quit)"
     circuit_tmp="$TEST_ROOT/open-circuit.json"
     jq '.state = "OPEN" | .reason = "test circuit"' \
         "$circuit_file" > "$circuit_tmp"
@@ -239,7 +251,8 @@ test_open_circuit_uses_incomplete_review_status() {
     [[ $status -eq 12 ]] || fail "open circuit must use incomplete-review status 12, got $status"
     assert_contains "$output" "Circuit breaker is OPEN" \
         "open-circuit output must identify the incomplete-review reason"
-    tracking_file="$(find "$AR_STATE_ROOT" -name tracking.json -print -quit)"
+    tracking_file="$(find "$AR_STATE_ROOT" -path \
+        '*open-circuit-target*/tracking.json' -print -quit)"
     [[ "$(jq -r '.status' "$tracking_file")" == "circuit_open" ]] ||
         fail "tracking must distinguish circuit-open from max-iterations"
     pass "open circuit uses incomplete-review status and remains distinguishable in tracking"
