@@ -144,7 +144,6 @@ REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
 PHASE_1_CLEAN=0
 PHASE_1_CONTINUE=1
 PHASE_1_FAILED=2
-PHASE_REVIEW_FAILED=2
 PHASE_4_COMPLETE=0
 PHASE_4_CONTINUE=1
 PHASE_4_FAILED=2
@@ -340,7 +339,7 @@ wait_for_review_agents() {
         return "$PHASE_WRITE_BOUNDARY_VIOLATION"
     fi
     if [[ $slot_a_rc -ne 0 || $slot_b_rc -ne 0 ]]; then
-        return "$PHASE_REVIEW_FAILED"
+        return "$PHASE_1_FAILED"
     fi
     return 0
 }
@@ -815,7 +814,7 @@ run_backend() {
                jq -e . "$raw_log" >/dev/null 2>&1 &&
                ! audit_claude_review_transcript "$raw_log"; then
                 log_warning "Claude attempted a tool outside the read-only review contract"
-                exit_code=65
+                exit_code=$PHASE_WRITE_BOUNDARY_VIOLATION
             fi
             ;;
         claude:workspace-write)
@@ -837,12 +836,12 @@ run_backend() {
                jq -e . "$raw_log" >/dev/null 2>&1 &&
                ! audit_codex_review_transcript "$raw_log"; then
                 log_warning "Codex attempted a write outside the read-only review contract"
-                exit_code=65
+                exit_code=$PHASE_WRITE_BOUNDARY_VIOLATION
             fi
             ;;
         *)
             log_warning "Unsupported backend/mode combination: $backend_name:$mode"
-            return 64
+            return "$EXIT_INVALID_INVOCATION"
             ;;
     esac
 

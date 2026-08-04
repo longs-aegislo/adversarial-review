@@ -81,12 +81,14 @@ test_cli_forms_and_validation() {
         codex --slot-b claude --target-dir "$target"
 
     run_cli "$TEST_ROOT/old-form.out" --dry-run "$target"
-    [[ $CLI_STATUS -ne 0 ]] || fail "old single-positional form must fail"
+    [[ $CLI_STATUS -eq 64 ]] ||
+        fail "old single-positional form must use invalid-invocation status 64, got $CLI_STATUS"
     assert_contains "$CLI_OUTPUT" "slot-b" \
         "old form should identify missing reviewer-slot input"
 
     run_cli "$TEST_ROOT/invalid.out" --dry-run llama codex "$target"
-    [[ $CLI_STATUS -ne 0 ]] || fail "invalid backend must fail"
+    [[ $CLI_STATUS -eq 64 ]] ||
+        fail "invalid backend must use invalid-invocation status 64, got $CLI_STATUS"
     assert_contains "$CLI_OUTPUT" "Invalid slot-a backend" \
         "invalid backend error should identify slot-a"
     pass "old and invalid forms fail fast"
