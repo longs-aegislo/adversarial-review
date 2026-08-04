@@ -60,6 +60,9 @@ cd adversarial-review
 # 今回の実行にレビュー基準を追加
 ./adversarial_review.sh --prompt security-review.md claude codex ../my-project
 
+# CI や自動化向けに JSON 結果をアトミック出力
+./adversarial_review.sh --apply-fixes --result-file review-result.json claude codex ../my-project
+
 # APIを呼ばず、スコープとフェーズ4ポリシーを確認
 ./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
@@ -76,6 +79,7 @@ cd adversarial-review
 - [詳細ガイド](docs/guide.ja.md) — CLI全体、レビューフェーズ、状態管理、
   成果物、カスタマイズ、コストに関する説明
 - [プロセス終了ステータス](docs/exit-statuses.ja.md) — CI と自動化向けの安定した契約
+- [機械可読結果ファイル](docs/result-file.ja.md) — 全終了経路を扱うバージョン付きアトミック JSON
 - [Fork変更履歴](docs/fork-notes.ja.md) — アップストリームとの差分と修正
 - [ドメイン用語集](CONTEXT.md) — 実装で使用する共通用語
 - [ツール比較評価](docs/evaluations/tool-bakeoff/README.md) — Chorus、

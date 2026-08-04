@@ -64,6 +64,9 @@ cd adversarial-review
 # Add review criteria for this run
 ./adversarial_review.sh --prompt security-review.md claude codex ../my-project
 
+# Write an atomic JSON result for CI or other automation
+./adversarial_review.sh --apply-fixes --result-file review-result.json claude codex ../my-project
+
 # Preview scope and Phase 4 policy without API calls
 ./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
@@ -81,6 +84,8 @@ cd adversarial-review
   state management, artifacts, customization, and cost notes
 - [Process exit statuses](docs/exit-statuses.md) — stable statuses for CI and
   other automation
+- [Machine-readable result file](docs/result-file.md) — versioned atomic JSON
+  output for every termination path
 - [Fork notes](docs/fork-notes.md) — changes and fixes relative to upstream
 - [Domain glossary](CONTEXT.md) — terminology used by the implementation
 - [Tool bake-off](docs/evaluations/tool-bakeoff/README.md) — comparison with
