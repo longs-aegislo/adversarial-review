@@ -71,6 +71,7 @@ cd adversarial-review
 
 - [详细指南](docs/guide.zh.md)——完整 CLI、审查阶段、状态管理、产出文件、
   自定义方式与成本说明
+- [进程退出状态](docs/exit-statuses.zh.md)——供 CI 与其他自动化使用的稳定状态契约
 - [Fork 变更记录](docs/fork-notes.zh.md)——相对上游的修改与修复
 - [领域术语表](CONTEXT.md)——实现中使用的统一术语
 - [工具对比评测](docs/evaluations/tool-bakeoff/README.md)——与 Chorus、

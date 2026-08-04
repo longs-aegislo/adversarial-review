@@ -79,6 +79,8 @@ cd adversarial-review
 
 - [Detailed guide](docs/guide.md) — complete CLI reference, review phases,
   state management, artifacts, customization, and cost notes
+- [Process exit statuses](docs/exit-statuses.md) — stable statuses for CI and
+  other automation
 - [Fork notes](docs/fork-notes.md) — changes and fixes relative to upstream
 - [Domain glossary](CONTEXT.md) — terminology used by the implementation
 - [Tool bake-off](docs/evaluations/tool-bakeoff/README.md) — comparison with
