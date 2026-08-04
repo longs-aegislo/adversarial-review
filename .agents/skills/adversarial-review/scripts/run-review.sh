@@ -32,7 +32,8 @@ require_run_contract() {
         fail "CLI did not preserve the review-only execution contract"
 }
 
-CLI="${ADVERSARIAL_REVIEW_BIN:-adversarial_review.sh}"
+SKILL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CLI="${ADVERSARIAL_REVIEW_BIN:-}"
 BASE_REF=""
 SLOT_A="claude"
 SLOT_B="codex"
@@ -48,11 +49,17 @@ while [[ $# -gt 0 ]]; do
 done
 
 command -v jq >/dev/null 2>&1 || fail "missing dependency: jq"
+if [[ -z "$CLI" ]]; then
+    CLI="$(command -v adversarial_review.sh 2>/dev/null || true)"
+    if [[ -z "$CLI" && -x "$SKILL_SCRIPT_DIR/../../../../adversarial_review.sh" ]]; then
+        CLI="$SKILL_SCRIPT_DIR/../../../../adversarial_review.sh"
+    fi
+fi
 if [[ "$CLI" == */* ]]; then
     [[ -x "$CLI" ]] || fail "Adversarial Review CLI is not executable: $CLI"
 else
     CLI="$(command -v "$CLI" 2>/dev/null || true)"
-    [[ -n "$CLI" ]] || fail "Adversarial Review CLI was not found"
+    [[ -n "$CLI" ]] || fail "Adversarial Review CLI was not found; set ADVERSARIAL_REVIEW_BIN or pass --cli"
 fi
 [[ "$SLOT_A" == "claude" && "$SLOT_B" == "codex" ]] ||
     fail "this explicit review-only path requires reviewer slots claude and codex"

@@ -338,6 +338,10 @@ SUMMARY: Found critical type mixing bug
 作業には `HEAD` baseline を使い、異種の `claude`／`codex` reviewer slots を
 `review-only` モードで選択します。
 
+Adapter は最初に `PATH`、次に Skill を含むリポジトリのルートから
+`adversarial_review.sh` を解決します。Skill を単独でインストールする場合は、
+`ADVERSARIAL_REVIEW_BIN` を設定するか `--cli <path>` を明示します。
+
 実際の Agent 呼び出し前に、Adapter は Target Repo、baseline、reviewer slots、モードを
 表示し、同じ値で dry-run を実行します。文書化された dry-run 出力に有効かつ空でない
 ファイル scope がある場合だけ実レビューを開始します。result schema version 1 のみを
@@ -346,7 +350,8 @@ SUMMARY: Found critical type mixing bug
 行いません。
 
 `tests/test_skill_scenarios.sh` は fixture Target Repo と fake CLI を使い、モデル呼び出しや
-サブスクリプションなしで clean、findings remaining、空 scope を決定的に検証します。
+サブスクリプションなしで clean、findings remaining、空 scope、デフォルト CLI 検出を
+決定的に検証します。
 
 ## 研究背景
 

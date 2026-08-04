@@ -28,6 +28,11 @@ directly.
    <skill-directory>/scripts/run-review.sh --base <baseline>
    ```
 
+   The adapter first looks for `adversarial_review.sh` on `PATH`, then for the
+   CLI at the root of the repository containing this Skill. For a standalone
+   Skill installation, set `ADVERSARIAL_REVIEW_BIN` to the installed CLI path
+   or pass `--cli <path>`.
+
    The adapter prints Target Repo, baseline, reviewer slots, and execution mode
    before invoking the CLI. It then performs a dry-run with the same explicit
    values and starts the real review only after confirming a valid, non-empty

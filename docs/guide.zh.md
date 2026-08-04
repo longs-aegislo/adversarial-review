@@ -319,6 +319,9 @@ SUMMARY: Found critical type mixing bug
 对未提交工作默认使用 `HEAD` baseline，并以 `review-only` 模式选择异构的
 `claude`／`codex` reviewer slots。
 
+Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再尝试 Skill 所在仓库的根目录。
+独立安装 Skill 时，可以设置 `ADVERSARIAL_REVIEW_BIN` 或显式传入 `--cli <路径>`。
+
 任何真实 Agent 调用前，Adapter 都会显示 Target Repo、baseline、reviewer slots 和
 执行模式，再用完全相同的值执行 dry-run。只有文档化 dry-run 输出给出有效且非空的
 文件 scope 时才开始真实审查。它只接受结果 schema version 1，区分 clean 与仍有
@@ -326,7 +329,7 @@ findings，并显示最终 Synthesis 与 Artifacts 路径。它不会提交、�
 安装依赖或修改 Target Repo。
 
 `tests/test_skill_scenarios.sh` 使用 fixture Target Repo 和伪 CLI，确定性覆盖 clean、
-findings remaining 与空 scope，既不调用模型也不依赖订阅。
+findings remaining、空 scope 与默认 CLI 发现路径，既不调用模型也不依赖订阅。
 
 ## 研究背景
 

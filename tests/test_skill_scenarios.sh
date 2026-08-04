@@ -148,6 +148,37 @@ test_empty_scope_stops_before_real_review() {
     pass "empty dry-run scope stops before real Agent calls"
 }
 
+test_discovers_cli_from_skill_repository() {
+    local target="$TEST_ROOT/discovery-target"
+    local tool_repo="$TEST_ROOT/discovery-tool"
+    local runner_dir="$tool_repo/.agents/skills/adversarial-review/scripts"
+    local output="$TEST_ROOT/discovery.out"
+    local command_log="$TEST_ROOT/discovery.commands"
+    local status
+
+    make_target "$target"
+    mkdir -p "$runner_dir"
+    cp "$SKILL_RUNNER" "$runner_dir/run-review.sh"
+    chmod +x "$runner_dir/run-review.sh"
+    make_fake_cli "$tool_repo/adversarial_review.sh"
+
+    set +e
+    (
+        cd "$target"
+        PATH="$TEST_BIN:$PATH" FAKE_COMMAND_LOG="$command_log" \
+            "$runner_dir/run-review.sh"
+    ) > "$output" 2>&1
+    status=$?
+    set -e
+
+    [[ $status -eq 0 ]] || fail "repository-relative CLI discovery should succeed"
+    assert_contains "$(cat "$output")" "Review result: clean" \
+        "discovered CLI should complete the review"
+    [[ "$(wc -l < "$command_log" | tr -d ' ')" == "2" ]] ||
+        fail "discovered CLI should receive dry-run and real invocations"
+    pass "adapter discovers the CLI from the Skill repository root"
+}
+
 test_explicit_clean_review() {
     run_scenario clean clean
 
@@ -189,5 +220,6 @@ test_explicit_findings_remaining_review() {
 test_explicit_clean_review
 test_explicit_findings_remaining_review
 test_empty_scope_stops_before_real_review
+test_discovers_cli_from_skill_repository
 
 echo "1..$tests_run"

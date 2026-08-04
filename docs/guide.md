@@ -349,6 +349,10 @@ post-implementation or pre-PR reviews. From the trusted Target Repo, invoke
 baseline to `HEAD` for uncommitted work, and selects the heterogeneous
 `claude`/`codex` slots in `review-only` mode.
 
+The adapter resolves `adversarial_review.sh` from `PATH` first, then from the
+root of the repository containing the Skill. Standalone Skill installations
+can set `ADVERSARIAL_REVIEW_BIN` or pass `--cli <path>` explicitly.
+
 Before any real Agent call, the adapter prints the Target Repo, baseline,
 reviewer slots, and mode, then runs a dry-run with those exact values. It starts
 the real review only after the documented dry-run output contains a valid,
@@ -358,8 +362,8 @@ Artifacts paths. It never commits, pushes, creates a PR, fetches, installs
 dependencies, or modifies the Target Repo.
 
 Deterministic scenarios in `tests/test_skill_scenarios.sh` exercise clean,
-findings-remaining, and empty-scope behavior with fixture Target Repos and a
-fake CLI, without model calls or subscriptions.
+findings-remaining, empty-scope, and default CLI-discovery behavior with
+fixture Target Repos and a fake CLI, without model calls or subscriptions.
 
 ## Research Background
 
