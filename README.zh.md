@@ -77,8 +77,9 @@ cd adversarial-review
 
 稳定退出状态为：`0` 无问题、`10` review-only 仍有 findings、`11` apply-fixes
 仍有 findings、`12` 审查未完成、`64` 调用无效、`70` Agent/Backend 失败、`77`
-写入边界违规。增加 `--result-file PATH` 可获得完整的版本化 JSON 结果；下方链接的
-结果契约包含全部字段、示例对象及外层 LLM/Skill 的路由指引。
+写入边界违规。增加 `--result-file PATH` 可获得完整的版本化 JSON 结果；
+[结果文件契约](docs/result-file.zh.md)包含全部字段、示例对象及外层 LLM/Skill 的
+路由指引。
 
 ## 依赖要求
 

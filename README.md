@@ -87,8 +87,8 @@ no Agent and produces no review conclusion, so it cannot replace
 Stable exit statuses are `0` clean, `10` review-only findings, `11` apply-fixes
 findings, `12` incomplete review, `64` invalid invocation, `70` Agent/backend
 failure, and `77` write-boundary violation. Add `--result-file PATH` for the
-complete versioned JSON result; see the linked result contract for every field,
-an example object, and outer LLM/Skill routing guidance.
+complete versioned JSON result; see the [result-file contract](docs/result-file.md)
+for every field, an example object, and outer LLM/Skill routing guidance.
 
 ## Requirements
 

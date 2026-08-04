@@ -82,8 +82,8 @@ cd adversarial-review
 安定した終了ステータスは `0` clean、`10` review-only findings、`11` apply-fixes
 findings、`12` incomplete review、`64` invalid invocation、`70` Agent/Backend
 failure、`77` write-boundary violation です。完全なバージョン付き JSON 結果には
-`--result-file PATH` を追加してください。以下の結果契約に全フィールド、オブジェクト例、
-外側の LLM/Skill 向けルーティング指針があります。
+`--result-file PATH` を追加してください。[結果ファイル契約](docs/result-file.ja.md)に
+全フィールド、オブジェクト例、外側の LLM/Skill 向けルーティング指針があります。
 
 ## 必要要件
 
