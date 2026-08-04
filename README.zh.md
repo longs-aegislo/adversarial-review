@@ -56,6 +56,9 @@ cd adversarial-review
 # 为本次运行追加审查标准
 ./adversarial_review.sh --prompt security-review.md claude codex ../my-project
 
+# 为 CI 或其他自动化原子写入 JSON 结果
+./adversarial_review.sh --apply-fixes --result-file review-result.json claude codex ../my-project
+
 # 不调用 API，预览范围与阶段四策略
 ./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
@@ -72,6 +75,7 @@ cd adversarial-review
 - [详细指南](docs/guide.zh.md)——完整 CLI、审查阶段、状态管理、产出文件、
   自定义方式与成本说明
 - [进程退出状态](docs/exit-statuses.zh.md)——供 CI 与其他自动化使用的稳定状态契约
+- [机器可读结果文件](docs/result-file.zh.md)——覆盖每条终止路径的版本化原子 JSON
 - [Fork 变更记录](docs/fork-notes.zh.md)——相对上游的修改与修复
 - [领域术语表](CONTEXT.md)——实现中使用的统一术语
 - [工具对比评测](docs/evaluations/tool-bakeoff/README.md)——与 Chorus、

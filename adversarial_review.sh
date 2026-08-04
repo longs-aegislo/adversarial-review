@@ -27,6 +27,7 @@
 #                           access (mutually exclusive with --apply-fixes)
 #   --apply-fixes           Declare intent for Phase 4 to keep today's write
 #                           access (mutually exclusive with --review-only)
+#   --result-file PATH      Atomically write a machine-readable JSON result
 #   --status                Show current status for the required target
 #   --reset                 Reset artifacts and tracking for the required target
 #   --reset-circuit         Reset circuit breaker for the required target
@@ -86,7 +87,7 @@ while [[ $_prescan_i -lt ${#_prescan_args[@]} ]]; do
             _prescan_target_dir="${_prescan_args[$((_prescan_i + 1))]:-}"
             ((_prescan_i+=2)) || true
             ;;
-        -m|--max-iters|-p|--prompt|-t|--timeout|-f|--fixer|-b|--base)
+        -m|--max-iters|-p|--prompt|-t|--timeout|-f|--fixer|-b|--base|--result-file)
             ((_prescan_i+=2)) || true
             ;;
         -h|--help|-v|--verbose|--status|--reset|--reset-circuit|--circuit-status|--dry-run|--include-pre-existing|--review-only|--apply-fixes)
@@ -139,6 +140,23 @@ REVIEW_ONLY=0
 APPLY_FIXES=0
 EXECUTION_MODE="apply-fixes"
 CUSTOM_REVIEW_CRITERIA=""
+RESULT_FILE=""
+RESULT_FILE_SEEN=0
+RESULT_TARGET_DIR=""
+RESULT_TARGET_GIT_ROOT=""
+RESULT_TARGET_REMOTE=""
+RESULT_TARGET_HEAD=""
+RESULT_REVIEW_EXECUTED=false
+RESULT_SYNTHESIS_EXECUTED_BY=""
+RESULT_FINAL_SYNTHESIS_ARTIFACT=""
+RESULT_TERMINATION_REASON=""
+RESULT_ITERATIONS=0
+RESULT_IN_SCOPE_FINDINGS=0
+RESULT_PRE_EXISTING_FINDINGS=0
+RESULT_IN_SCOPE_FIXED=0
+RESULT_PRE_EXISTING_FIXED=0
+RESULT_PRE_EXISTING_FLAGGED=0
+RESULT_TARGET_SNAPSHOT=""
 REVIEW_AVAILABLE_TOOLS="Read,Glob,Grep,Bash"
 REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
 PHASE_1_CLEAN=0
@@ -162,6 +180,245 @@ EXIT_INCOMPLETE_REVIEW=12
 EXIT_INVALID_INVOCATION=64
 EXIT_AGENT_BACKEND_FAILURE=70
 EXIT_WRITE_BOUNDARY_VIOLATION=77
+
+json_quote() {
+    local value="$1"
+    local result='"'
+    local char code escaped
+    local i
+    local LC_ALL=C
+
+    for ((i = 0; i < ${#value}; i++)); do
+        char="${value:i:1}"
+        case "$char" in
+            '"') result+='\"' ;;
+            '\') result+='\\' ;;
+            $'\b') result+='\b' ;;
+            $'\f') result+='\f' ;;
+            $'\n') result+='\n' ;;
+            $'\r') result+='\r' ;;
+            $'\t') result+='\t' ;;
+            *)
+                printf -v code '%d' "'$char"
+                if [[ $code -lt 32 ]]; then
+                    printf -v escaped '\\u%04x' "$code"
+                    result+="$escaped"
+                else
+                    result+="$char"
+                fi
+                ;;
+        esac
+    done
+    result+='"'
+    printf '%s' "$result"
+}
+
+json_string_or_null() {
+    if [[ -n "$1" ]]; then
+        json_quote "$1"
+    else
+        printf 'null'
+    fi
+}
+
+result_exit_category() {
+    case "$1" in
+        "$EXIT_CLEAN") echo "clean" ;;
+        "$EXIT_REVIEW_ONLY_FINDINGS") echo "review-only-findings-remain" ;;
+        "$EXIT_APPLY_FIXES_FINDINGS") echo "apply-fixes-findings-remain" ;;
+        "$EXIT_INCOMPLETE_REVIEW") echo "incomplete-review" ;;
+        "$EXIT_INVALID_INVOCATION") echo "invalid-invocation" ;;
+        "$EXIT_WRITE_BOUNDARY_VIOLATION") echo "write-boundary-violation" ;;
+        *) echo "agent-backend-failure" ;;
+    esac
+}
+
+infer_result_reason() {
+    local exit_code="$1"
+    local tracking_status=""
+
+    if [[ -n "$RESULT_TERMINATION_REASON" ]]; then
+        printf '%s' "$RESULT_TERMINATION_REASON"
+        return
+    fi
+    if command -v jq >/dev/null 2>&1 && [[ -f "$TRACKING_FILE" ]]; then
+        tracking_status="$(jq -r '.status // empty' "$TRACKING_FILE" 2>/dev/null || true)"
+    fi
+    case "$tracking_status" in
+        clean) echo "clean" ;;
+        review_complete) echo "clean-synthesis" ;;
+        review_complete_findings) echo "review-only-findings-remain" ;;
+        fixes_complete_findings) echo "apply-fixes-findings-remain" ;;
+        max_iterations) echo "max-iterations" ;;
+        circuit_open) echo "circuit-open" ;;
+        agent_failed)
+            if jq -e '
+                [.history[]? |
+                    (.result | if type == "string" then
+                        (try fromjson catch {}) else . end) |
+                    .error? // empty] |
+                any(test("missing or malformed"))
+            ' "$TRACKING_FILE" >/dev/null 2>&1; then
+                echo "malformed-agent-response"
+            else
+                echo "agent-backend-failure"
+            fi
+            ;;
+        *) result_exit_category "$exit_code" ;;
+    esac
+}
+
+capture_result_target_identity() {
+    local target_dir="$1"
+    RESULT_TARGET_DIR="$(cd "$target_dir" && pwd)"
+    RESULT_TARGET_GIT_ROOT="$(git -C "$RESULT_TARGET_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
+    if [[ -n "$RESULT_TARGET_GIT_ROOT" ]]; then
+        RESULT_TARGET_REMOTE="$(git -C "$RESULT_TARGET_GIT_ROOT" remote get-url origin 2>/dev/null || true)"
+        RESULT_TARGET_HEAD="$(git -C "$RESULT_TARGET_GIT_ROOT" rev-parse HEAD 2>/dev/null || true)"
+    fi
+}
+
+target_file_manifest() {
+    local target_dir="$1"
+    (
+        cd "$target_dir"
+        find . -path './.git' -prune -o \( -type f -o -type l \) -print0 2>/dev/null |
+            while IFS= read -r -d '' entry; do
+                local fingerprint
+                if [[ -L "$entry" ]]; then
+                    fingerprint="link:$(readlink "$entry")"
+                else
+                    fingerprint="file:$(shasum -a 256 "$entry" | cut -d' ' -f1)"
+                fi
+                printf '%s\0%s\0' "$fingerprint" "${entry#./}"
+            done
+    )
+}
+
+collect_result_target_changes() {
+    local after_snapshot
+    local before_fingerprints=() before_paths=() seen=()
+    local after_fingerprint after_path before_fingerprint before_path
+    local changed_paths=()
+    local i found
+
+    [[ -n "$RESULT_TARGET_SNAPSHOT" && -f "$RESULT_TARGET_SNAPSHOT" &&
+       -n "$RESULT_TARGET_DIR" && -d "$RESULT_TARGET_DIR" ]] || {
+        printf '[]'
+        return
+    }
+
+    after_snapshot="$(mktemp)"
+    target_file_manifest "$RESULT_TARGET_DIR" > "$after_snapshot"
+    while IFS= read -r -d '' before_fingerprint &&
+          IFS= read -r -d '' before_path; do
+        before_fingerprints+=("$before_fingerprint")
+        before_paths+=("$before_path")
+        seen+=(false)
+    done < "$RESULT_TARGET_SNAPSHOT"
+
+    while IFS= read -r -d '' after_fingerprint &&
+          IFS= read -r -d '' after_path; do
+        found=false
+        for ((i = 0; i < ${#before_paths[@]}; i++)); do
+            if [[ "${before_paths[$i]}" == "$after_path" ]]; then
+                found=true
+                seen[$i]=true
+                [[ "${before_fingerprints[$i]}" == "$after_fingerprint" ]] ||
+                    changed_paths+=("$after_path")
+                break
+            fi
+        done
+        [[ "$found" == "true" ]] || changed_paths+=("$after_path")
+    done < "$after_snapshot"
+    rm -f "$after_snapshot"
+
+    for ((i = 0; i < ${#before_paths[@]}; i++)); do
+        [[ "${seen[$i]}" == "true" ]] || changed_paths+=("${before_paths[$i]}")
+    done
+
+    printf '['
+    for ((i = 0; i < ${#changed_paths[@]}; i++)); do
+        [[ $i -eq 0 ]] || printf ','
+        json_quote "${changed_paths[$i]}"
+    done
+    printf ']'
+}
+
+write_result_file() {
+    local exit_code="$1"
+    local destination_dir destination_base temporary_file
+    local category reason modified_files target_modified=false
+    local identity scope_kind requested_base resolved_base synthesis_artifact
+
+    [[ -n "$RESULT_FILE" ]] || return 0
+    category="$(result_exit_category "$exit_code")"
+    reason="$(infer_result_reason "$exit_code")"
+    modified_files="$(collect_result_target_changes)"
+    [[ "$modified_files" != "[]" ]] && target_modified=true
+
+    destination_dir="$(dirname "$RESULT_FILE")"
+    destination_base="$(basename "$RESULT_FILE")"
+    mkdir -p "$destination_dir" 2>/dev/null || return 0
+    temporary_file="$(mktemp "$destination_dir/.${destination_base}.tmp.XXXXXX" 2>/dev/null)" || return 0
+    scope_kind="whole-directory"
+    requested_base=""
+    resolved_base=""
+    if [[ -n "$BASE_REF" ]]; then
+        scope_kind="base"
+        requested_base="$BASE_REF"
+        resolved_base="$BASE_COMMIT"
+    fi
+    identity="${RESULT_TARGET_REMOTE:-$RESULT_TARGET_DIR}"
+    synthesis_artifact="$RESULT_FINAL_SYNTHESIS_ARTIFACT"
+    [[ -f "$synthesis_artifact" ]] || synthesis_artifact=""
+
+    {
+        printf '{\n'
+        printf '  "schema_version": 1,\n'
+        printf '  "target_repo": {"identity": %s, "path": %s, "git_root": %s, "remote_url": %s, "head_commit": %s},\n' \
+            "$(json_string_or_null "$identity")" \
+            "$(json_string_or_null "$RESULT_TARGET_DIR")" \
+            "$(json_string_or_null "$RESULT_TARGET_GIT_ROOT")" \
+            "$(json_string_or_null "$RESULT_TARGET_REMOTE")" \
+            "$(json_string_or_null "$RESULT_TARGET_HEAD")"
+        printf '  "reviewers": {"slot_a": %s, "slot_b": %s},\n' \
+            "$(json_string_or_null "$SLOT_A")" "$(json_string_or_null "$SLOT_B")"
+        printf '  "synthesis": {"requested_fixer": %s, "executed_by": %s},\n' \
+            "$(json_string_or_null "$FIXER")" \
+            "$(json_string_or_null "$RESULT_SYNTHESIS_EXECUTED_BY")"
+        printf '  "scope": {"kind": %s, "requested_base_ref": %s, "resolved_base_commit": %s},\n' \
+            "$(json_quote "$scope_kind")" "$(json_string_or_null "$requested_base")" \
+            "$(json_string_or_null "$resolved_base")"
+        printf '  "execution": {"mode": %s, "dry_run": %s, "review_executed": %s, "include_pre_existing": %s},\n' \
+            "$(json_quote "$EXECUTION_MODE")" \
+            "$([[ "$DRY_RUN" == "1" ]] && echo true || echo false)" \
+            "$RESULT_REVIEW_EXECUTED" \
+            "$([[ "$INCLUDE_PRE_EXISTING" == "1" ]] && echo true || echo false)"
+        printf '  "termination": {"category": %s, "reason": %s, "exit_code": %d},\n' \
+            "$(json_quote "$category")" "$(json_quote "$reason")" "$exit_code"
+        printf '  "iterations": %d,\n' "$RESULT_ITERATIONS"
+        printf '  "counts": {"findings": {"in_scope": %d, "pre_existing": %d}, "fixes": {"in_scope": %d, "pre_existing": %d}, "pre_existing_flagged": %d},\n' \
+            "$RESULT_IN_SCOPE_FINDINGS" "$RESULT_PRE_EXISTING_FINDINGS" \
+            "$RESULT_IN_SCOPE_FIXED" "$RESULT_PRE_EXISTING_FIXED" \
+            "$RESULT_PRE_EXISTING_FLAGGED"
+        printf '  "target_changes": {"modified": %s, "files": %s},\n' \
+            "$target_modified" "$modified_files"
+        printf '  "paths": {"state_dir": %s, "artifacts_dir": %s, "final_synthesis_artifact": %s}\n' \
+            "$(json_quote "$AR_DIR")" "$(json_quote "$ARTIFACTS_DIR")" \
+            "$(json_string_or_null "$synthesis_artifact")"
+        printf '}\n'
+    } > "$temporary_file"
+    mv -f "$temporary_file" "$RESULT_FILE" 2>/dev/null || rm -f "$temporary_file"
+}
+
+on_process_exit() {
+    local exit_code=$?
+    trap - EXIT
+    write_result_file "$exit_code" || true
+    [[ -z "$RESULT_TARGET_SNAPSHOT" ]] || rm -f "$RESULT_TARGET_SNAPSHOT"
+    exit "$exit_code"
+}
 
 # Colors
 RED='\033[0;31m'
@@ -200,6 +457,8 @@ record_agent_failure() {
     local artifact="$6"
     local result
     local agent_key
+
+    [[ -n "$RESULT_TERMINATION_REASON" ]] || RESULT_TERMINATION_REASON="agent-backend-failure"
 
     log_error "$phase_label $agent failed: $detail (artifact: $artifact)" >&2
     update_tracking "status" "agent_failed"
@@ -363,6 +622,7 @@ parse_required_status() {
     local status
 
     if ! status="$(parse_status_block "$artifact" "$block_name")"; then
+        RESULT_TERMINATION_REASON="malformed-agent-response"
         record_agent_failure "$iteration" "$phase_key" "$phase_label" "$agent" \
             "missing or malformed $block_name block" "$artifact"
         return 1
@@ -453,6 +713,7 @@ check_dependencies() {
     fi
 
     if [[ ${#missing[@]} -gt 0 ]]; then
+        RESULT_TERMINATION_REASON="missing-dependency"
         log_error "Missing dependencies:"
         for dep in "${missing[@]}"; do
             echo "  - $dep"
@@ -481,6 +742,8 @@ init_tracking() {
     "base_ref": null,
     "execution_mode": null,
     "include_pre_existing": false,
+    "in_scope_findings": 0,
+    "pre_existing_findings": 0,
     "in_scope_fixed": 0,
     "pre_existing_fixed": 0,
     "pre_existing_flagged": 0,
@@ -509,6 +772,24 @@ update_tracking() {
                  else $v end) |
         .updated_at = $ts
     ' "$TRACKING_FILE" > "$tmp" && mv "$tmp" "$TRACKING_FILE"
+}
+
+update_result_finding_counts() {
+    local first_status="$1"
+    local second_status="$2"
+    local counts
+
+    counts="$(jq -cn --argjson first "$first_status" --argjson second "$second_status" '
+        (($first.issue_scopes // {}) * ($second.issue_scopes // {})) as $scopes |
+        {
+            in_scope: ([$scopes[] | select(. == "IN_SCOPE")] | length),
+            pre_existing: ([$scopes[] | select(. == "PRE_EXISTING")] | length)
+        }
+    ')"
+    RESULT_IN_SCOPE_FINDINGS="$(jq -r '.in_scope' <<< "$counts")"
+    RESULT_PRE_EXISTING_FINDINGS="$(jq -r '.pre_existing' <<< "$counts")"
+    update_tracking "in_scope_findings" "$RESULT_IN_SCOPE_FINDINGS"
+    update_tracking "pre_existing_findings" "$RESULT_PRE_EXISTING_FINDINGS"
 }
 
 # Add to history
@@ -1105,6 +1386,7 @@ $slot_b_common"
 
     add_to_history "$iteration" "phase_1" "$SLOT_A" "$slot_a_status"
     add_to_history "$iteration" "phase_1" "$SLOT_B" "$slot_b_status"
+    update_result_finding_counts "$slot_a_status" "$slot_b_status"
 
     # Check for dual NO_ISSUES
     if [[ "$slot_a_exit" == "true" ]] && [[ "$slot_b_exit" == "true" ]]; then
@@ -1325,6 +1607,7 @@ $(cat "$slot_a_on_b")
 
     add_to_history "$iteration" "phase_3" "$SLOT_A" "$slot_a_status"
     add_to_history "$iteration" "phase_3" "$SLOT_B" "$slot_b_status"
+    update_result_finding_counts "$slot_a_status" "$slot_b_status"
 
     local slot_a_summary=$(echo "$slot_a_status" | jq -r '.summary // "(no summary)"')
     local slot_b_summary=$(echo "$slot_b_status" | jq -r '.summary // "(no summary)"')
@@ -1457,6 +1740,7 @@ Working directory: $target_dir
 "
 
     local output_file="$ARTIFACTS_DIR/iter${iteration}_4_synthesis.md"
+    RESULT_FINAL_SYNTHESIS_ARTIFACT="$output_file"
 
     local fixer_agent="claude"
     local backend_mode="workspace-write"
@@ -1467,11 +1751,13 @@ Working directory: $target_dir
         target_before="$(target_tree_fingerprint "$target_dir")"
     if [[ "$FIXER" == "codex" ]]; then
         fixer_agent="codex"
+        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$fixer_agent"
         log_info "Running Phase 4 synthesis with Codex ($backend_mode)"
         run_backend "codex" "$context" "$output_file" "$target_dir" \
             "$backend_mode" "phase_4" ||
             fixer_rc=$?
     else
+        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$fixer_agent"
         log_info "Running Phase 4 synthesis with Claude ($backend_mode)"
         run_backend "claude" "$context" "$output_file" "$target_dir" \
             "$backend_mode" "phase_4" ||
@@ -1495,6 +1781,7 @@ Working directory: $target_dir
 
     local status
     if ! status="$(parse_status_block "$output_file" "SYNTHESIS_STATUS")"; then
+        RESULT_TERMINATION_REASON="malformed-agent-response"
         record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
             "missing or malformed SYNTHESIS_STATUS block" "$output_file"
         return "$PHASE_4_FAILED"
@@ -1531,6 +1818,9 @@ Working directory: $target_dir
     update_tracking "in_scope_fixed" "$in_scope_fixed"
     update_tracking "pre_existing_fixed" "$pre_existing_fixed"
     update_tracking "pre_existing_flagged" "$pre_existing_flagged"
+    RESULT_IN_SCOPE_FIXED="$in_scope_fixed"
+    RESULT_PRE_EXISTING_FIXED="$pre_existing_fixed"
+    RESULT_PRE_EXISTING_FLAGGED="$pre_existing_flagged"
 
     local synthesis_summary=$(echo "$status" | jq -r '.summary // "(no summary)"')
     log_info "Synthesis ($fixer_agent): $synthesis_summary"
@@ -1610,6 +1900,7 @@ run_review_loop() {
 
     while [[ $iteration -lt $MAX_ITERATIONS ]]; do
         ((iteration++)) || true
+        RESULT_ITERATIONS="$iteration"
         log_info "=== Entering iteration $iteration ==="
         update_tracking "iteration" "$iteration"
 
@@ -1618,6 +1909,7 @@ run_review_loop() {
             log_error "Circuit breaker is OPEN - halting"
             show_circuit_status
             update_tracking "status" "circuit_open"
+            RESULT_TERMINATION_REASON="circuit-open"
             return "$EXIT_INCOMPLETE_REVIEW"
         fi
 
@@ -1628,6 +1920,7 @@ run_review_loop() {
         echo ""
 
         # Phase 1
+        [[ "$DRY_RUN" == "1" ]] || RESULT_REVIEW_EXECUTED=true
         local phase_1_result=0
         run_phase_1 "$target_dir" "$iteration" || phase_1_result=$?
         if [[ $phase_1_result -eq $PHASE_1_CLEAN ]]; then
@@ -1636,9 +1929,13 @@ run_review_loop() {
             else
                 log_success "Review complete - both agents report clean code"
                 update_tracking "status" "clean"
+                RESULT_TERMINATION_REASON="clean-phase-1"
                 return "$EXIT_CLEAN"
             fi
         elif [[ $phase_1_result -ne $PHASE_1_CONTINUE ]]; then
+            if [[ $phase_1_result -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+                RESULT_TERMINATION_REASON="write-boundary-violation"
+            fi
             return "$(map_phase_failure_exit "$phase_1_result")"
         fi
         echo ""
@@ -1647,6 +1944,9 @@ run_review_loop() {
         local phase_2_result=0
         run_phase_2 "$target_dir" "$iteration" || phase_2_result=$?
         if [[ $phase_2_result -ne 0 ]]; then
+            if [[ $phase_2_result -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+                RESULT_TERMINATION_REASON="write-boundary-violation"
+            fi
             return "$(map_phase_failure_exit "$phase_2_result")"
         fi
         echo ""
@@ -1655,6 +1955,9 @@ run_review_loop() {
         local phase_3_result=0
         run_phase_3 "$target_dir" "$iteration" || phase_3_result=$?
         if [[ $phase_3_result -ne 0 ]]; then
+            if [[ $phase_3_result -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+                RESULT_TERMINATION_REASON="write-boundary-violation"
+            fi
             return "$(map_phase_failure_exit "$phase_3_result")"
         fi
         echo ""
@@ -1670,18 +1973,22 @@ run_review_loop() {
                 log_success "Synthesis complete"
                 update_tracking "status" "clean"
             fi
+            RESULT_TERMINATION_REASON="clean-synthesis"
             return "$EXIT_CLEAN"
         elif [[ $phase_4_result -eq $PHASE_4_REVIEW_ONLY_FINDINGS ]]; then
             log_warning "Review-only completed with unresolved findings"
             update_tracking "status" "review_complete_findings"
+            RESULT_TERMINATION_REASON="review-only-findings-remain"
             return "$EXIT_REVIEW_ONLY_FINDINGS"
         elif [[ $phase_4_result -eq $PHASE_4_APPLY_FIXES_FINDINGS ]]; then
             log_warning "Apply-fixes completed with unresolved findings"
             update_tracking "status" "fixes_complete_findings"
+            RESULT_TERMINATION_REASON="apply-fixes-findings-remain"
             return "$EXIT_APPLY_FIXES_FINDINGS"
         elif [[ $phase_4_result -eq $PHASE_4_FAILED ]]; then
             return "$EXIT_AGENT_BACKEND_FAILURE"
         elif [[ $phase_4_result -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+            RESULT_TERMINATION_REASON="write-boundary-violation"
             return "$EXIT_WRITE_BOUNDARY_VIOLATION"
         fi
         echo ""
@@ -1692,6 +1999,7 @@ run_review_loop() {
 
     log_warning "Reached max iterations ($MAX_ITERATIONS)"
     update_tracking "status" "max_iterations"
+    RESULT_TERMINATION_REASON="max-iterations"
     return "$EXIT_INCOMPLETE_REVIEW"
 }
 
@@ -1793,6 +2101,8 @@ OPTIONS:
                             automation, skills, and plugins should pass one
                             of these flags explicitly, since the implicit
                             default may be removed in a future version.
+    --result-file PATH      Atomically write one schema-versioned JSON result
+                            when the invocation terminates
     --status                Show current status for the required target
     --reset                 Reset all state for the required target
     --reset-circuit         Reset circuit breaker for the required target
@@ -1922,6 +2232,20 @@ main() {
                 APPLY_FIXES=1
                 shift
                 ;;
+            --result-file)
+                if [[ $# -lt 2 ]]; then
+                    log_error "Missing value for $1"
+                    exit "$EXIT_INVALID_INVOCATION"
+                fi
+                if [[ "$RESULT_FILE_SEEN" == "1" ]]; then
+                    RESULT_TERMINATION_REASON="invalid-result-file"
+                    log_error "--result-file was specified more than once"
+                    exit "$EXIT_INVALID_INVOCATION"
+                fi
+                RESULT_FILE="$2"
+                RESULT_FILE_SEEN=1
+                shift 2
+                ;;
             --status)
                 action="status"
                 shift
@@ -1996,6 +2320,8 @@ main() {
         exit "$EXIT_INVALID_INVOCATION"
     fi
 
+    capture_result_target_identity "$target_dir"
+
     case "$action" in
         status) show_status; exit 0 ;;
         reset) reset_all; exit 0 ;;
@@ -2030,11 +2356,13 @@ main() {
 
     if [[ -n "$BASE_REF" ]]; then
         if [[ "$(git -C "$target_dir" rev-parse --is-inside-work-tree 2>/dev/null || true)" != "true" ]]; then
+            RESULT_TERMINATION_REASON="invalid-base-ref"
             log_error "Cannot use --base: target is not a git working tree: $target_dir"
             exit "$EXIT_INVALID_INVOCATION"
         fi
 
         if ! BASE_COMMIT="$(git -C "$target_dir" rev-parse --verify --quiet --end-of-options "${BASE_REF}^{commit}")"; then
+            RESULT_TERMINATION_REASON="invalid-base-ref"
             log_error "Base ref '$BASE_REF' does not resolve to a commit in target: $target_dir"
             exit "$EXIT_INVALID_INVOCATION"
         fi
@@ -2042,6 +2370,7 @@ main() {
         local scoped_files
         scoped_files="$(collect_file_list "$target_dir" "$BASE_COMMIT")"
         if [[ -z "$scoped_files" ]]; then
+            RESULT_TERMINATION_REASON="empty-base-scope"
             log_error "No reviewable files differ from base '$BASE_REF'"
             exit "$EXIT_INVALID_INVOCATION"
         fi
@@ -2083,6 +2412,11 @@ main() {
 
     check_dependencies
 
+    if [[ "$DRY_RUN" != "1" ]]; then
+        RESULT_TARGET_SNAPSHOT="$(mktemp)"
+        target_file_manifest "$RESULT_TARGET_DIR" > "$RESULT_TARGET_SNAPSHOT"
+    fi
+
     if [[ "$EXECUTION_MODE" == "review-only" ]]; then
         log_info "Phase 4 synthesis will run read-only with: $FIXER"
     else
@@ -2093,5 +2427,6 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    trap on_process_exit EXIT
     main "$@"
 fi

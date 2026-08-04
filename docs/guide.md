@@ -117,6 +117,7 @@ OPTIONS:
                             (mutually exclusive with --apply-fixes)
     --apply-fixes           Declare intent for Phase 4 to keep today's write
                             access (mutually exclusive with --review-only)
+    --result-file PATH      Atomically write one versioned JSON result on exit
     --status                Show current status for the required target
     --reset                 Reset all state for the required target
     --reset-circuit         Reset circuit breaker for the required target
@@ -127,6 +128,12 @@ OPTIONS:
 For automation, see the stable [process exit status contract](exit-statuses.md).
 It distinguishes clean completion, findings that remain, incomplete reviews,
 invalid invocations, backend failures, and write-boundary violations.
+
+Add `--result-file PATH` when automation also needs structured details. Once
+the option has been parsed, every later termination path atomically replaces
+the destination with one schema-versioned JSON object while terminal output
+remains unchanged. See the [machine-readable result contract](result-file.md)
+for the schema, data sources, target-change list, and dry-run semantics.
 
 The three required inputs may each use their positional or long-flag form in
 any mixture. Both slots may use the same backend; the run continues with a

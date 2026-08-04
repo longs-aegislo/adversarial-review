@@ -112,6 +112,7 @@ cd adversarial-review
                             findings，不修改 Target（与 --apply-fixes 互斥）
     --apply-fixes           声明本次调用期望阶段四保留现有的
                             写权限行为（与 --review-only 互斥）
+    --result-file PATH      退出时原子写入一个版本化 JSON 结果
     --status                显示必填目标目录对应的当前状态
     --reset                 重置必填目标目录对应的所有状态
     --reset-circuit         重置必填目标目录对应的断路器
@@ -121,6 +122,11 @@ cd adversarial-review
 
 自动化调用请参阅稳定的[进程退出状态契约](exit-statuses.zh.md)。该契约区分
 干净完成、仍有 findings、审查未完成、非法调用、Backend 失败与写入边界违规。
+
+自动化还需要结构化细节时，可增加 `--result-file PATH`。该选项一旦完成解析，
+此后的每条终止路径都会以一个带 schema 版本的 JSON 对象原子替换目的地，且终端
+输出保持不变。字段、数据来源、Target 修改列表与 dry-run 语义见
+[机器可读结果契约](result-file.zh.md)。
 
 三个必填输入均可独立使用位置形式或长选项形式，并可任意混用。两个槽位可使用
 同一后端；运行会继续，但会警告审查多样性降低。旧的单位置参数形式会被拒绝，
