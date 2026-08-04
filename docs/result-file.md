@@ -5,6 +5,11 @@ path with one complete JSON object. The destination becomes active only after
 argument parsing reaches the option. Once active, normal completion and every
 later failure path produce a result. The existing terminal output is unchanged.
 
+For Git worktrees, `target_changes.files` covers tracked and unignored
+untracked files; Git-ignored files are excluded. URL userinfo is removed from
+`target_repo.identity` and `target_repo.remote_url` so embedded credentials are
+not persisted in the result artifact.
+
 ```bash
 ./adversarial_review.sh --apply-fixes --result-file review-result.json \
   claude codex ../my-project

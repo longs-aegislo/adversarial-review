@@ -5,6 +5,11 @@
 した時点で出力先が有効になり、それ以降は正常終了でも任意の失敗経路でも結果を
 生成します。既存のターミナル出力は変わりません。
 
+Git ワークツリーでは、`target_changes.files` は追跡済みファイルと無視対象外の
+未追跡ファイルを扱い、Git の無視対象ファイルは除外します。
+`target_repo.identity` と `target_repo.remote_url` から URL のユーザー情報を
+除去するため、リモート URL に埋め込まれた認証情報は結果へ保存されません。
+
 ```bash
 ./adversarial_review.sh --apply-fixes --result-file review-result.json \
   claude codex ../my-project

@@ -129,6 +129,9 @@ SUMMARY: findings reported without writes
 ---END_SYNTHESIS_STATUS---"
         else
             printf '%s\n' 'fixed by synthesis' >> app.sh
+            if [[ -n "${FAKE_SYNTHESIS_IGNORED_FILE:-}" ]]; then
+                printf '%s\n' 'ignored synthesis output' >> "$FAKE_SYNTHESIS_IGNORED_FILE"
+            fi
             response="---SYNTHESIS_STATUS---
 HIGH_CONFIDENCE_FIXES: 1
 MEDIUM_CONFIDENCE_FIXES: 0
@@ -608,6 +611,59 @@ test_result_write_failure_is_not_silent() {
     pass "result persistence failure is explicit and preserves the review status"
 }
 
+test_no_result_file_skips_result_snapshot() {
+    local target="$TEST_ROOT/no-result-snapshot-target"
+    make_target "$target"
+
+    SCRIPT_UNDER_TEST="$SCRIPT_UNDER_TEST" TARGET_UNDER_TEST="$target" \
+        FAKE_BIN_UNDER_TEST="$FAKE_BIN" bash -c '
+            source "$SCRIPT_UNDER_TEST"
+            target_file_manifest() { return 99; }
+            PATH="$FAKE_BIN_UNDER_TEST:$PATH" main "$@" >/dev/null 2>&1
+        ' result-snapshot-test --apply-fixes --max-iters 1 \
+            claude codex "$target" ||
+        fail "invocations without --result-file must not collect a result snapshot"
+    pass "default invocations skip opt-in result snapshots"
+}
+
+test_result_changes_exclude_ignored_files() {
+    local target="$TEST_ROOT/ignored-change-target"
+    local result_file="$TEST_ROOT/ignored-change.json"
+    make_target "$target"
+    printf '%s\n' 'generated.log' > "$target/.gitignore"
+    git -C "$target" add .gitignore
+    git -C "$target" commit -qm ignore-generated
+    printf '%s\n' 'existing' > "$target/generated.log"
+
+    FAKE_SYNTHESIS_IGNORED_FILE=generated.log PATH="$FAKE_BIN:$PATH" \
+        "$SCRIPT_UNDER_TEST" --apply-fixes --max-iters 1 --fixer codex \
+        --result-file "$result_file" claude codex "$target" >/dev/null 2>&1 ||
+        fail "ignored-file result run failed"
+    [[ "$(jq -c '.target_changes.files' "$result_file")" == '["app.sh"]' ]] ||
+        fail "target_changes must exclude git-ignored files"
+    pass "result change detection excludes git-ignored files"
+}
+
+test_result_remote_url_redacts_credentials() {
+    local target="$TEST_ROOT/credential-remote-target"
+    local result_file="$TEST_ROOT/credential-remote.json"
+    make_target "$target"
+    git -C "$target" remote add origin \
+        'https://ci-user:super-secret@example.com/org/repo.git'
+
+    set +e
+    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" --dry-run --apply-fixes \
+        --max-iters 1 --result-file "$result_file" \
+        claude codex "$target" >/dev/null 2>&1
+    set -e
+    [[ "$(jq -r '.target_repo.remote_url' "$result_file")" == \
+       'https://example.com/org/repo.git' ]] ||
+        fail "result remote URL must strip embedded credentials"
+    ! grep -q 'super-secret' "$result_file" ||
+        fail "result JSON must not contain embedded remote credentials"
+    pass "result repository identity redacts remote URL credentials"
+}
+
 test_dry_run_result_cannot_be_mistaken_for_completed_review
 test_clean_phase_1_result
 test_clean_synthesis_result_and_target_changes
@@ -626,5 +682,8 @@ test_missing_dependency_result
 test_result_is_written_only_after_destination_is_parsed
 test_result_file_does_not_change_terminal_output
 test_result_write_failure_is_not_silent
+test_no_result_file_skips_result_snapshot
+test_result_changes_exclude_ignored_files
+test_result_remote_url_redacts_credentials
 
 echo "1..$tests_run"

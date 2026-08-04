@@ -4,6 +4,10 @@
 该路径。只有参数解析实际读到该选项后，目的地才生效；此后无论正常完成还是沿任一
 失败路径退出，都会生成结果。既有终端输出保持不变。
 
+对于 Git 工作树，`target_changes.files` 覆盖已跟踪文件和未被忽略的未跟踪文件，
+不包含 Git 已忽略文件。`target_repo.identity` 和 `target_repo.remote_url` 会移除
+URL 用户信息，避免把远程地址中嵌入的凭据写入结果产物。
+
 ```bash
 ./adversarial_review.sh --apply-fixes --result-file review-result.json \
   claude codex ../my-project

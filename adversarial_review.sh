@@ -275,6 +275,10 @@ capture_result_target_identity() {
     RESULT_TARGET_GIT_ROOT="$(git -C "$RESULT_TARGET_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
     if [[ -n "$RESULT_TARGET_GIT_ROOT" ]]; then
         RESULT_TARGET_REMOTE="$(git -C "$RESULT_TARGET_GIT_ROOT" remote get-url origin 2>/dev/null || true)"
+        # Result files are commonly persisted as CI artifacts. Strip URL
+        # userinfo so an authenticated origin cannot disclose credentials.
+        RESULT_TARGET_REMOTE="$(printf '%s' "$RESULT_TARGET_REMOTE" |
+            sed -E 's#^([^:/]+://)[^/@]*@#\1#')"
         RESULT_TARGET_HEAD="$(git -C "$RESULT_TARGET_GIT_ROOT" rev-parse HEAD 2>/dev/null || true)"
     fi
 }
@@ -283,10 +287,19 @@ target_file_manifest() {
     local target_dir="$1"
     (
         cd "$target_dir"
-        find . -path './.git' -prune -o \( -type f -o -type l \) -print0 2>/dev/null |
+        if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            git ls-files --cached --others --exclude-standard -z -- . 2>/dev/null
+        else
+            find . -path './.git' -prune -o \( -type f -o -type l \) -print0 2>/dev/null |
+                while IFS= read -r -d '' entry; do
+                    printf '%s\0' "${entry#./}"
+                done
+        fi |
             while IFS= read -r -d '' entry; do
                 local fingerprint
-                if [[ -L "$entry" ]]; then
+                if [[ ! -e "$entry" && ! -L "$entry" ]]; then
+                    fingerprint="missing"
+                elif [[ -L "$entry" ]]; then
                     fingerprint="link:$(readlink "$entry")"
                 else
                     fingerprint="file:$(shasum -a 256 "$entry" | cut -d' ' -f1)"
@@ -297,11 +310,10 @@ target_file_manifest() {
 }
 
 collect_result_target_changes() {
-    local after_snapshot
-    local before_fingerprints=() before_paths=() seen=()
+    local after_snapshot lookup_dir path_key
     local after_fingerprint after_path before_fingerprint before_path
     local changed_paths=()
-    local i found
+    local i
 
     [[ -n "$RESULT_TARGET_SNAPSHOT" && -f "$RESULT_TARGET_SNAPSHOT" &&
        -n "$RESULT_TARGET_DIR" && -d "$RESULT_TARGET_DIR" ]] || {
@@ -310,33 +322,37 @@ collect_result_target_changes() {
     }
 
     after_snapshot="$(mktemp)"
+    lookup_dir="$(mktemp -d)"
     target_file_manifest "$RESULT_TARGET_DIR" > "$after_snapshot"
     while IFS= read -r -d '' before_fingerprint &&
           IFS= read -r -d '' before_path; do
-        before_fingerprints+=("$before_fingerprint")
-        before_paths+=("$before_path")
-        seen+=(false)
+        path_key="$(printf '%s' "$before_path" | shasum -a 256 | cut -d' ' -f1)"
+        printf '%s' "$before_path" > "$lookup_dir/$path_key.path"
+        printf '%s' "$before_fingerprint" > "$lookup_dir/$path_key.fingerprint"
     done < "$RESULT_TARGET_SNAPSHOT"
 
     while IFS= read -r -d '' after_fingerprint &&
           IFS= read -r -d '' after_path; do
-        found=false
-        for ((i = 0; i < ${#before_paths[@]}; i++)); do
-            if [[ "${before_paths[$i]}" == "$after_path" ]]; then
-                found=true
-                seen[$i]=true
-                [[ "${before_fingerprints[$i]}" == "$after_fingerprint" ]] ||
-                    changed_paths+=("$after_path")
-                break
-            fi
-        done
-        [[ "$found" == "true" ]] || changed_paths+=("$after_path")
+        path_key="$(printf '%s' "$after_path" | shasum -a 256 | cut -d' ' -f1)"
+        if [[ -f "$lookup_dir/$path_key.path" ]]; then
+            before_path="$(< "$lookup_dir/$path_key.path")"
+            before_fingerprint="$(< "$lookup_dir/$path_key.fingerprint")"
+            [[ "$before_path" == "$after_path" &&
+               "$before_fingerprint" == "$after_fingerprint" ]] ||
+                changed_paths+=("$after_path")
+            rm -f "$lookup_dir/$path_key.path" "$lookup_dir/$path_key.fingerprint"
+        else
+            changed_paths+=("$after_path")
+        fi
     done < "$after_snapshot"
     rm -f "$after_snapshot"
 
-    for ((i = 0; i < ${#before_paths[@]}; i++)); do
-        [[ "${seen[$i]}" == "true" ]] || changed_paths+=("${before_paths[$i]}")
+    for path_key in "$lookup_dir"/*.path; do
+        [[ -f "$path_key" ]] || continue
+        before_path="$(< "$path_key")"
+        changed_paths+=("$before_path")
     done
+    rm -rf "$lookup_dir"
 
     printf '['
     for ((i = 0; i < ${#changed_paths[@]}; i++)); do
@@ -2435,7 +2451,7 @@ main() {
 
     check_dependencies
 
-    if [[ "$DRY_RUN" != "1" ]]; then
+    if [[ "$DRY_RUN" != "1" && -n "$RESULT_FILE" ]]; then
         RESULT_TARGET_SNAPSHOT="$(mktemp)"
         target_file_manifest "$RESULT_TARGET_DIR" > "$RESULT_TARGET_SNAPSHOT"
     fi
