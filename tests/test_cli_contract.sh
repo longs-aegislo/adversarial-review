@@ -208,8 +208,14 @@ esac
 if [[ "$phase" -eq 1 && "${FAKE_PHASE1_CLEAN:-}" == "1" ]]; then
     response="NO_ISSUES"
 elif [[ "$phase" -eq 1 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/CLAUDE-1/CLAUDE-1\n\nCLAUDE-2 pre-existing finding}"
     response="${response/ISSUES_FOUND: 1/ISSUES_FOUND: 2}"
     response="${response/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=PRE_EXISTING}"
+elif [[ "$phase" -eq 2 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/FINDINGS_VALIDATED: 1/FINDINGS_VALIDATED: 2}"
+    response="${response/ISSUE_SCOPES: CODEX-1=IN_SCOPE/ISSUE_SCOPES: CODEX-1=IN_SCOPE, CODEX-2=PRE_EXISTING}"
+elif [[ "$phase" -eq 3 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CODEX-1=IN_SCOPE/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=PRE_EXISTING, CODEX-1=IN_SCOPE, CODEX-2=PRE_EXISTING}"
 elif [[ "$phase" -eq 4 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
     response="${response/- None./- CLAUDE-2 is pre-existing and remains unresolved.}"
     response="${response/PRE_EXISTING_FLAGGED: 0/PRE_EXISTING_FLAGGED: 1}"
@@ -387,8 +393,14 @@ esac
 if [[ "$phase" -eq 1 && "${FAKE_PHASE1_CLEAN:-}" == "1" ]]; then
     response='NO_ISSUES'
 elif [[ "$phase" -eq 1 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/CODEX-1/CODEX-1\n\nCODEX-2 pre-existing finding}"
     response="${response/ISSUES_FOUND: 1/ISSUES_FOUND: 2}"
     response="${response/ISSUE_SCOPES: CODEX-1=IN_SCOPE/ISSUE_SCOPES: CODEX-1=IN_SCOPE, CODEX-2=PRE_EXISTING}"
+elif [[ "$phase" -eq 2 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/FINDINGS_VALIDATED: 1/FINDINGS_VALIDATED: 2}"
+    response="${response/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=PRE_EXISTING}"
+elif [[ "$phase" -eq 3 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CODEX-1=IN_SCOPE/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=PRE_EXISTING, CODEX-1=IN_SCOPE, CODEX-2=PRE_EXISTING}"
 elif [[ "$phase" -eq 4 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
     if [[ "$sandbox" == "read-only" ]]; then
         response="${response/- None./- CLAUDE-2 and CODEX-2 are pre-existing and remain unresolved.}"
@@ -416,6 +428,10 @@ SUMMARY: Incomplete read-only report
 ---END_SYNTHESIS_STATUS---'
 elif [[ "$phase" -eq 4 && "${FAKE_BAD_REVIEW_ONLY_SYNTHESIS:-}" == "claims-fixes" ]]; then
     response="${response/HIGH_CONFIDENCE_FIXES: 0/HIGH_CONFIDENCE_FIXES: 1}"
+elif [[ "$phase" -eq 4 && "${FAKE_BAD_REVIEW_ONLY_SYNTHESIS:-}" == "omits-findings" ]]; then
+    response="${response/- CLAUDE-1 and CODEX-1 remain unresolved./- None.}"
+elif [[ "$phase" -eq 4 && "${FAKE_BAD_REVIEW_ONLY_SYNTHESIS:-}" == "claims-fixes-in-prose" ]]; then
+    response="${response/SUMMARY: Reported two unresolved in-scope findings without modifying files/SUMMARY: All findings were fixed}"
 fi
 
 printf '%s\n' "$response" > "$output_file"
@@ -646,7 +662,7 @@ $(cat "$output_file")"
 test_review_only_rejects_noncompliant_synthesis() {
     local failure_mode target custom_prompt output_file status
 
-    for failure_mode in missing-sections claims-fixes; do
+    for failure_mode in missing-sections claims-fixes omits-findings claims-fixes-in-prose; do
         target="$TEST_ROOT/review-only-bad-$failure_mode-target"
         custom_prompt="$TEST_ROOT/review-only-bad-$failure_mode-criteria.md"
         output_file="$TEST_ROOT/review-only-bad-$failure_mode.out"
@@ -696,6 +712,12 @@ $(cat "$output_file")"
         synthesis="$state_dir/artifacts/iter1_4_synthesis.md"
         assert_contains "$(cat "$synthesis")" "Pre-existing issues noticed, not fixed" \
             "$mode must retain the PRE_EXISTING report-only section"
+        assert_contains "$(cat "$synthesis")" "CLAUDE-2" \
+            "$mode synthesis must carry the Claude PRE_EXISTING finding"
+        assert_contains "$(cat "$synthesis")" "CODEX-2" \
+            "$mode synthesis must carry the Codex PRE_EXISTING finding"
+        [[ "$(jq -r '[.history[] | select(.phase == "phase_3") | (.result | fromjson).issue_scopes | to_entries[] | select(.value == "PRE_EXISTING")] | length' "$state_dir/tracking.json")" -eq 4 ]] ||
+            fail "$mode must carry both PRE_EXISTING scopes through both meta-reviews"
         [[ "$(jq -r '.pre_existing_flagged' "$state_dir/tracking.json")" -eq 2 ]] ||
             fail "$mode must retain both PRE_EXISTING findings as flagged"
         [[ "$(jq -r '.pre_existing_fixed' "$state_dir/tracking.json")" -eq 0 ]] ||

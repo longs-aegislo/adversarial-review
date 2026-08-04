@@ -854,6 +854,8 @@ reviewer_tag() {
 validate_review_only_synthesis() {
     local output_file="$1"
     local status="$2"
+    local required_issue_ids="$3"
+    local issue_id summary
 
     grep -qE '^#{1,6}[[:space:]]+Unresolved in-scope findings[[:space:]]*$' \
         "$output_file" || return 1
@@ -861,6 +863,13 @@ validate_review_only_synthesis() {
         "$output_file" || return 1
     ! grep -qE '^#{1,6}[[:space:]]+Fix([[:space:]#:].*)?$|^\*\*Change\*\*:' \
         "$output_file" || return 1
+    while IFS= read -r issue_id; do
+        [[ -z "$issue_id" ]] || grep -Fq "$issue_id" "$output_file" || return 1
+    done <<< "$required_issue_ids"
+    summary="$(jq -r '.summary // ""' <<< "$status")"
+    ! grep -Eqi \
+        '^(fixed|implemented|applied)|^((all|the|these|those|accepted|reported|[1-9][0-9]*)[[:space:]]+)?(findings?|issues?)[[:space:]]+(was|were|is|are|has been|have been)[[:space:]]+(fixed|implemented|applied)' \
+        <<< "$summary" || return 1
     jq -e '
         [
             (.high_confidence_fixes // 0),
@@ -1455,9 +1464,15 @@ Working directory: $target_dir
     pre_existing_fixed="$(echo "$status" | jq -r '.pre_existing_fixed // 0')"
     local pre_existing_flagged
     pre_existing_flagged="$(echo "$status" | jq -r '.pre_existing_flagged // 0')"
+    local required_issue_ids
+    required_issue_ids="$(grep -Eoh \
+        "(${slot_a_tag}|${slot_b_tag})-(ADD-)?[0-9]+" \
+        "$slot_a_review" "$slot_b_review" "$slot_a_cross" "$slot_b_cross" |
+        sort -u)"
 
     if [[ "$EXECUTION_MODE" == "review-only" ]] &&
-       ! validate_review_only_synthesis "$output_file" "$status"; then
+       ! validate_review_only_synthesis "$output_file" "$status" \
+            "$required_issue_ids"; then
         record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
             "review-only synthesis is missing required scope sections or claims fixes" \
             "$output_file"
