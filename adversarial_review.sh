@@ -811,7 +811,8 @@ run_backend() {
             if [[ $exit_code -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
                 exit_code=$PHASE_AGENT_RESPONSE_FAILURE
             fi
-            if [[ $exit_code -eq 0 && "$DRY_RUN" != "1" ]] &&
+            if [[ "$DRY_RUN" != "1" && -f "$raw_log" ]] &&
+               jq -e . "$raw_log" >/dev/null 2>&1 &&
                ! audit_claude_review_transcript "$raw_log"; then
                 log_warning "Claude attempted a tool outside the read-only review contract"
                 exit_code=65
@@ -831,8 +832,9 @@ run_backend() {
             if [[ $exit_code -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
                 exit_code=$PHASE_AGENT_RESPONSE_FAILURE
             fi
-            if [[ $exit_code -eq 0 && "$mode" == "read-only" &&
-                  "$DRY_RUN" != "1" ]] &&
+            if [[ "$mode" == "read-only" && "$DRY_RUN" != "1" &&
+                  -f "$raw_log" ]] &&
+               jq -e . "$raw_log" >/dev/null 2>&1 &&
                ! audit_codex_review_transcript "$raw_log"; then
                 log_warning "Codex attempted a write outside the read-only review contract"
                 exit_code=65

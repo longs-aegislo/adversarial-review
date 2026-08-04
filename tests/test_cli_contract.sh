@@ -1007,7 +1007,26 @@ test_codex_turn_failure_is_not_a_write_violation() {
         fail "ordinary Codex turn failure must use backend status 70, got $status"
     assert_contains "$(cat "$output_file")" "Codex reported a failed turn" \
         "ordinary turn failures must retain backend diagnostics"
-    pass "ordinary Codex turn failure remains distinct from write violations"
+
+    target="$TEST_ROOT/codex-mixed-failure-target"
+    custom_prompt="$TEST_ROOT/codex-mixed-failure-criteria.md"
+    output_file="$TEST_ROOT/codex-mixed-failure.out"
+    make_target "$target"
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Codex mixed failure criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+    set +e
+    FAKE_TURN_FAILURE_PHASE=2 FAKE_DENIED_WRITE_PHASE=2 \
+        FAKE_DENIED_WRITE_AGENT=codex PATH="$FAKE_BIN:$PATH" \
+        "$SCRIPT_UNDER_TEST" --max-iters 1 --fixer codex \
+        --prompt "$custom_prompt" claude codex "$target" > "$output_file" 2>&1
+    status=$?
+    set -e
+
+    [[ $status -eq 77 ]] ||
+        fail "denied-write evidence must take precedence over turn failure, got $status"
+    pass "Codex turn failures remain distinct while boundary evidence takes precedence"
 }
 
 test_detected_target_write_stops_without_rollback() {
