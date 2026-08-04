@@ -6,7 +6,7 @@
 - **Phase 1 (Independent Reviews)** — Claude and Codex each review the target directory's file list (+ diff since the last iteration) in parallel, blind to each other's findings.
 - **Phase 2 (Cross-Review)** — each agent reviews the *other* agent's Phase 1 findings.
 - **Phase 3 (Meta-Review)** — each agent responds to the feedback it received in Phase 2, with its own Phase 1 review, the other's Phase 1 review, and its own Phase 2 verdict all re-supplied (agents are stateless between phases).
-- **Phase 4 (Synthesis)** — one agent (the "fixer", `claude` or `codex`, chosen via `--fixer`) synthesizes the full review chain and implements fixes directly in the target directory's working tree.
+- **Phase 4 (Synthesis)** — one agent (the "fixer", `claude` or `codex`, chosen via `--fixer`) synthesizes the full review chain. In `--apply-fixes` mode (and the compatible implicit default), it implements permitted fixes directly in the target working tree; in `--review-only` mode, it runs through the read-only backend path and reports unresolved findings without modifying the target.
 - **Consensus** — agreement between Claude and Codex that an issue is real, reached (or not) by the end of Phase 3; tracked via each phase's structured status block.
 - **Status block** — a fenced key/value block every agent response must end with (e.g. `---REVIEW_STATUS---` / `---META_REVIEW_STATUS---` / `---SYNTHESIS_STATUS---`), parsed by `lib/response_analyzer.sh` to drive loop control.
 - **EXIT_SIGNAL** — a status-block field; `true` means "no more issues," which can end the loop early.

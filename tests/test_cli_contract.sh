@@ -32,6 +32,15 @@ assert_contains() {
 missing: $needle"
 }
 
+file_mtime() {
+    local file="$1"
+    if stat -f '%m:%Sm' "$file" >/dev/null 2>&1; then
+        stat -f '%m:%Sm' "$file"
+    else
+        stat -c '%Y:%y' "$file"
+    fi
+}
+
 make_target() {
     local target="$1"
     mkdir -p "$target"
@@ -151,8 +160,34 @@ STATUS
 )"
         ;;
     4)
-        printf '%s\n' 'fixed by claude' >> app.sh
-        response="$(cat <<'STATUS'
+        if [[ "$strict" == "true" ]]; then
+            [[ "$prompt" == *"Unresolved in-scope findings"* ]]
+            [[ "$prompt" == *"Pre-existing issues noticed, not fixed"* ]]
+            response="$(cat <<'STATUS'
+## Unresolved in-scope findings
+
+- CLAUDE-1 and CODEX-1 remain unresolved.
+
+## Pre-existing issues noticed, not fixed
+
+- None.
+
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 0
+MEDIUM_CONFIDENCE_FIXES: 0
+ISSUES_SKIPPED: 2
+FILES_MODIFIED: 0
+IN_SCOPE_FIXED: 0
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+EXIT_SIGNAL: true
+SUMMARY: Reported two unresolved in-scope findings without modifying files
+---END_SYNTHESIS_STATUS---
+STATUS
+)"
+        else
+            printf '%s\n' 'fixed by claude' >> app.sh
+            response="$(cat <<'STATUS'
 ---SYNTHESIS_STATUS---
 HIGH_CONFIDENCE_FIXES: 1
 MEDIUM_CONFIDENCE_FIXES: 0
@@ -166,6 +201,7 @@ SUMMARY: Claude applied the fix
 ---END_SYNTHESIS_STATUS---
 STATUS
 )"
+        fi
         ;;
 esac
 
@@ -298,9 +334,32 @@ SUMMARY: Codex reached consensus
 ---END_META_REVIEW_STATUS---'
         ;;
     4)
-        [[ "$sandbox" == "workspace-write" ]]
-        printf '%s\n' 'fixed by codex' >> app.sh
-        response='---SYNTHESIS_STATUS---
+        if [[ "$sandbox" == "read-only" ]]; then
+            [[ "$prompt" == *"Unresolved in-scope findings"* ]]
+            [[ "$prompt" == *"Pre-existing issues noticed, not fixed"* ]]
+            response='## Unresolved in-scope findings
+
+- CLAUDE-1 and CODEX-1 remain unresolved.
+
+## Pre-existing issues noticed, not fixed
+
+- None.
+
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 0
+MEDIUM_CONFIDENCE_FIXES: 0
+ISSUES_SKIPPED: 2
+FILES_MODIFIED: 0
+IN_SCOPE_FIXED: 0
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+EXIT_SIGNAL: true
+SUMMARY: Reported two unresolved in-scope findings without modifying files
+---END_SYNTHESIS_STATUS---'
+        else
+            [[ "$sandbox" == "workspace-write" ]]
+            printf '%s\n' 'fixed by codex' >> app.sh
+            response='---SYNTHESIS_STATUS---
 HIGH_CONFIDENCE_FIXES: 1
 MEDIUM_CONFIDENCE_FIXES: 0
 ISSUES_SKIPPED: 0
@@ -311,6 +370,7 @@ PRE_EXISTING_FLAGGED: 0
 EXIT_SIGNAL: true
 SUMMARY: Codex applied the fix
 ---END_SYNTHESIS_STATUS---'
+        fi
         ;;
 esac
 
@@ -427,6 +487,86 @@ $(cat "$output_file")"
         fail "selecting Claude as fixer must not weaken earlier phases"
     unset FAKE_FORBIDDEN_CRITERIA
     pass "Claude fixer is writable and consecutive prompts do not leak"
+}
+
+test_review_only_phase_4_is_read_only_and_preserves_target() {
+    local target="$TEST_ROOT/review-only-target"
+    local custom_prompt="$TEST_ROOT/review-only-criteria.md"
+    local output_file="$TEST_ROOT/review-only.out"
+    local content_before mtime_before state_dir synthesis invocation_metadata
+    make_target "$target"
+
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Review-only criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+    content_before="$(cat "$target/app.sh")"
+    mtime_before="$(file_mtime "$target/app.sh")"
+
+    if ! PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --review-only --max-iters 1 --fixer codex \
+        --prompt "$custom_prompt" claude codex "$target" \
+        > "$output_file" 2>&1; then
+        fail "review-only contract run failed:
+$(cat "$output_file")"
+    fi
+
+    [[ "$(cat "$target/app.sh")" == "$content_before" ]] ||
+        fail "review-only must preserve target file content"
+    [[ "$(file_mtime "$target/app.sh")" == "$mtime_before" ]] ||
+        fail "review-only must preserve target file mtime"
+    [[ "$(grep -c '^codex|4|sandbox=read-only|' "$FAKE_AGENT_LOG")" -eq 1 ]] ||
+        fail "review-only Phase 4 must use Codex's read-only backend path"
+    [[ "$(grep -Ec '^(claude|codex)\|[123]\|' "$FAKE_AGENT_LOG")" -eq 6 ]] ||
+        fail "review-only must still complete all six Phase 1-3 invocations"
+
+    state_dir="$(find "$AR_STATE_ROOT" -type d -name 'review-only-target*' -print -quit)"
+    synthesis="$state_dir/artifacts/iter1_4_synthesis.md"
+    assert_contains "$(cat "$synthesis")" "Unresolved in-scope findings" \
+        "review-only synthesis must report unresolved in-scope findings"
+    assert_contains "$(cat "$synthesis")" "Pre-existing issues noticed, not fixed" \
+        "review-only synthesis must report pre-existing findings separately"
+    [[ "$(jq -r '.status' "$state_dir/tracking.json")" == "review_complete" ]] ||
+        fail "review-only completion must not mark unresolved findings as clean"
+
+    invocation_metadata="$(find "$state_dir" -name '*.invocation.json' \
+        -exec jq -c . {} \; | jq -sc '.')"
+    [[ "$(jq '[.[] | select(.execution_mode == "review-only")] | length' <<< "$invocation_metadata")" -eq 7 ]] ||
+        fail "every review-only invocation must record the effective execution mode"
+    [[ "$(jq '[.[] | select(.phase == "phase_4" and .write_authorized == false)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
+        fail "review-only Phase 4 metadata must record that writes were not authorized"
+    pass "review-only completes synthesis without changing target evidence"
+}
+
+test_apply_fixes_authorizes_only_phase_4_and_records_mode() {
+    local target="$TEST_ROOT/explicit-apply-fixes-target"
+    local custom_prompt="$TEST_ROOT/explicit-apply-fixes-criteria.md"
+    local output_file="$TEST_ROOT/explicit-apply-fixes.out"
+    local state_dir invocation_metadata
+    make_target "$target"
+
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Explicit apply-fixes criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+    if ! PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --apply-fixes --max-iters 1 --fixer codex \
+        --prompt "$custom_prompt" claude codex "$target" \
+        > "$output_file" 2>&1; then
+        fail "apply-fixes contract run failed:
+$(cat "$output_file")"
+    fi
+
+    state_dir="$(find "$AR_STATE_ROOT" -type d \
+        -name 'explicit-apply-fixes-target*' -print -quit)"
+    invocation_metadata="$(find "$state_dir" -name '*.invocation.json' \
+        -exec jq -c . {} \; | jq -sc '.')"
+    [[ "$(jq '[.[] | select(.execution_mode == "apply-fixes")] | length' <<< "$invocation_metadata")" -eq 7 ]] ||
+        fail "every apply-fixes invocation must record the effective execution mode"
+    [[ "$(jq '[.[] | select(.phase != "phase_4" and .write_authorized == false)] | length' <<< "$invocation_metadata")" -eq 6 ]] ||
+        fail "apply-fixes must leave all Phase 1-3 invocations read-only"
+    [[ "$(jq '[.[] | select(.phase == "phase_4" and .write_authorized == true)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
+        fail "apply-fixes must authorize writes only for Phase 4"
+    pass "apply-fixes authorizes only Phase 4 and records its execution mode"
 }
 
 test_invalid_prompts_fail_before_agent_invocation() {
@@ -634,6 +774,8 @@ test_fixer_failure_does_not_start_another_iteration() {
 
 test_custom_prompt_is_additive_and_review_phases_are_read_only
 test_claude_fixer_is_writable_without_prompt_leakage
+test_review_only_phase_4_is_read_only_and_preserves_target
+test_apply_fixes_authorizes_only_phase_4_and_records_mode
 test_invalid_prompts_fail_before_agent_invocation
 test_review_agent_failure_stops_with_diagnostics
 test_malformed_review_response_stops_the_workflow

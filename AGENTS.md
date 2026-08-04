@@ -42,7 +42,8 @@ The main entry point (~820 lines). Orchestrates the 4-phase review loop:
 1. **Phase 1: Independent Reviews** - Claude and Codex review code in parallel
 2. **Phase 2: Cross-Review** - Each reviews the other's findings
 3. **Phase 3: Meta-Review** - Each responds to feedback on their review
-4. **Phase 4: Synthesis** - Claude synthesizes findings and implements fixes
+4. **Phase 4: Synthesis** - The selected fixer either reports unresolved
+   findings read-only or implements permitted fixes, according to execution mode
 
 ### Library Components (`lib/`)
 
@@ -119,7 +120,8 @@ Examples:
 ```
 
 Every agent reply has a companion `*.invocation.json` that records its phase,
-native permission/sandbox mode, and whether write access was authorized.
+effective execution mode, native permission/sandbox mode, and whether write
+access was actually authorized.
 Review-phase Claude and Codex calls also retain structured `*.raw.log` events
 for denied-write auditing. All four phases invoke agents through
 `run_backend()`, which dispatches to the backend-specific runner and requires
@@ -143,8 +145,8 @@ concatenated into later prompts.
    this path is untested by the maintainer and relies on community testing
    and feedback.
 2. **Tests**: `tests/` has bats-style suites covering backend dispatch,
-   base-scope, response-analyzer, include-pre-existing, and the CLI contract
-   (33 cases total). See `tests/test_*.sh`.
+   base-scope, response-analyzer, execution modes, include-pre-existing, and
+   the CLI contract (53 cases total). See `tests/test_*.sh`.
 3. **Codex CLI flags**: May need adjustment based on actual codex CLI behavior
 4. **Cost tracking**: Not implemented - each iteration is ~6 API calls
 5. **Prompt bloat from Codex transcripts** (fixed): earlier versions fed each

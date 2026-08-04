@@ -108,9 +108,8 @@ cd adversarial-review
                             包括未提交和未跟踪的源文件
     --include-pre-existing  允许阶段四也修复 PRE_EXISTING 问题
                             （默认只报告，不应用修改）
-    --review-only           声明本次调用期望阶段四不获得写权限
-                            （与 --apply-fixes 互斥；阶段四实际
-                            行为在本版本中尚未随之改变）
+    --review-only           让阶段四走只读 Backend 路径；仅报告尚未解决的
+                            findings，不修改 Target（与 --apply-fixes 互斥）
     --apply-fixes           声明本次调用期望阶段四保留现有的
                             写权限行为（与 --review-only 互斥）
     --status                显示必填目标目录对应的当前状态
@@ -139,11 +138,12 @@ cd adversarial-review
 仅标记的数量。
 
 `--review-only` 与 `--apply-fixes` 让调用方显式声明本次希望阶段四不获得
-写权限，还是保留现有的写权限行为；两者互斥，同时传入两者会在任何依赖检查
-或 Agent 调用之前报错退出。两者都省略时，行为仍与当前隐式的 apply-fixes
-一致，但会打印迁移提示。本版本中阶段四的实际写权限行为尚未随
-`--review-only` 切换——这将留给后续版本实现，因此新增的自动化、Skill、
-Plugin 仍应显式传入其中一个 flag，而不是依赖隐式默认值。
+写权限并执行只读综合，还是获得写权限并应用修复；两者互斥，同时传入会在任何
+依赖检查或 Agent 调用之前报错退出。review-only 仍完整执行四个阶段，阶段四
+复用阶段一至三的只读 Backend 契约，分别报告尚未解决的 `IN_SCOPE` 与
+`PRE_EXISTING` findings，且不会声称已经修复。两者都省略时，行为仍与当前
+隐式的 apply-fixes 一致，并打印迁移提示；新增的自动化、Skill、Plugin 应显式
+传入其中一个 flag。
 
 状态是按目标目录隔离的（见下方"状态目录"一节），所以想查看或重置某个项目的历史，需要把必填的槽位配置和当初审查它时用的 `<目标目录>` 传给 `--status`/`--reset` 等命令。
 
@@ -210,7 +210,9 @@ Finding Scope 规则或必需的 Status Block，也不会修改 `prompts/` 下�
 
 阶段一至阶段三在各 Backend 的调用边界强制只读。Claude 只能使用读取／搜索
 工具以及受限批准的 `git log` 和 `git blame` 命令，并采用非交互拒绝模式；
-Codex 使用只读沙箱。只有阶段四选定的 Fixer 获得写权限。
+Codex 使用只读沙箱。使用 `--apply-fixes`（或隐式默认）时，只有阶段四选定的
+Fixer 获得写权限；使用 `--review-only` 时，阶段四继续保持只读边界，并在综合
+前后检查 Target 的内容与 mtime 指纹。
 
 ### 环境变量
 
@@ -263,8 +265,10 @@ SUMMARY: Found critical type mixing bug
 既有路径；同后端配置中，未改变的文件名分别放在 `artifacts/slot-a/` 与
 `artifacts/slot-b/` 下，以避免文件冲突。
 
-每份智能体回复都有对应的 `*.invocation.json`，记录阶段、Backend、原生权限／
-Sandbox 模式、允许的工具以及是否授权写入。审查调用还会保留结构化
+每份智能体回复都有对应的 `*.invocation.json`，记录阶段、Backend、有效的
+`execution_mode`、原生权限／Sandbox 模式、允许的工具以及是否实际授权写入。
+`execution_mode` 与 `write_authorized` 共同说明阶段四获得或未获得写权限的来源。
+审查调用还会保留结构化
 `*.raw.log` 事件（Claude `stream-json`、Codex `--json`），用于审计被拒绝或
 越权的写入请求；如果检测到 Target 发生变化，流程会生成
 `iter{N}_phase_*_write_violation.json` 指纹记录并停止，但不会回滚用户文件。

@@ -2,7 +2,10 @@
 
 You are the final arbiter in an adversarial review process.
 Two AI reviewer slots ({{SLOT_A_REVIEWER_NAME}} and {{SLOT_B_REVIEWER_NAME}}) have reviewed code, cross-reviewed each other's findings,
-and provided meta-feedback. Your task is to synthesize their findings and implement fixes.
+and provided meta-feedback. Your task is to synthesize their findings and then
+follow the run-specific execution-mode policy injected after this template.
+That policy decides whether you report unresolved findings without changes or
+implement fixes.
 
 ## Step 0: Issue Ledger (REQUIRED, do this first)
 
@@ -27,13 +30,13 @@ repository history yourself; default ambiguity to `PRE_EXISTING`.
 
 ## Decision Framework
 
-### High Confidence Fixes (Implement Immediately)
+### High Confidence Findings
 Issues where BOTH agents agreed:
 - Both found the same issue independently
 - One found it, the other validated it
 - Neither raised objections in meta-review
 
-### Medium Confidence Fixes (Use Judgment)
+### Medium Confidence Findings
 Issues where agents PARTIALLY agreed:
 - One found it, the other raised concerns but didn't reject
 - Disagreement on severity but not existence
@@ -50,16 +53,22 @@ Issues where agents DISAGREED:
 A run-specific Phase 4 scope policy is injected below this template. Follow
 it exactly:
 
-- Without explicit opt-in, implement only `IN_SCOPE` findings. Do not edit
-  code for `PRE_EXISTING` findings, even when they are high confidence.
-- With explicit opt-in, valid findings in both categories may be implemented.
+- In apply-fixes mode without explicit opt-in, implement only `IN_SCOPE`
+  findings. Do not edit code for `PRE_EXISTING` findings, even when they are
+  high confidence.
+- In apply-fixes mode with explicit opt-in, valid findings in both categories
+  may be implemented.
+- In review-only mode, report both categories without implementing either.
 - Always keep category counts separate.
 
 When pre-existing findings are not being fixed, include a distinct
 `Pre-existing issues noticed, not fixed` section containing each issue's ID,
 file, line, severity, and suggested fix.
 
-## Implementation Guidelines
+## Apply-fixes Guidelines
+
+These guidelines apply only when the injected execution-mode policy selects
+apply-fixes:
 
 1. **Start with high-confidence fixes** - These have consensus
 2. **Evaluate medium-confidence carefully** - Use your own judgment
@@ -68,12 +77,13 @@ file, line, severity, and suggested fix.
 
 ## Working Directory
 
-You will be working in the target project directory.
-Edit files directly using whatever file-editing tool you have available.
+You will be working in the target project directory. In apply-fixes mode, edit
+files directly using whatever file-editing tool you have available. In
+review-only mode, treat the working directory as read-only.
 
 ## Output Format
 
-For each fix you implement:
+In apply-fixes mode, for each fix you implement:
 ```
 ### Fix #N: [Filename]
 **Issue**: What was wrong
@@ -83,7 +93,7 @@ For each fix you implement:
 **Change**: Description of what you changed
 ```
 
-For issues you skip:
+For unresolved or skipped issues in either mode:
 ```
 ### Skipped: [Filename]
 **Issue**: What was reported

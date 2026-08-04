@@ -28,11 +28,12 @@ Claude 和 Codex 各自独立审查目标项目，互相质疑对方的发现，
 Scope 或 Status 协议。
 
 传入 `--review-only` 或 `--apply-fixes` 以显式声明本次调用是希望阶段四
-不获得写权限，还是保留现有的写权限行为；两者互斥，且会在任何依赖检查或
-Agent 调用之前完成校验。两者都省略时，行为仍与当前隐式的 apply-fixes
-一致，但会打印迁移提示——因为本版本中阶段四的实际写权限行为尚未跟随
-`--review-only` 切换，这将留给后续版本实现。新增的自动化、Skill、Plugin
-应当显式传入其中一个 flag。
+执行只读综合，还是获得写权限并应用修复。在 review-only 模式下，四个阶段
+仍会完整运行；阶段四复用阶段一至三的只读 Backend 边界，并分别列出尚未解决的
+`IN_SCOPE` 与 `PRE_EXISTING` findings，不修改 Target Repo。两者互斥，且会在
+任何依赖检查或 Agent 调用之前完成校验。两者都省略时，行为仍与当前隐式的
+apply-fixes 一致，并打印迁移提示。新增的自动化、Skill、Plugin 应当显式传入
+其中一个 flag。
 
 每次调用现在都必须明确提供两个审查槽位和目标目录：
 `slot-a slot-b target-dir`。三者都可以改用对应的长选项。槽位接受
