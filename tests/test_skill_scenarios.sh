@@ -165,26 +165,26 @@ run_scenario() {
     SCENARIO_TARGET="$target"
 }
 
-test_explicit_claude_only_redundancy() {
-    SCENARIO_CODEX_AVAILABLE=false SCENARIO_SLOT_ARGS="--slot-a claude --slot-b claude" run_scenario claude-only clean
+test_same_model_redundancy() {
+    local backend="$1"
+    local unavailable_backend="$2"
+    local scenario_name="$backend-only"
 
-    [[ $SCENARIO_STATUS -eq 0 ]] || fail "intentional Claude redundancy should be supported"
-    assert_contains "$SCENARIO_OUTPUT" "Reviewer slots: claude, claude" \
-        "explicit Claude slots should be selected"
+    if [[ "$unavailable_backend" == "claude" ]]; then
+        SCENARIO_CLAUDE_AVAILABLE=false SCENARIO_SLOT_ARGS="--slot-a $backend --slot-b $backend" \
+            run_scenario "$scenario_name" clean
+    else
+        SCENARIO_CODEX_AVAILABLE=false SCENARIO_SLOT_ARGS="--slot-a $backend --slot-b $backend" \
+            run_scenario "$scenario_name" clean
+    fi
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "intentional $backend redundancy should be supported"
+    assert_contains "$SCENARIO_OUTPUT" "Reviewer slots: $backend, $backend" \
+        "explicit $backend slots should be selected"
     assert_contains "$SCENARIO_OUTPUT" "lower review diversity" \
         "same-model redundancy must disclose reduced diversity"
-    pass "explicit Claude-only redundancy is supported with a diversity warning"
-}
-
-test_explicit_codex_only_redundancy() {
-    SCENARIO_CLAUDE_AVAILABLE=false SCENARIO_SLOT_ARGS="--slot-a codex --slot-b codex" run_scenario codex-only clean
-
-    [[ $SCENARIO_STATUS -eq 0 ]] || fail "intentional Codex redundancy should be supported"
-    assert_contains "$SCENARIO_OUTPUT" "Reviewer slots: codex, codex" \
-        "explicit Codex slots should be selected"
-    assert_contains "$SCENARIO_OUTPUT" "lower review diversity" \
-        "same-model redundancy must disclose reduced diversity"
-    pass "explicit Codex-only redundancy is supported with a diversity warning"
+    assert_selected_commands "$SCENARIO_TARGET" "$backend" "$backend"
+    pass "explicit $backend-only redundancy preserves slots with a diversity warning"
 }
 
 test_auth_failure_stops_before_review() {
@@ -241,6 +241,23 @@ test_missing_timeout_stops_before_review() {
     pass "missing timeout support stops before any review invocation"
 }
 
+test_incompatible_timeout_stops_before_review() {
+    local timeout_name="timeout"
+    [[ -e "$TEST_BIN/timeout" ]] || timeout_name="gtimeout"
+    mv "$TEST_BIN/$timeout_name" "$TEST_BIN/$timeout_name.saved"
+    printf '%s\n' '#!/usr/bin/env bash' 'echo "BusyBox timeout"' > "$TEST_BIN/$timeout_name"
+    chmod +x "$TEST_BIN/$timeout_name"
+    run_scenario incompatible-timeout clean
+    rm -f "$TEST_BIN/$timeout_name"
+    mv "$TEST_BIN/$timeout_name.saved" "$TEST_BIN/$timeout_name"
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "incompatible timeout should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "incompatible timeout support" \
+        "incompatible timeout should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "incompatible timeout must not invoke the review CLI"
+    pass "incompatible timeout stops before any review invocation"
+}
+
 test_unsupported_cli_slots_stop_before_review() {
     SCENARIO_UNSUPPORTED_SLOTS=true run_scenario unsupported-slots clean
 
@@ -253,13 +270,15 @@ test_unsupported_cli_slots_stop_before_review() {
 
 assert_selected_commands() {
     local target="$1"
+    local slot_a="${2:-claude}"
+    local slot_b="${3:-codex}"
     local dry_command real_command
     dry_command="$(sed -n '1p' <<< "$SCENARIO_COMMANDS")"
     real_command="$(sed -n '2p' <<< "$SCENARIO_COMMANDS")"
 
-    assert_contains "$dry_command" "<--dry-run><--review-only><--base><HEAD><--slot-a><claude><--slot-b><codex><--target-dir><$target><--result-file>" \
+    assert_contains "$dry_command" "<--dry-run><--review-only><--base><HEAD><--slot-a><$slot_a><--slot-b><$slot_b><--target-dir><$target><--result-file>" \
         "dry-run should use the complete explicit command contract"
-    assert_contains "$real_command" "<--review-only><--base><HEAD><--slot-a><claude><--slot-b><codex><--target-dir><$target><--result-file>" \
+    assert_contains "$real_command" "<--review-only><--base><HEAD><--slot-a><$slot_a><--slot-b><$slot_b><--target-dir><$target><--result-file>" \
         "real review should preserve the previewed command contract"
     [[ "$real_command" != *"<--dry-run>"* ]] || fail "real review must not retain --dry-run"
 }
@@ -348,13 +367,14 @@ test_explicit_findings_remaining_review() {
 
 test_explicit_clean_review
 test_explicit_findings_remaining_review
-test_explicit_claude_only_redundancy
-test_explicit_codex_only_redundancy
+test_same_model_redundancy claude codex
+test_same_model_redundancy codex claude
 test_auth_failure_stops_before_review
 test_missing_backend_stops_before_review
 test_missing_cli_stops_before_review
 test_missing_jq_stops_before_review
 test_missing_timeout_stops_before_review
+test_incompatible_timeout_stops_before_review
 test_unsupported_cli_slots_stop_before_review
 test_empty_scope_stops_before_real_review
 test_discovers_cli_from_skill_repository
