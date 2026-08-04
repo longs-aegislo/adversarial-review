@@ -1465,6 +1465,9 @@ Working directory: $target_dir
     local pre_existing_flagged
     pre_existing_flagged="$(echo "$status" | jq -r '.pre_existing_flagged // 0')"
     local required_issue_ids
+    # The issue-ledger protocol permits IDs to originate in Phase 1 or in
+    # Phase 2 Additional Findings. Phase 3 only adjudicates those existing IDs,
+    # so meta-review prose is intentionally excluded from the required-ID set.
     required_issue_ids="$(grep -Eoh \
         "(${slot_a_tag}|${slot_b_tag})-(ADD-)?[0-9]+" \
         "$slot_a_review" "$slot_b_review" "$slot_a_cross" "$slot_b_cross" |
