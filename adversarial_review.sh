@@ -851,6 +851,27 @@ reviewer_tag() {
     fi
 }
 
+validate_review_only_synthesis() {
+    local output_file="$1"
+    local status="$2"
+
+    grep -qE '^#{1,6}[[:space:]]+Unresolved in-scope findings[[:space:]]*$' \
+        "$output_file" || return 1
+    grep -qE '^#{1,6}[[:space:]]+Pre-existing issues noticed, not fixed[[:space:]]*$' \
+        "$output_file" || return 1
+    ! grep -qE '^#{1,6}[[:space:]]+Fix([[:space:]#:].*)?$|^\*\*Change\*\*:' \
+        "$output_file" || return 1
+    jq -e '
+        [
+            (.high_confidence_fixes // 0),
+            (.medium_confidence_fixes // 0),
+            (.files_modified // 0),
+            (.in_scope_fixed // 0),
+            (.pre_existing_fixed // 0)
+        ] | all(. == 0)
+    ' <<< "$status" >/dev/null
+}
+
 review_artifact() {
     local iteration="$1"
     local phase="$2"
@@ -1436,11 +1457,10 @@ Working directory: $target_dir
     pre_existing_flagged="$(echo "$status" | jq -r '.pre_existing_flagged // 0')"
 
     if [[ "$EXECUTION_MODE" == "review-only" ]] &&
-       { [[ "$files_modified" -ne 0 ]] ||
-         [[ "$in_scope_fixed" -ne 0 ]] ||
-         [[ "$pre_existing_fixed" -ne 0 ]]; }; then
+       ! validate_review_only_synthesis "$output_file" "$status"; then
         record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
-            "review-only synthesis claimed file modifications or fixes" "$output_file"
+            "review-only synthesis is missing required scope sections or claims fixes" \
+            "$output_file"
         return "$PHASE_4_FAILED"
     fi
 
@@ -1542,9 +1562,13 @@ run_review_loop() {
         local phase_1_result=0
         run_phase_1 "$target_dir" "$iteration" || phase_1_result=$?
         if [[ $phase_1_result -eq $PHASE_1_CLEAN ]]; then
-            log_success "Review complete - both agents report clean code"
-            update_tracking "status" "clean"
-            return 0
+            if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+                log_info "Both Phase 1 reviewers reported clean; continuing all review-only phases"
+            else
+                log_success "Review complete - both agents report clean code"
+                update_tracking "status" "clean"
+                return 0
+            fi
         elif [[ $phase_1_result -ne $PHASE_1_CONTINUE ]]; then
             return 1
         fi

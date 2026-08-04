@@ -22,14 +22,15 @@ The loop has four phases:
 3. Meta-review and consensus
 4. Synthesis and implementation
 
-Every finding is classified as `IN_SCOPE` or `PRE_EXISTING`. Phase 4 fixes
-only `IN_SCOPE` findings by default and reports historical issues separately.
-Pass `--include-pre-existing` only when you intentionally want both categories
-fixed.
+Every finding is classified as `IN_SCOPE` or `PRE_EXISTING`. In apply-fixes
+mode, Phase 4 fixes only `IN_SCOPE` findings by default and reports historical
+issues separately. Pass `--include-pre-existing` only when you intentionally
+want both categories fixed.
 
-Phases 1-3 run with read-only agent permissions; only the selected Phase 4
-fixer receives write access. `--prompt FILE` adds Phase 1 review criteria for
-that run without replacing the mandatory issue, scope, or status protocol.
+Phases 1-3 run with read-only agent permissions. Only apply-fixes mode gives
+the selected Phase 4 fixer write access. `--prompt FILE` adds Phase 1 review
+criteria for that run without replacing the mandatory issue, scope, or status
+protocol.
 
 Pass `--review-only` or `--apply-fixes` to explicitly declare whether this
 invocation runs Phase 4 as read-only synthesis or writable fix application.

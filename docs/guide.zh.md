@@ -48,15 +48,15 @@
 │    的反馈——每次都是完整上下文，避免发现在共识阶段悄悄消失      │
 │    （并行执行）                                               │
 ├─────────────────────────────────────────────────────────────┤
-│  阶段四：综合与修复                                           │
-│    由 Claude 或 Codex（通过 --fixer 选择）审阅全部辩论记录，   │
-│    默认只修复 IN_SCOPE 问题；PRE_EXISTING 问题只单独报告，     │
-│    除非显式传入 --include-pre-existing                         │
+│  阶段四：综合                                                 │
+│    由 --fixer 选定的 Agent 审阅全部辩论记录。review-only       │
+│    只读报告未解决 findings；apply-fixes 默认修复 IN_SCOPE，    │
+│    PRE_EXISTING 未显式 opt-in 时仍只报告                       │
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
-              回到阶段一验证修复效果，
-              直到双方都报告 NO_ISSUES（无问题）
+              apply-fixes 可回到阶段一验证修复；
+              review-only 在综合完成后结束
 ```
 
 ## 快速开始
@@ -133,7 +133,8 @@ cd adversarial-review
 每条发现都带有 `IN_SCOPE` 或 `PRE_EXISTING` 标签。传入 `--base` 时，
 变更文件边界用于默认分类；未传入时，智能体通过受影响行的 `git blame`/
 `git log` 判断历史归属。阶段四默认只修复 `IN_SCOPE`，并单独列出历史问题。
-只有明确希望同时修复两类问题时才使用 `--include-pre-existing`。dry-run
+在 apply-fixes 模式下，只有明确希望同时修复两类问题时才使用
+`--include-pre-existing`。dry-run
 会显示实际组装的阶段四策略，`--status <slot_a> <slot_b> <目标目录>` 会按范围显示已修复／
 仅标记的数量。
 
@@ -247,7 +248,7 @@ SUMMARY: Found critical type mixing bug
 ### 退出条件
 
 以下任一情况会结束循环：
-1. **阶段一中双方都报告 NO_ISSUES**
+1. **阶段一中双方都报告 NO_ISSUES**（仅 apply-fixes；review-only 仍继续到综合）
 2. **综合阶段完成且 EXIT_SIGNAL: true**
 3. **达到最大迭代次数**
 4. **断路器触发**（检测到停滞）

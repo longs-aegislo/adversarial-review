@@ -205,6 +205,16 @@ STATUS
         ;;
 esac
 
+if [[ "$phase" -eq 1 && "${FAKE_PHASE1_CLEAN:-}" == "1" ]]; then
+    response="NO_ISSUES"
+elif [[ "$phase" -eq 1 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/ISSUES_FOUND: 1/ISSUES_FOUND: 2}"
+    response="${response/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE/ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CLAUDE-2=PRE_EXISTING}"
+elif [[ "$phase" -eq 4 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/- None./- CLAUDE-2 is pre-existing and remains unresolved.}"
+    response="${response/PRE_EXISTING_FLAGGED: 0/PRE_EXISTING_FLAGGED: 1}"
+fi
+
 if [[ "$phase" -lt 4 && "$args" == *" --output-format stream-json "* ]]; then
     if [[ "$phase" -eq 1 ]]; then
         jq -cn '{
@@ -373,6 +383,40 @@ SUMMARY: Codex applied the fix
         fi
         ;;
 esac
+
+if [[ "$phase" -eq 1 && "${FAKE_PHASE1_CLEAN:-}" == "1" ]]; then
+    response='NO_ISSUES'
+elif [[ "$phase" -eq 1 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    response="${response/ISSUES_FOUND: 1/ISSUES_FOUND: 2}"
+    response="${response/ISSUE_SCOPES: CODEX-1=IN_SCOPE/ISSUE_SCOPES: CODEX-1=IN_SCOPE, CODEX-2=PRE_EXISTING}"
+elif [[ "$phase" -eq 4 && "${FAKE_PRE_EXISTING_FINDING:-}" == "1" ]]; then
+    if [[ "$sandbox" == "read-only" ]]; then
+        response="${response/- None./- CLAUDE-2 and CODEX-2 are pre-existing and remain unresolved.}"
+    else
+        response="## Pre-existing issues noticed, not fixed
+
+- CLAUDE-2 and CODEX-2 are pre-existing and remain unresolved.
+
+$response"
+    fi
+    response="${response/PRE_EXISTING_FLAGGED: 0/PRE_EXISTING_FLAGGED: 2}"
+fi
+
+if [[ "$phase" -eq 4 && "${FAKE_BAD_REVIEW_ONLY_SYNTHESIS:-}" == "missing-sections" ]]; then
+    response='---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 0
+MEDIUM_CONFIDENCE_FIXES: 0
+ISSUES_SKIPPED: 2
+FILES_MODIFIED: 0
+IN_SCOPE_FIXED: 0
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+EXIT_SIGNAL: true
+SUMMARY: Incomplete read-only report
+---END_SYNTHESIS_STATUS---'
+elif [[ "$phase" -eq 4 && "${FAKE_BAD_REVIEW_ONLY_SYNTHESIS:-}" == "claims-fixes" ]]; then
+    response="${response/HIGH_CONFIDENCE_FIXES: 0/HIGH_CONFIDENCE_FIXES: 1}"
+fi
 
 printf '%s\n' "$response" > "$output_file"
 if [[ "$json_mode" == "true" ]]; then
@@ -567,6 +611,97 @@ $(cat "$output_file")"
     [[ "$(jq '[.[] | select(.phase == "phase_4" and .write_authorized == true)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
         fail "apply-fixes must authorize writes only for Phase 4"
     pass "apply-fixes authorizes only Phase 4 and records its execution mode"
+}
+
+test_review_only_runs_all_phases_when_phase_1_is_clean() {
+    local target="$TEST_ROOT/review-only-clean-target"
+    local custom_prompt="$TEST_ROOT/review-only-clean-criteria.md"
+    local output_file="$TEST_ROOT/review-only-clean.out"
+    local state_dir
+    make_target "$target"
+
+    : > "$FAKE_AGENT_LOG"
+    export FAKE_CUSTOM_CRITERIA="Review-only clean criteria"
+    printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+    if ! FAKE_PHASE1_CLEAN=1 PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --review-only --max-iters 1 --fixer codex \
+        --prompt "$custom_prompt" claude codex "$target" \
+        > "$output_file" 2>&1; then
+        fail "clean review-only contract run failed:
+$(cat "$output_file")"
+    fi
+
+    [[ "$(grep -Ec '^(claude|codex)\|[123]\|' "$FAKE_AGENT_LOG")" -eq 6 ]] ||
+        fail "review-only must run Phases 2-3 even when Phase 1 is clean"
+    [[ "$(grep -Ec '^(claude|codex)\|4\|' "$FAKE_AGENT_LOG")" -eq 1 ]] ||
+        fail "review-only must run Phase 4 even when Phase 1 is clean"
+    state_dir="$(find "$AR_STATE_ROOT" -type d \
+        -name 'review-only-clean-target*' -print -quit)"
+    [[ "$(jq -r '.status' "$state_dir/tracking.json")" == "review_complete" ]] ||
+        fail "clean review-only execution must complete through synthesis"
+    pass "review-only runs all four phases when Phase 1 reports no issues"
+}
+
+test_review_only_rejects_noncompliant_synthesis() {
+    local failure_mode target custom_prompt output_file status
+
+    for failure_mode in missing-sections claims-fixes; do
+        target="$TEST_ROOT/review-only-bad-$failure_mode-target"
+        custom_prompt="$TEST_ROOT/review-only-bad-$failure_mode-criteria.md"
+        output_file="$TEST_ROOT/review-only-bad-$failure_mode.out"
+        make_target "$target"
+        : > "$FAKE_AGENT_LOG"
+        export FAKE_CUSTOM_CRITERIA="Bad review-only criteria $failure_mode"
+        printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+        set +e
+        FAKE_BAD_REVIEW_ONLY_SYNTHESIS="$failure_mode" PATH="$FAKE_BIN:$PATH" \
+            "$SCRIPT_UNDER_TEST" --review-only --max-iters 1 --fixer codex \
+            --prompt "$custom_prompt" claude codex "$target" \
+            > "$output_file" 2>&1
+        status=$?
+        set -e
+
+        [[ $status -ne 0 ]] ||
+            fail "review-only must reject $failure_mode synthesis output"
+        assert_contains "$(cat "$output_file")" "review-only synthesis" \
+            "review-only validation failure must explain the contract breach"
+    done
+    pass "review-only rejects missing sections and claimed fixes"
+}
+
+test_pre_existing_findings_remain_report_only_in_both_modes() {
+    local mode target custom_prompt output_file state_dir synthesis
+
+    for mode in review-only apply-fixes; do
+        target="$TEST_ROOT/$mode-pre-existing-target"
+        custom_prompt="$TEST_ROOT/$mode-pre-existing-criteria.md"
+        output_file="$TEST_ROOT/$mode-pre-existing.out"
+        make_target "$target"
+        : > "$FAKE_AGENT_LOG"
+        export FAKE_CUSTOM_CRITERIA="$mode pre-existing criteria"
+        printf '%s\n' "$FAKE_CUSTOM_CRITERIA" > "$custom_prompt"
+
+        if ! FAKE_PRE_EXISTING_FINDING=1 PATH="$FAKE_BIN:$PATH" \
+            "$SCRIPT_UNDER_TEST" "--$mode" --max-iters 1 --fixer codex \
+            --prompt "$custom_prompt" claude codex "$target" \
+            > "$output_file" 2>&1; then
+            fail "$mode pre-existing contract run failed:
+$(cat "$output_file")"
+        fi
+
+        state_dir="$(find "$AR_STATE_ROOT" -type d \
+            -name "$mode-pre-existing-target*" -print -quit)"
+        synthesis="$state_dir/artifacts/iter1_4_synthesis.md"
+        assert_contains "$(cat "$synthesis")" "Pre-existing issues noticed, not fixed" \
+            "$mode must retain the PRE_EXISTING report-only section"
+        [[ "$(jq -r '.pre_existing_flagged' "$state_dir/tracking.json")" -eq 2 ]] ||
+            fail "$mode must retain both PRE_EXISTING findings as flagged"
+        [[ "$(jq -r '.pre_existing_fixed' "$state_dir/tracking.json")" -eq 0 ]] ||
+            fail "$mode must not fix PRE_EXISTING findings without opt-in"
+    done
+    pass "PRE_EXISTING findings remain report-only in both execution modes"
 }
 
 test_invalid_prompts_fail_before_agent_invocation() {
@@ -776,6 +911,9 @@ test_custom_prompt_is_additive_and_review_phases_are_read_only
 test_claude_fixer_is_writable_without_prompt_leakage
 test_review_only_phase_4_is_read_only_and_preserves_target
 test_apply_fixes_authorizes_only_phase_4_and_records_mode
+test_review_only_runs_all_phases_when_phase_1_is_clean
+test_review_only_rejects_noncompliant_synthesis
+test_pre_existing_findings_remain_report_only_in_both_modes
 test_invalid_prompts_fail_before_agent_invocation
 test_review_agent_failure_stops_with_diagnostics
 test_malformed_review_response_stops_the_workflow

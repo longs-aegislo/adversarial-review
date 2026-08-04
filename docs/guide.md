@@ -53,14 +53,14 @@ The slots may use different backends or the same backend. This adversarial proce
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 4: Synthesis                                         │
 │    Claude or Codex (your choice via --fixer) reviews all     │
-│    debate artifacts and fixes IN_SCOPE findings.             │
-│    PRE_EXISTING findings are reported but not changed unless │
-│    --include-pre-existing was explicitly supplied            │
+│    debate artifacts. Review-only reports unresolved findings │
+│    without writes; apply-fixes fixes IN_SCOPE by default.     │
+│    PRE_EXISTING remains report-only unless explicitly opted in│
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
-              Loop back to Phase 1 to verify fixes
-              until both agents report NO_ISSUES
+              Apply-fixes may loop to verify fixes;
+              review-only completes after synthesis
 ```
 
 ## Quick Start
@@ -139,10 +139,10 @@ the resolved mode, file count, and file list before spending API budget.
 
 Every finding carries an `IN_SCOPE` or `PRE_EXISTING` tag. With `--base`, the
 changed-file boundary guides the default classification; without it, agents
-consult `git blame`/`git log` for the affected lines. Phase 4 normally fixes
-only `IN_SCOPE` findings and lists historical findings separately. Use
-`--include-pre-existing` only when you intentionally want both categories
-implemented. Dry-run output shows which Phase 4 policy will be assembled, and
+consult `git blame`/`git log` for the affected lines. In apply-fixes mode,
+Phase 4 normally fixes only `IN_SCOPE` findings and lists historical findings
+separately. Use `--include-pre-existing` only when you intentionally want both
+categories implemented. Dry-run output shows which Phase 4 policy will be assembled, and
 `--status <slot_a> <slot_b> <target_directory>` reports fixed/flagged counts by scope.
 
 `--review-only` and `--apply-fixes` let a caller explicitly declare whether
@@ -269,7 +269,8 @@ SUMMARY: Found critical type mixing bug
 ### Exit Conditions
 
 The loop exits when:
-1. **Both agents report NO_ISSUES** in Phase 1
+1. **Both agents report NO_ISSUES** in Phase 1 (apply-fixes only;
+   review-only continues through synthesis)
 2. **Synthesis completes** with EXIT_SIGNAL: true
 3. **Max iterations reached**
 4. **Circuit breaker opens** (stagnation detected)

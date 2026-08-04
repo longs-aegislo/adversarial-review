@@ -19,13 +19,13 @@ Claude 和 Codex 各自独立审查目标项目，互相质疑对方的发现，
 3. 元审查与共识
 4. 综合与修复
 
-每条发现都会标记为 `IN_SCOPE` 或 `PRE_EXISTING`。阶段四默认只修复
-`IN_SCOPE`，并单独报告历史问题。只有明确希望同时修复两类问题时，才传入
-`--include-pre-existing`。
+每条发现都会标记为 `IN_SCOPE` 或 `PRE_EXISTING`。在 apply-fixes 模式下，
+阶段四默认只修复 `IN_SCOPE`，并单独报告历史问题。只有明确希望同时修复两类
+问题时，才传入 `--include-pre-existing`。
 
-阶段一至阶段三使用只读智能体权限；只有阶段四中选定的 Fixer 获得写权限。
-`--prompt FILE` 只为本次运行追加阶段一审查标准，不会替换强制的 Issue、
-Scope 或 Status 协议。
+阶段一至阶段三使用只读智能体权限；只有 apply-fixes 模式会给阶段四中选定的
+Fixer 写权限。`--prompt FILE` 只为本次运行追加阶段一审查标准，不会替换强制的
+Issue、Scope 或 Status 协议。
 
 传入 `--review-only` 或 `--apply-fixes` 以显式声明本次调用是希望阶段四
 执行只读综合，还是获得写权限并应用修复。在 review-only 模式下，四个阶段
