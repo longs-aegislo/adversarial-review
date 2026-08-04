@@ -1,9 +1,9 @@
 # Process Exit Statuses
 
 `adversarial_review.sh` exposes the following stable process exit statuses.
-Callers may rely on these values across internal refactors. Phase return values
-such as `PHASE_1_CONTINUE`, `PHASE_4_FAILED`, and backend audit status `65` are
-internal implementation details and are mapped before the process exits.
+Callers may rely on these values across internal refactors. Internal phase and
+backend return values are mapped to this public contract before the process
+exits and are intentionally not part of the interface.
 
 | Status | Name | Meaning |
 | ---: | --- | --- |

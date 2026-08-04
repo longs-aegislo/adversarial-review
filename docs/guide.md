@@ -122,7 +122,8 @@ OPTIONS:
     --reset                 Reset all state for the required target
     --reset-circuit         Reset circuit breaker for the required target
     --circuit-status        Show circuit breaker status for the required target
-    --dry-run               Show what would happen without executing
+    --dry-run               Preview without Agent calls or review conclusions;
+                            not a substitute for --review-only
 ```
 
 For automation, see the stable [process exit status contract](exit-statuses.md).
@@ -164,7 +165,30 @@ through the same read-only backend contract as Phases 1-3, and reports
 unresolved `IN_SCOPE` and `PRE_EXISTING` findings in separate sections without
 claiming they were fixed. Omitting both flags keeps today's implicit
 apply-fixes behavior but prints a migration notice, so new automation, skills,
-and plugins should pass one explicitly.
+and plugins should pass one explicitly. This compatibility default may be
+removed in a future version.
+
+| Mode | Runs Agents? | Phase 4 target access | Purpose |
+| --- | --- | --- | --- |
+| `--review-only` | Yes, all four phases | Read-only | Produce an actual review and unresolved-finding report. |
+| `--apply-fixes` | Yes | Writable | Apply permitted fixes and report anything remaining. |
+| `--dry-run` (with either mode) | No | No Agent access | Preview scope and policy only; it produces no review conclusion and cannot replace `--review-only`. |
+
+The stable process statuses are:
+
+| Status | Category |
+| ---: | --- |
+| `0` | Clean review |
+| `10` | Review-only completed with findings |
+| `11` | Apply-fixes completed with findings |
+| `12` | Incomplete review |
+| `64` | Invalid invocation |
+| `70` | Agent/backend failure |
+| `77` | Write-boundary violation |
+
+For precise meanings use the [exit status contract](exit-statuses.md). For
+machine consumers, the [result-file contract](result-file.md) documents every
+field, an example JSON object, and an outer LLM/Skill decision example.
 
 State is scoped per target directory (see State Directory below), so pass
 the required slot assignments and the same `<target_directory>` you reviewed

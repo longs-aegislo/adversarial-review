@@ -71,6 +71,25 @@ cd adversarial-review
 ./adversarial_review.sh --dry-run --base main --slot-a claude --slot-b codex --target-dir ../my-project
 ```
 
+## Automation contract
+
+| Mode | Agent calls | Target writes | Completed-with-findings status |
+| --- | --- | --- | ---: |
+| `--review-only` | All four phases | Never | `10` |
+| `--apply-fixes` | Review phases plus permitted fix/verification work | Phase 4 may write | `11` |
+| neither flag (legacy) | Same as `--apply-fixes` | Phase 4 may write | `11` |
+
+The legacy implicit mode prints a migration notice and may be removed; new
+automation should always select a mode. `--dry-run` is only a preview: it calls
+no Agent and produces no review conclusion, so it cannot replace
+`--review-only`.
+
+Stable exit statuses are `0` clean, `10` review-only findings, `11` apply-fixes
+findings, `12` incomplete review, `64` invalid invocation, `70` Agent/backend
+failure, and `77` write-boundary violation. Add `--result-file PATH` for the
+complete versioned JSON result; see the linked result contract for every field,
+an example object, and outer LLM/Skill routing guidance.
+
 ## Requirements
 
 - **claude CLI**: `npm install -g @anthropic-ai/claude-code`
