@@ -8,12 +8,23 @@ TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 TEST_BIN="$TEST_ROOT/bin"
 mkdir -p "$TEST_BIN"
+for utility in bash cat git dirname mktemp rm sed tail awk; do
+    ln -s "$(command -v "$utility")" "$TEST_BIN/$utility"
+done
 if command -v jq >/dev/null 2>&1; then
     ln -s "$(command -v jq)" "$TEST_BIN/jq"
 elif [[ -x /tmp/adversarial-review-jq ]]; then
     ln -s /tmp/adversarial-review-jq "$TEST_BIN/jq"
 else
     echo "not ok - jq is required for Skill scenario tests" >&2
+    exit 1
+fi
+if command -v timeout >/dev/null 2>&1; then
+    ln -s "$(command -v timeout)" "$TEST_BIN/timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+    ln -s "$(command -v gtimeout)" "$TEST_BIN/gtimeout"
+else
+    echo "not ok - GNU timeout is required for Skill scenario tests" >&2
     exit 1
 fi
 
@@ -54,6 +65,15 @@ make_fake_cli() {
     cat > "$fake_cli" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+if [[ "${1:-}" == "--help" ]]; then
+    if [[ "${FAKE_CLI_UNSUPPORTED_SLOTS:-false}" == "true" ]]; then
+        printf '%s\n' 'Usage: adversarial_review.sh --target-dir DIR --dry-run --review-only --result-file FILE'
+        exit 0
+    fi
+    printf '%s\n' 'Usage: adversarial_review.sh --slot-a AGENT --slot-b AGENT --target-dir DIR --dry-run --review-only --result-file FILE'
+    exit 0
+fi
 
 printf '<%s>' "$@" >> "${FAKE_COMMAND_LOG:?}"
 printf '\n' >> "$FAKE_COMMAND_LOG"
@@ -97,6 +117,21 @@ EOF
     chmod +x "$fake_cli"
 }
 
+make_fake_backend() {
+    local backend="$1"
+    local authenticated="${2:-true}"
+    cat > "$TEST_BIN/$backend" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\\n' '$backend' "\$*" >> "\${FAKE_BACKEND_LOG:?}"
+if [[ "\$*" == 'auth status' || "\$*" == 'login status' ]]; then
+    [[ '$authenticated' == 'true' ]]
+    exit
+fi
+exit 99
+EOF
+    chmod +x "$TEST_BIN/$backend"
+}
+
 run_scenario() {
     local name="$1"
     local category="$2"
@@ -108,20 +143,112 @@ run_scenario() {
 
     make_target "$target"
     make_fake_cli "$fake_cli"
+    rm -f "$TEST_BIN/claude" "$TEST_BIN/codex"
+    [[ "${SCENARIO_CLAUDE_AVAILABLE:-true}" == "false" ]] ||
+        make_fake_backend claude "${SCENARIO_CLAUDE_AUTH:-true}"
+    [[ "${SCENARIO_CODEX_AVAILABLE:-true}" == "false" ]] ||
+        make_fake_backend codex "${SCENARIO_CODEX_AUTH:-true}"
     set +e
     (
         cd "$target"
-        PATH="$TEST_BIN:$PATH" FAKE_COMMAND_LOG="$command_log" FAKE_RESULT_CATEGORY="$category" \
+        PATH="$TEST_BIN" FAKE_COMMAND_LOG="$command_log" FAKE_BACKEND_LOG="$TEST_ROOT/$name.backends" FAKE_RESULT_CATEGORY="$category" \
+            FAKE_CLI_UNSUPPORTED_SLOTS="${SCENARIO_UNSUPPORTED_SLOTS:-false}" \
             FAKE_SCOPE_COUNT="${SCENARIO_SCOPE_COUNT:-1}" \
-            "$SKILL_RUNNER" --cli "$fake_cli"
+            "$SKILL_RUNNER" --cli "${SCENARIO_CLI:-$fake_cli}" ${SCENARIO_SLOT_ARGS:-}
     ) > "$output" 2>&1
     status=$?
     set -e
 
     SCENARIO_STATUS=$status
     SCENARIO_OUTPUT="$(cat "$output")"
-    SCENARIO_COMMANDS="$(cat "$command_log")"
+    SCENARIO_COMMANDS="$(cat "$command_log" 2>/dev/null || true)"
     SCENARIO_TARGET="$target"
+}
+
+test_explicit_claude_only_redundancy() {
+    SCENARIO_CODEX_AVAILABLE=false SCENARIO_SLOT_ARGS="--slot-a claude --slot-b claude" run_scenario claude-only clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "intentional Claude redundancy should be supported"
+    assert_contains "$SCENARIO_OUTPUT" "Reviewer slots: claude, claude" \
+        "explicit Claude slots should be selected"
+    assert_contains "$SCENARIO_OUTPUT" "lower review diversity" \
+        "same-model redundancy must disclose reduced diversity"
+    pass "explicit Claude-only redundancy is supported with a diversity warning"
+}
+
+test_explicit_codex_only_redundancy() {
+    SCENARIO_CLAUDE_AVAILABLE=false SCENARIO_SLOT_ARGS="--slot-a codex --slot-b codex" run_scenario codex-only clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "intentional Codex redundancy should be supported"
+    assert_contains "$SCENARIO_OUTPUT" "Reviewer slots: codex, codex" \
+        "explicit Codex slots should be selected"
+    assert_contains "$SCENARIO_OUTPUT" "lower review diversity" \
+        "same-model redundancy must disclose reduced diversity"
+    pass "explicit Codex-only redundancy is supported with a diversity warning"
+}
+
+test_auth_failure_stops_before_review() {
+    SCENARIO_CODEX_AUTH=false run_scenario codex-auth-failure clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "authentication failure should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "Codex authentication check failed" \
+        "failed authentication should identify the backend"
+    [[ ! -s "$TEST_ROOT/codex-auth-failure.commands" ]] ||
+        fail "authentication failure must not invoke the review CLI"
+    pass "authentication failure stops before any review invocation"
+}
+
+test_missing_backend_stops_before_review() {
+    SCENARIO_CODEX_AVAILABLE=false run_scenario missing-codex clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing backend should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "missing Agent backend executable: codex" \
+        "missing backend should be named"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing backend must not invoke the review CLI"
+    pass "missing backend executable stops before any review invocation"
+}
+
+test_missing_cli_stops_before_review() {
+    SCENARIO_CLI="$TEST_ROOT/not-installed/adversarial_review.sh" run_scenario missing-cli clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing CLI should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "CLI is not executable" "missing CLI should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing CLI must not start a review"
+    pass "missing CLI executable stops before any review invocation"
+}
+
+test_missing_jq_stops_before_review() {
+    mv "$TEST_BIN/jq" "$TEST_BIN/jq.saved"
+    run_scenario missing-jq clean
+    mv "$TEST_BIN/jq.saved" "$TEST_BIN/jq"
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing jq should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "missing dependency: jq" "missing jq should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing jq must not invoke the review CLI"
+    pass "missing jq stops before any review invocation"
+}
+
+test_missing_timeout_stops_before_review() {
+    local timeout_name="timeout"
+    [[ -e "$TEST_BIN/timeout" ]] || timeout_name="gtimeout"
+    mv "$TEST_BIN/$timeout_name" "$TEST_BIN/$timeout_name.saved"
+    run_scenario missing-timeout clean
+    mv "$TEST_BIN/$timeout_name.saved" "$TEST_BIN/$timeout_name"
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing timeout should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "missing timeout support" "missing timeout should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing timeout must not invoke the review CLI"
+    pass "missing timeout support stops before any review invocation"
+}
+
+test_unsupported_cli_slots_stop_before_review() {
+    SCENARIO_UNSUPPORTED_SLOTS=true run_scenario unsupported-slots clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "unsupported CLI slots should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "does not support required option: --slot-a" \
+        "unsupported slot contract should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "unsupported CLI must not start a review"
+    pass "unsupported CLI reviewer slots stop before any review invocation"
 }
 
 assert_selected_commands() {
@@ -161,11 +288,13 @@ test_discovers_cli_from_skill_repository() {
     cp "$SKILL_RUNNER" "$runner_dir/run-review.sh"
     chmod +x "$runner_dir/run-review.sh"
     make_fake_cli "$tool_repo/adversarial_review.sh"
+    make_fake_backend claude true
+    make_fake_backend codex true
 
     set +e
     (
         cd "$target"
-        PATH="$TEST_BIN:$PATH" FAKE_COMMAND_LOG="$command_log" \
+        PATH="$TEST_BIN" FAKE_COMMAND_LOG="$command_log" FAKE_BACKEND_LOG="$TEST_ROOT/discovery.backends" \
             "$runner_dir/run-review.sh"
     ) > "$output" 2>&1
     status=$?
@@ -219,6 +348,14 @@ test_explicit_findings_remaining_review() {
 
 test_explicit_clean_review
 test_explicit_findings_remaining_review
+test_explicit_claude_only_redundancy
+test_explicit_codex_only_redundancy
+test_auth_failure_stops_before_review
+test_missing_backend_stops_before_review
+test_missing_cli_stops_before_review
+test_missing_jq_stops_before_review
+test_missing_timeout_stops_before_review
+test_unsupported_cli_slots_stop_before_review
 test_empty_scope_stops_before_real_review
 test_discovers_cli_from_skill_repository
 

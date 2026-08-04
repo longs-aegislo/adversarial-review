@@ -27,17 +27,16 @@
 
 ## Evaluation and proposed extension terminology
 
-- **Reviewer slot** — one configurable position in a future review team. A
-  slot selects an agent backend and may select a model and persona. The current
-  runtime has two fixed slots, Claude and Codex; it does not expose reviewer
-  slots as configuration yet.
+- **Reviewer slot** — one configurable position in the two-reviewer team. A
+  slot selects the Claude or Codex agent backend through the positional CLI
+  contract or `--slot-a` / `--slot-b`.
 - **Agent backend** — the local CLI adapter used to execute a reviewer slot,
   such as Claude Code, Codex CLI, or Gemini CLI. A backend is distinct from the
   model selected through that CLI.
 - **Heterogeneous review** — reviewer slots use different backend/model
   lineages. This is the preferred mode because it offers more independent
-  failure modes.
+  failure modes and is the repository Skill's default.
 - **Same-model redundancy** — two independent reviewer slots use the same
-  backend and model. It is a supported future fallback for users with one
-  subscription, but should be described as lower-diversity review rather than
-  equivalent to heterogeneous review.
+  backend and model. It is supported only when intentionally selected and is
+  described as lower-diversity review rather than equivalent to heterogeneous
+  review.
