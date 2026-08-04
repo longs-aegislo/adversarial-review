@@ -24,8 +24,7 @@
 #   -b, --base REF          Review only files differing from this git ref
 #   --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings
 #   --review-only           Declare intent for Phase 4 to run without write
-#                           access (mutually exclusive with --apply-fixes;
-#                           Phase 4 behavior itself is unchanged for now)
+#                           access (mutually exclusive with --apply-fixes)
 #   --apply-fixes           Declare intent for Phase 4 to keep today's write
 #                           access (mutually exclusive with --review-only)
 #   --status                Show current status for the required target
@@ -138,6 +137,7 @@ BASE_COMMIT=""
 INCLUDE_PRE_EXISTING=0
 REVIEW_ONLY=0
 APPLY_FIXES=0
+EXECUTION_MODE="apply-fixes"
 CUSTOM_REVIEW_CRITERIA=""
 REVIEW_AVAILABLE_TOOLS="Read,Glob,Grep,Bash"
 REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
@@ -209,6 +209,7 @@ write_invocation_metadata() {
     jq -n \
         --arg agent "$agent" \
         --arg phase "$phase" \
+        --arg execution_mode "$EXECUTION_MODE" \
         --argjson write_authorized "$write_authorized" \
         --arg enforcement "$enforcement" \
         --arg available_tools "$available_tools" \
@@ -216,6 +217,7 @@ write_invocation_metadata() {
         '{
             agent: $agent,
             phase: $phase,
+            execution_mode: $execution_mode,
             write_authorized: $write_authorized,
             enforcement: $enforcement,
             available_tools: $available_tools,
@@ -231,20 +233,24 @@ target_tree_fingerprint() {
         find . -path './.git' -prune -o \
             \( -type d -o -type f -o -type l \) -print0 2>/dev/null |
             while IFS= read -r -d '' entry; do
-                local mode
+                local mode mtime
                 if stat -f '%Lp' "$entry" >/dev/null 2>&1; then
                     mode="$(stat -f '%Lp' "$entry")"
+                    mtime="$(stat -f '%m:%Sm' "$entry")"
                 else
                     mode="$(stat -c '%a' "$entry" 2>/dev/null ||
                         echo unknown)"
+                    mtime="$(stat -c '%Y:%y' "$entry" 2>/dev/null ||
+                        echo unknown)"
                 fi
                 if [[ -L "$entry" ]]; then
-                    printf 'link\0%s\0%s\0%s\0' \
-                        "$entry" "$mode" "$(readlink "$entry")"
+                    printf 'link\0%s\0%s\0%s\0%s\0' \
+                        "$entry" "$mode" "$mtime" "$(readlink "$entry")"
                 elif [[ -d "$entry" ]]; then
-                    printf 'directory\0%s\0%s\0' "$entry" "$mode"
+                    printf 'directory\0%s\0%s\0%s\0' \
+                        "$entry" "$mode" "$mtime"
                 else
-                    printf 'file\0%s\0%s\0' "$entry" "$mode"
+                    printf 'file\0%s\0%s\0%s\0' "$entry" "$mode" "$mtime"
                     shasum -a 256 "$entry"
                 fi
             done
@@ -443,6 +449,7 @@ init_tracking() {
     "slot_a": null,
     "slot_b": null,
     "base_ref": null,
+    "execution_mode": null,
     "include_pre_existing": false,
     "in_scope_fixed": 0,
     "pre_existing_fixed": 0,
@@ -842,6 +849,36 @@ reviewer_tag() {
     else
         echo "$tag"
     fi
+}
+
+validate_review_only_synthesis() {
+    local output_file="$1"
+    local status="$2"
+    local required_issue_ids="$3"
+    local issue_id summary
+
+    grep -qE '^#{1,6}[[:space:]]+Unresolved in-scope findings[[:space:]]*$' \
+        "$output_file" || return 1
+    grep -qE '^#{1,6}[[:space:]]+Pre-existing issues noticed, not fixed[[:space:]]*$' \
+        "$output_file" || return 1
+    ! grep -qE '^#{1,6}[[:space:]]+Fix([[:space:]#:].*)?$|^\*\*Change\*\*:' \
+        "$output_file" || return 1
+    while IFS= read -r issue_id; do
+        [[ -z "$issue_id" ]] || grep -Fq "$issue_id" "$output_file" || return 1
+    done <<< "$required_issue_ids"
+    summary="$(jq -r '.summary // ""' <<< "$status")"
+    ! grep -Eqi \
+        '^(fixed|implemented|applied)|^((all|the|these|those|accepted|reported|[1-9][0-9]*)[[:space:]]+)?(findings?|issues?)[[:space:]]+(was|were|is|are|has been|have been)[[:space:]]+(fixed|implemented|applied)' \
+        <<< "$summary" || return 1
+    jq -e '
+        [
+            (.high_confidence_fixes // 0),
+            (.medium_confidence_fixes // 0),
+            (.files_modified // 0),
+            (.in_scope_fixed // 0),
+            (.pre_existing_fixed // 0)
+        ] | all(. == 0)
+    ' <<< "$status" >/dev/null
 }
 
 review_artifact() {
@@ -1276,8 +1313,43 @@ run_phase_4() {
     slot_b_tag="$(reviewer_tag "slot-b" "$SLOT_B")"
     synthesis_prompt="${synthesis_prompt//\{\{SLOT_A_REVIEWER_TAG\}\}/$slot_a_tag}"
     synthesis_prompt="${synthesis_prompt//\{\{SLOT_B_REVIEWER_TAG\}\}/$slot_b_tag}"
-    local scope_policy
-    if [[ "$INCLUDE_PRE_EXISTING" == "1" ]]; then
+    local execution_policy scope_policy
+    if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+        execution_policy="# PHASE 4 EXECUTION MODE: REVIEW ONLY
+
+This Phase 4 invocation is read-only. Synthesize the full Phase 1-3 review
+chain, but do not edit, create, delete, rename, chmod, or otherwise modify any
+file in the target repository. Do not run formatters, tests, or commands that
+can change repository state.
+
+Report every accepted finding that remains unresolved under exactly these two
+headings, keeping the resolved \`ISSUE_SCOPES\` classifications intact:
+
+- \`Unresolved in-scope findings\`
+- \`Pre-existing issues noticed, not fixed\`
+
+For each finding give its ID, file, line, severity, and suggested fix. Use
+explicit \"none\" text when a category is empty. Never state or imply that a
+finding was fixed. Set all fixed and modified counts to 0. Set \`EXIT_SIGNAL\`
+to true once every finding has been classified and reported; in review-only
+mode that means synthesis is complete, not that the findings were fixed."
+    else
+        execution_policy="# PHASE 4 EXECUTION MODE: APPLY FIXES
+
+Synthesize the full Phase 1-3 review chain and implement fixes using the
+existing confidence and finding-scope rules below."
+    fi
+
+    if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+        scope_policy="# PHASE 4 SCOPE POLICY
+
+Preserve every resolved \`IN_SCOPE\` / \`PRE_EXISTING\` classification from
+the Phase 1-3 issue ledger. Report unresolved findings in separate scope
+categories. No finding may be implemented in review-only mode, including when
+the caller also supplied \`--include-pre-existing\`."
+        [[ "$DRY_RUN" == "1" ]] && log_info \
+            "Phase 4 scope policy: report unresolved IN_SCOPE and PRE_EXISTING findings without applying changes"
+    elif [[ "$INCLUDE_PRE_EXISTING" == "1" ]]; then
         scope_policy="# PHASE 4 SCOPE POLICY
 
 The caller explicitly enabled \`--include-pre-existing\`. Implement valid
@@ -1306,6 +1378,9 @@ severity, and suggested fix."
 
     # Gather all artifacts
     local context="$synthesis_prompt
+
+---
+$execution_policy
 
 ---
 $scope_policy
@@ -1344,17 +1419,28 @@ Working directory: $target_dir
     local output_file="$ARTIFACTS_DIR/iter${iteration}_4_synthesis.md"
 
     local fixer_agent="claude"
+    local backend_mode="workspace-write"
+    [[ "$EXECUTION_MODE" == "review-only" ]] && backend_mode="read-only"
     local fixer_rc=0
+    local target_before=""
+    [[ "$backend_mode" == "read-only" ]] && \
+        target_before="$(target_tree_fingerprint "$target_dir")"
     if [[ "$FIXER" == "codex" ]]; then
         fixer_agent="codex"
-        log_info "Implementing fixes with Codex (workspace-write)"
+        log_info "Running Phase 4 synthesis with Codex ($backend_mode)"
         run_backend "codex" "$context" "$output_file" "$target_dir" \
-            "workspace-write" "phase_4" ||
+            "$backend_mode" "phase_4" ||
             fixer_rc=$?
     else
+        log_info "Running Phase 4 synthesis with Claude ($backend_mode)"
         run_backend "claude" "$context" "$output_file" "$target_dir" \
-            "workspace-write" "phase_4" ||
+            "$backend_mode" "phase_4" ||
             fixer_rc=$?
+    fi
+    if [[ "$backend_mode" == "read-only" ]] &&
+       ! verify_review_target_unchanged "$iteration" "phase_4" "Phase 4" \
+            "$target_dir" "$target_before"; then
+        return "$PHASE_4_FAILED"
     fi
     if [[ $fixer_rc -ne 0 ]]; then
         record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
@@ -1378,6 +1464,23 @@ Working directory: $target_dir
     pre_existing_fixed="$(echo "$status" | jq -r '.pre_existing_fixed // 0')"
     local pre_existing_flagged
     pre_existing_flagged="$(echo "$status" | jq -r '.pre_existing_flagged // 0')"
+    local required_issue_ids
+    # The issue-ledger protocol permits IDs to originate in Phase 1 or in
+    # Phase 2 Additional Findings. Phase 3 only adjudicates those existing IDs,
+    # so meta-review prose is intentionally excluded from the required-ID set.
+    required_issue_ids="$(grep -Eoh \
+        "(${slot_a_tag}|${slot_b_tag})-(ADD-)?[0-9]+" \
+        "$slot_a_review" "$slot_b_review" "$slot_a_cross" "$slot_b_cross" |
+        sort -u)"
+
+    if [[ "$EXECUTION_MODE" == "review-only" ]] &&
+       ! validate_review_only_synthesis "$output_file" "$status" \
+            "$required_issue_ids"; then
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
+            "review-only synthesis is missing required scope sections or claims fixes" \
+            "$output_file"
+        return "$PHASE_4_FAILED"
+    fi
 
     add_to_history "$iteration" "phase_4" "$fixer_agent" "$status"
     update_tracking "in_scope_fixed" "$in_scope_fixed"
@@ -1400,11 +1503,19 @@ Working directory: $target_dir
     record_iteration_result "$iteration" "$files_modified" "$agents_agree" "$issues_hash"
 
     if [[ "$exit_signal" == "true" ]]; then
-        log_success "Synthesis complete - no more issues"
+        if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+            log_success "Read-only synthesis complete"
+        else
+            log_success "Synthesis complete - no more issues"
+        fi
         return "$PHASE_4_COMPLETE"
     fi
 
-    log_info "Fixes applied, will verify in next iteration"
+    if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+        log_info "Read-only synthesis incomplete, continuing review"
+    else
+        log_info "Fixes applied, will verify in next iteration"
+    fi
     return "$PHASE_4_CONTINUE"
 }
 
@@ -1439,6 +1550,7 @@ run_review_loop() {
     update_tracking "slot_b" "$SLOT_B"
     update_tracking "base_ref" "${BASE_REF:-whole-directory}"
     update_tracking "include_pre_existing" "$([[ "$INCLUDE_PRE_EXISTING" == "1" ]] && echo true || echo false)"
+    update_tracking "execution_mode" "$EXECUTION_MODE"
     update_tracking "status" "in_progress"
     update_tracking "started_at" "$(get_iso_timestamp)"
 
@@ -1468,9 +1580,13 @@ run_review_loop() {
         local phase_1_result=0
         run_phase_1 "$target_dir" "$iteration" || phase_1_result=$?
         if [[ $phase_1_result -eq $PHASE_1_CLEAN ]]; then
-            log_success "Review complete - both agents report clean code"
-            update_tracking "status" "clean"
-            return 0
+            if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+                log_info "Both Phase 1 reviewers reported clean; continuing all review-only phases"
+            else
+                log_success "Review complete - both agents report clean code"
+                update_tracking "status" "clean"
+                return 0
+            fi
         elif [[ $phase_1_result -ne $PHASE_1_CONTINUE ]]; then
             return 1
         fi
@@ -1492,8 +1608,13 @@ run_review_loop() {
         local phase_4_result=0
         run_phase_4 "$target_dir" "$iteration" || phase_4_result=$?
         if [[ $phase_4_result -eq $PHASE_4_COMPLETE ]]; then
-            log_success "Synthesis complete"
-            update_tracking "status" "clean"
+            if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+                log_success "Review-only synthesis complete"
+                update_tracking "status" "review_complete"
+            else
+                log_success "Synthesis complete"
+                update_tracking "status" "clean"
+            fi
             return 0
         elif [[ $phase_4_result -eq $PHASE_4_FAILED ]]; then
             return 1
@@ -1530,7 +1651,8 @@ show_status() {
         "Slot A:     \(.slot_a // "unknown")",
         "Slot B:     \(.slot_b // "unknown")",
         "Scope:      \(.base_ref // "whole-directory")",
-        "Pre-existing fixes: \(if .include_pre_existing then "included" else "report only" end)",
+        "Execution mode:       \(.execution_mode // "apply-fixes")",
+        "Pre-existing fixes: \(if .execution_mode == "review-only" then "report only" elif .include_pre_existing then "included" else "report only" end)",
         "In-scope fixed:     \(.in_scope_fixed // 0)",
         "Pre-existing fixed: \(.pre_existing_fixed // 0)",
         "Pre-existing flagged: \(.pre_existing_flagged // 0)",
@@ -1591,13 +1713,11 @@ OPTIONS:
                             including uncommitted and untracked source files
     --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
                             (default: report them without applying changes)
-    --review-only           Declare that this caller wants Phase 4 to run
-                            without write access (mutually exclusive with
-                            --apply-fixes). NOTE: Phase 4 still keeps its
-                            current write-access behavior in this release;
-                            this flag only records the caller's intent and
-                            is validated, but does not yet change what
-                            Phase 4 does — that follows in a later release.
+    --review-only           Run Phase 4 through the same read-only backend
+                            path as Phases 1-3. Synthesis reports unresolved
+                            IN_SCOPE and PRE_EXISTING findings without
+                            modifying the target (mutually exclusive with
+                            --apply-fixes).
     --apply-fixes           Declare that this caller wants (and accepts)
                             Phase 4 keeping today's write-access behavior
                             (mutually exclusive with --review-only)
@@ -1823,6 +1943,7 @@ main() {
     elif [[ "$REVIEW_ONLY" != "1" && "$APPLY_FIXES" != "1" ]]; then
         log_warning "Neither --review-only nor --apply-fixes was specified; using today's implicit Phase 4 behavior (write access is kept). This implicit default may be removed in a future version — automation, skills, and plugins invoking this CLI should pass one of the two flags explicitly."
     fi
+    [[ "$REVIEW_ONLY" == "1" ]] && EXECUTION_MODE="review-only"
 
     if [[ -n "$BASE_REF" ]]; then
         if [[ "$(git -C "$target_dir" rev-parse --is-inside-work-tree 2>/dev/null || true)" != "true" ]]; then
@@ -1879,7 +2000,11 @@ main() {
 
     check_dependencies
 
-    log_info "Phase 4 fixes will be implemented by: $FIXER"
+    if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+        log_info "Phase 4 synthesis will run read-only with: $FIXER"
+    else
+        log_info "Phase 4 fixes will be implemented by: $FIXER"
+    fi
 
     run_review_loop "$target_dir"
 }

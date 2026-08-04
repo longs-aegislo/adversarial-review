@@ -19,20 +19,21 @@ Claude 和 Codex 各自独立审查目标项目，互相质疑对方的发现，
 3. 元审查与共识
 4. 综合与修复
 
-每条发现都会标记为 `IN_SCOPE` 或 `PRE_EXISTING`。阶段四默认只修复
-`IN_SCOPE`，并单独报告历史问题。只有明确希望同时修复两类问题时，才传入
-`--include-pre-existing`。
+每条发现都会标记为 `IN_SCOPE` 或 `PRE_EXISTING`。在 apply-fixes 模式下，
+阶段四默认只修复 `IN_SCOPE`，并单独报告历史问题。只有明确希望同时修复两类
+问题时，才传入 `--include-pre-existing`。
 
-阶段一至阶段三使用只读智能体权限；只有阶段四中选定的 Fixer 获得写权限。
-`--prompt FILE` 只为本次运行追加阶段一审查标准，不会替换强制的 Issue、
-Scope 或 Status 协议。
+阶段一至阶段三使用只读智能体权限；只有 apply-fixes 模式会给阶段四中选定的
+Fixer 写权限。`--prompt FILE` 只为本次运行追加阶段一审查标准，不会替换强制的
+Issue、Scope 或 Status 协议。
 
 传入 `--review-only` 或 `--apply-fixes` 以显式声明本次调用是希望阶段四
-不获得写权限，还是保留现有的写权限行为；两者互斥，且会在任何依赖检查或
-Agent 调用之前完成校验。两者都省略时，行为仍与当前隐式的 apply-fixes
-一致，但会打印迁移提示——因为本版本中阶段四的实际写权限行为尚未跟随
-`--review-only` 切换，这将留给后续版本实现。新增的自动化、Skill、Plugin
-应当显式传入其中一个 flag。
+执行只读综合，还是获得写权限并应用修复。在 review-only 模式下，四个阶段
+仍会完整运行；阶段四复用阶段一至三的只读 Backend 边界，并分别列出尚未解决的
+`IN_SCOPE` 与 `PRE_EXISTING` findings，不修改 Target Repo。两者互斥，且会在
+任何依赖检查或 Agent 调用之前完成校验。两者都省略时，行为仍与当前隐式的
+apply-fixes 一致，并打印迁移提示。新增的自动化、Skill、Plugin 应当显式传入
+其中一个 flag。
 
 每次调用现在都必须明确提供两个审查槽位和目标目录：
 `slot-a slot-b target-dir`。三者都可以改用对应的长选项。槽位接受

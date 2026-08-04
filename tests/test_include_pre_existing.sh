@@ -105,8 +105,37 @@ test_ambient_environment_cannot_enable_pre_existing_fixes() {
     pass "ambient environment cannot enable pre-existing fixes"
 }
 
+test_execution_modes_keep_scope_classification_policy() {
+    local target="$TEST_ROOT/mode-policy"
+    make_target "$target"
+
+    run_cli "$TEST_ROOT/apply-fixes.out" \
+        --dry-run --max-iters 1 --apply-fixes claude codex "$target"
+    assert_contains "$CLI_OUTPUT" \
+        'Phase 4 scope policy: fix IN_SCOPE findings; flag PRE_EXISTING findings without applying them' \
+        "apply-fixes must retain the default PRE_EXISTING report-only gate"
+
+    run_cli "$TEST_ROOT/review-only.out" \
+        --dry-run --max-iters 1 --review-only claude codex "$target"
+    assert_contains "$CLI_OUTPUT" \
+        'Phase 4 scope policy: report unresolved IN_SCOPE and PRE_EXISTING findings without applying changes' \
+        "review-only must preserve both finding-scope categories while reporting them"
+
+    run_cli "$TEST_ROOT/review-only-include.out" \
+        --dry-run --max-iters 1 --review-only --include-pre-existing \
+        claude codex "$target"
+    assert_contains "$CLI_OUTPUT" \
+        'Phase 4 scope policy: report unresolved IN_SCOPE and PRE_EXISTING findings without applying changes' \
+        "include-pre-existing must not authorize fixes in review-only mode"
+    assert_not_contains "$CLI_OUTPUT" \
+        'fix IN_SCOPE and PRE_EXISTING findings (--include-pre-existing enabled)' \
+        "review-only must override the write intent of include-pre-existing"
+    pass "execution modes preserve finding-scope classification and report-only rules"
+}
+
 test_phase_4_defaults_to_in_scope_fixes_only
 test_include_pre_existing_opts_phase_4_into_both_categories
 test_ambient_environment_cannot_enable_pre_existing_fixes
+test_execution_modes_keep_scope_classification_policy
 
 echo "1..$tests_run"

@@ -53,14 +53,14 @@ The slots may use different backends or the same backend. This adversarial proce
 ├─────────────────────────────────────────────────────────────┤
 │  Phase 4: Synthesis                                         │
 │    Claude or Codex (your choice via --fixer) reviews all     │
-│    debate artifacts and fixes IN_SCOPE findings.             │
-│    PRE_EXISTING findings are reported but not changed unless │
-│    --include-pre-existing was explicitly supplied            │
+│    debate artifacts. Review-only reports unresolved findings │
+│    without writes; apply-fixes fixes IN_SCOPE by default.     │
+│    PRE_EXISTING remains report-only unless explicitly opted in│
 └─────────────────────────────────────────────────────────────┘
                             │
                             ▼
-              Loop back to Phase 1 to verify fixes
-              until both agents report NO_ISSUES
+              Apply-fixes may loop to verify fixes;
+              review-only completes after synthesis
 ```
 
 ## Quick Start
@@ -112,9 +112,9 @@ OPTIONS:
                             including uncommitted and untracked source files
     --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
                             (default: report them without applying changes)
-    --review-only           Declare intent for Phase 4 to run without write
-                            access (mutually exclusive with --apply-fixes;
-                            Phase 4 behavior itself is unchanged for now)
+    --review-only           Run Phase 4 through the read-only backend path;
+                            report unresolved findings without target changes
+                            (mutually exclusive with --apply-fixes)
     --apply-fixes           Declare intent for Phase 4 to keep today's write
                             access (mutually exclusive with --review-only)
     --status                Show current status for the required target
@@ -139,21 +139,21 @@ the resolved mode, file count, and file list before spending API budget.
 
 Every finding carries an `IN_SCOPE` or `PRE_EXISTING` tag. With `--base`, the
 changed-file boundary guides the default classification; without it, agents
-consult `git blame`/`git log` for the affected lines. Phase 4 normally fixes
-only `IN_SCOPE` findings and lists historical findings separately. Use
-`--include-pre-existing` only when you intentionally want both categories
-implemented. Dry-run output shows which Phase 4 policy will be assembled, and
+consult `git blame`/`git log` for the affected lines. In apply-fixes mode,
+Phase 4 normally fixes only `IN_SCOPE` findings and lists historical findings
+separately. Use `--include-pre-existing` only when you intentionally want both
+categories implemented. Dry-run output shows which Phase 4 policy will be assembled, and
 `--status <slot_a> <slot_b> <target_directory>` reports fixed/flagged counts by scope.
 
 `--review-only` and `--apply-fixes` let a caller explicitly declare whether
-it expects Phase 4 to run without write access or to keep today's
-write-access behavior; they are mutually exclusive, and specifying both
-fails before any dependency check or agent call. Omitting both flags keeps
-today's implicit apply-fixes behavior but prints a migration notice. Phase
-4's actual write-access behavior is not yet gated by `--review-only` in this
-release — that follows in a later release, so new automation, skills, and
-plugins should still pass one of these flags explicitly rather than rely on
-the implicit default.
+Phase 4 performs read-only synthesis or applies fixes with write access. They
+are mutually exclusive, and specifying both fails before any dependency check
+or agent call. Review-only still executes all four phases, routes Phase 4
+through the same read-only backend contract as Phases 1-3, and reports
+unresolved `IN_SCOPE` and `PRE_EXISTING` findings in separate sections without
+claiming they were fixed. Omitting both flags keeps today's implicit
+apply-fixes behavior but prints a migration notice, so new automation, skills,
+and plugins should pass one explicitly.
 
 State is scoped per target directory (see State Directory below), so pass
 the required slot assignments and the same `<target_directory>` you reviewed
@@ -231,7 +231,10 @@ Separate runs keep their criteria isolated from one another.
 Phases 1-3 enforce read-only access at each backend's invocation boundary.
 Claude receives only read/search tools plus narrowly approved `git log` and
 `git blame` commands in non-interactive deny mode; Codex uses its read-only
-sandbox. Only the agent selected for Phase 4 receives write access.
+sandbox. With `--apply-fixes` (or the implicit default), only the agent
+selected for Phase 4 receives write access. With `--review-only`, Phase 4
+retains the read-only boundary and the target content and mtimes are checked
+before and after synthesis.
 
 ### Environment Variables
 
@@ -266,7 +269,8 @@ SUMMARY: Found critical type mixing bug
 ### Exit Conditions
 
 The loop exits when:
-1. **Both agents report NO_ISSUES** in Phase 1
+1. **Both agents report NO_ISSUES** in Phase 1 (apply-fixes only;
+   review-only continues through synthesis)
 2. **Synthesis completes** with EXIT_SIGNAL: true
 3. **Max iterations reached**
 4. **Circuit breaker opens** (stagnation detected)
@@ -286,8 +290,10 @@ pair, the unchanged filenames live under `artifacts/slot-a/` and
 `artifacts/slot-b/` to prevent collisions.
 
 Every agent reply has a companion `*.invocation.json` recording the phase,
-backend, native enforcement mode, allowed tools, and whether write access was
-authorized. Review calls also retain structured `*.raw.log` events (Claude
+backend, effective `execution_mode`, native enforcement mode, allowed tools,
+and whether write access was actually authorized. Together,
+`execution_mode` and `write_authorized` show why Phase 4 did or did not receive
+write access. Review calls also retain structured `*.raw.log` events (Claude
 `stream-json`, Codex `--json`) so denied or disallowed write attempts can be
 audited; a detected Target change creates an
 `iter{N}_phase_*_write_violation.json` fingerprint record and stops the run
