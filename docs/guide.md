@@ -112,6 +112,11 @@ OPTIONS:
                             including uncommitted and untracked source files
     --include-pre-existing  Allow Phase 4 to fix PRE_EXISTING findings too
                             (default: report them without applying changes)
+    --review-only           Declare intent for Phase 4 to run without write
+                            access (mutually exclusive with --apply-fixes;
+                            Phase 4 behavior itself is unchanged for now)
+    --apply-fixes           Declare intent for Phase 4 to keep today's write
+                            access (mutually exclusive with --review-only)
     --status                Show current status for the required target
     --reset                 Reset all state for the required target
     --reset-circuit         Reset circuit breaker for the required target
@@ -139,6 +144,16 @@ only `IN_SCOPE` findings and lists historical findings separately. Use
 `--include-pre-existing` only when you intentionally want both categories
 implemented. Dry-run output shows which Phase 4 policy will be assembled, and
 `--status <slot_a> <slot_b> <target_directory>` reports fixed/flagged counts by scope.
+
+`--review-only` and `--apply-fixes` let a caller explicitly declare whether
+it expects Phase 4 to run without write access or to keep today's
+write-access behavior; they are mutually exclusive, and specifying both
+fails before any dependency check or agent call. Omitting both flags keeps
+today's implicit apply-fixes behavior but prints a migration notice. Phase
+4's actual write-access behavior is not yet gated by `--review-only` in this
+release — that follows in a later release, so new automation, skills, and
+plugins should still pass one of these flags explicitly rather than rely on
+the implicit default.
 
 State is scoped per target directory (see State Directory below), so pass
 the required slot assignments and the same `<target_directory>` you reviewed

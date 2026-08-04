@@ -31,6 +31,15 @@ Phases 1-3 run with read-only agent permissions; only the selected Phase 4
 fixer receives write access. `--prompt FILE` adds Phase 1 review criteria for
 that run without replacing the mandatory issue, scope, or status protocol.
 
+Pass `--review-only` or `--apply-fixes` to explicitly declare whether this
+invocation expects Phase 4 to run without write access or keep today's
+write-access behavior; the two are mutually exclusive and are validated
+before any dependency check or agent call. Omitting both keeps today's
+implicit apply-fixes behavior but prints a migration notice, since Phase 4's
+actual write-access behavior is not yet wired to `--review-only` in this
+release — that follows in a later release. New automation, skills, and
+plugins should pass one of these flags explicitly.
+
 Every invocation now requires two reviewer backends and a target directory:
 `slot-a slot-b target-dir`. Each value also has a long-flag form. The slots
 accept `claude` or `codex`; assigning the same backend to both is supported

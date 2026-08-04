@@ -108,6 +108,11 @@ cd adversarial-review
                             包括未提交和未跟踪的源文件
     --include-pre-existing  允许阶段四也修复 PRE_EXISTING 问题
                             （默认只报告，不应用修改）
+    --review-only           声明本次调用期望阶段四不获得写权限
+                            （与 --apply-fixes 互斥；阶段四实际
+                            行为在本版本中尚未随之改变）
+    --apply-fixes           声明本次调用期望阶段四保留现有的
+                            写权限行为（与 --review-only 互斥）
     --status                显示必填目标目录对应的当前状态
     --reset                 重置必填目标目录对应的所有状态
     --reset-circuit         重置必填目标目录对应的断路器
@@ -132,6 +137,13 @@ cd adversarial-review
 只有明确希望同时修复两类问题时才使用 `--include-pre-existing`。dry-run
 会显示实际组装的阶段四策略，`--status <slot_a> <slot_b> <目标目录>` 会按范围显示已修复／
 仅标记的数量。
+
+`--review-only` 与 `--apply-fixes` 让调用方显式声明本次希望阶段四不获得
+写权限，还是保留现有的写权限行为；两者互斥，同时传入两者会在任何依赖检查
+或 Agent 调用之前报错退出。两者都省略时，行为仍与当前隐式的 apply-fixes
+一致，但会打印迁移提示。本版本中阶段四的实际写权限行为尚未随
+`--review-only` 切换——这将留给后续版本实现，因此新增的自动化、Skill、
+Plugin 仍应显式传入其中一个 flag，而不是依赖隐式默认值。
 
 状态是按目标目录隔离的（见下方"状态目录"一节），所以想查看或重置某个项目的历史，需要把必填的槽位配置和当初审查它时用的 `<目标目录>` 传给 `--status`/`--reset` 等命令。
 
