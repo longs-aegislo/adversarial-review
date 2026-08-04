@@ -31,7 +31,9 @@
   分類は[終了ステータス契約](exit-statuses.ja.md)と一致します。
 - `iterations`: この呼び出しが開始したイテレーション数。
 - `counts`: 解析済み status ledger にある一意な `IN_SCOPE`/`PRE_EXISTING` finding
-  数と、解析済み Synthesis status にある修正数・既存問題の報告数。
+  数、scope 衝突数、解析済み Synthesis status にある修正数・既存問題の報告数。
+  reviewer ledger 間で scope が一致しない場合は保守的に `PRE_EXISTING` として数え、
+  `scope_conflicts` にも含めます。
 - `target_changes`: 呼び出しが Target を変更したか、および変更・作成・削除した
   相対ファイルパス。
 - `paths`: state ディレクトリ、Artifact ディレクトリ、存在する場合は最終
@@ -45,3 +47,7 @@
 値は人間向けワークフローと同じ解析済み status block、tracking state、CLI の
 解決済み設定、Target スナップショットに由来します。ターミナルテキストを再解析
 することはありません。
+
+出力先をアトミックに置き換えられない場合（パスがディレクトリを指す場合など）は、
+レビュー自体の終了コードを維持し、stderr に明示的なエラーを出します。永続化の
+失敗を黙って無視することはありません。

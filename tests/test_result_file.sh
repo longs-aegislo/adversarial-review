@@ -150,6 +150,11 @@ SUMMARY: fix applied
         ;;
 esac
 
+if [[ "${FAKE_SCOPE_CONFLICT:-}" == "1" && "$phase" -eq 3 &&
+      "$agent" == "claude" ]]; then
+    response="${response/CLAUDE-1=IN_SCOPE/CLAUDE-1=PRE_EXISTING}"
+fi
+
 if [[ "${FAKE_MALFORMED_AGENT:-}" == "$agent" &&
       "${FAKE_MALFORMED_PHASE:-}" == "$phase" ]]; then
     response="malformed response without a status block"
@@ -281,7 +286,7 @@ test_clean_synthesis_result_and_target_changes() {
     assert_result "$result_file" clean clean-synthesis
     [[ "$(jq -r '.synthesis.executed_by' "$result_file")" == "codex" ]] ||
         fail "result must identify the actual synthesis agent"
-    [[ "$(jq -c '.counts' "$result_file")" == '{"findings":{"in_scope":2,"pre_existing":0},"fixes":{"in_scope":1,"pre_existing":0},"pre_existing_flagged":0}' ]] ||
+    [[ "$(jq -c '.counts' "$result_file")" == '{"findings":{"in_scope":2,"pre_existing":0,"scope_conflicts":0},"fixes":{"in_scope":1,"pre_existing":0},"pre_existing_flagged":0}' ]] ||
         fail "finding and fix counts must come from parsed status data"
     [[ "$(jq -r '.target_changes.modified' "$result_file")" == "true" ]] ||
         fail "result must report a target write"
@@ -338,6 +343,26 @@ test_review_only_findings_result() {
     [[ "$(jq -r '.target_changes.modified' "$result_file")" == "false" ]] ||
         fail "review-only result must report an unchanged target"
     pass "review-only findings remain distinct in the result contract"
+}
+
+test_scope_conflicts_are_conservative_and_order_independent() {
+    local target="$TEST_ROOT/scope-conflict-target"
+    local result_file="$TEST_ROOT/scope-conflict.json"
+    local status
+    make_target "$target"
+
+    set +e
+    FAKE_SCOPE_CONFLICT=1 PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --review-only --max-iters 1 --fixer codex \
+        --result-file "$result_file" claude codex "$target" >/dev/null 2>&1
+    status=$?
+    set -e
+
+    [[ $status -eq 10 ]] || fail "scope-conflict review must retain review-only findings exit 10"
+    [[ "$(jq -c '.counts.findings' "$result_file")" == \
+       '{"in_scope":1,"pre_existing":1,"scope_conflicts":1}' ]] ||
+        fail "scope disagreement must conservatively classify PRE_EXISTING and remain visible"
+    pass "scope conflicts are conservative instead of depending on reviewer order"
 }
 
 test_max_iterations_result() {
@@ -543,11 +568,52 @@ test_result_is_written_only_after_destination_is_parsed() {
     pass "result emission begins only after --result-file is parsed"
 }
 
+test_result_file_does_not_change_terminal_output() {
+    local target="$TEST_ROOT/terminal-output-target"
+    local result_file="$TEST_ROOT/terminal-output.json"
+    local without_result="$TEST_ROOT/without-result.out"
+    local with_result="$TEST_ROOT/with-result.out"
+    make_target "$target"
+
+    set +e
+    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" --dry-run --apply-fixes \
+        --max-iters 1 claude codex "$target" > "$without_result" 2>&1
+    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" --dry-run --apply-fixes \
+        --max-iters 1 --result-file "$result_file" \
+        claude codex "$target" > "$with_result" 2>&1
+    set -e
+
+    cmp -s <(sort "$without_result") <(sort "$with_result") ||
+        fail "--result-file must not change existing terminal output content"
+    pass "--result-file leaves terminal output format and content unchanged"
+}
+
+test_result_write_failure_is_not_silent() {
+    local target="$TEST_ROOT/result-write-failure-target"
+    local result_directory="$TEST_ROOT/result-is-a-directory"
+    local output status
+    make_target "$target"
+    mkdir -p "$result_directory"
+
+    set +e
+    output="$(PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" --dry-run \
+        --apply-fixes --max-iters 1 --result-file "$result_directory" \
+        claude codex "$target" 2>&1)"
+    status=$?
+    set -e
+
+    [[ $status -eq 12 ]] || fail "result persistence failure must preserve review exit status"
+    [[ "$output" == *"Could not atomically write result file"* ]] ||
+        fail "result persistence failure must emit a diagnostic"
+    pass "result persistence failure is explicit and preserves the review status"
+}
+
 test_dry_run_result_cannot_be_mistaken_for_completed_review
 test_clean_phase_1_result
 test_clean_synthesis_result_and_target_changes
 test_apply_fixes_findings_result
 test_review_only_findings_result
+test_scope_conflicts_are_conservative_and_order_independent
 test_max_iterations_result
 test_circuit_open_result
 test_malformed_agent_result
@@ -558,5 +624,7 @@ test_invalid_base_ref_result
 test_resolved_base_scope_result
 test_missing_dependency_result
 test_result_is_written_only_after_destination_is_parsed
+test_result_file_does_not_change_terminal_output
+test_result_write_failure_is_not_silent
 
 echo "1..$tests_run"

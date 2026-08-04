@@ -33,7 +33,9 @@ The top-level object contains:
   [exit-status contract](exit-statuses.md).
 - `iterations`: iterations entered by this invocation.
 - `counts`: unique `IN_SCOPE`/`PRE_EXISTING` findings from parsed status ledgers,
-  plus fixes and flagged pre-existing findings from parsed Synthesis status.
+  scope conflicts, plus fixes and flagged pre-existing findings from parsed
+  Synthesis status. When reviewer ledgers disagree on scope, the finding is
+  conservatively counted as `PRE_EXISTING` and in `scope_conflicts`.
 - `target_changes`: whether the invocation changed the target and the changed,
   created, or deleted relative file paths.
 - `paths`: state directory, Artifact directory, and final Synthesis Artifact
@@ -47,3 +49,7 @@ completed real review.
 Values come from the same parsed status blocks, tracking state, resolved CLI
 configuration, and target snapshots used by the human-facing workflow. The
 result writer does not parse terminal text.
+
+If the destination cannot be atomically replaced (for example, it names a
+directory), the review exit status is preserved and an explicit error is
+written to stderr; persistence failures are never silently ignored.

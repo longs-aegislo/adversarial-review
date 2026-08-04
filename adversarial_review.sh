@@ -156,6 +156,7 @@ RESULT_PRE_EXISTING_FINDINGS=0
 RESULT_IN_SCOPE_FIXED=0
 RESULT_PRE_EXISTING_FIXED=0
 RESULT_PRE_EXISTING_FLAGGED=0
+RESULT_SCOPE_CONFLICTS=0
 RESULT_TARGET_SNAPSHOT=""
 REVIEW_AVAILABLE_TOOLS="Read,Glob,Grep,Bash"
 REVIEW_ALLOWED_TOOLS="Read Glob Grep Bash(git log:*) Bash(git blame:*)"
@@ -359,8 +360,9 @@ write_result_file() {
 
     destination_dir="$(dirname "$RESULT_FILE")"
     destination_base="$(basename "$RESULT_FILE")"
-    mkdir -p "$destination_dir" 2>/dev/null || return 0
-    temporary_file="$(mktemp "$destination_dir/.${destination_base}.tmp.XXXXXX" 2>/dev/null)" || return 0
+    [[ ! -d "$RESULT_FILE" ]] || return 1
+    mkdir -p "$destination_dir" 2>/dev/null || return 1
+    temporary_file="$(mktemp "$destination_dir/.${destination_base}.tmp.XXXXXX" 2>/dev/null)" || return 1
     scope_kind="whole-directory"
     requested_base=""
     resolved_base=""
@@ -398,8 +400,9 @@ write_result_file() {
         printf '  "termination": {"category": %s, "reason": %s, "exit_code": %d},\n' \
             "$(json_quote "$category")" "$(json_quote "$reason")" "$exit_code"
         printf '  "iterations": %d,\n' "$RESULT_ITERATIONS"
-        printf '  "counts": {"findings": {"in_scope": %d, "pre_existing": %d}, "fixes": {"in_scope": %d, "pre_existing": %d}, "pre_existing_flagged": %d},\n' \
+        printf '  "counts": {"findings": {"in_scope": %d, "pre_existing": %d, "scope_conflicts": %d}, "fixes": {"in_scope": %d, "pre_existing": %d}, "pre_existing_flagged": %d},\n' \
             "$RESULT_IN_SCOPE_FINDINGS" "$RESULT_PRE_EXISTING_FINDINGS" \
+            "$RESULT_SCOPE_CONFLICTS" \
             "$RESULT_IN_SCOPE_FIXED" "$RESULT_PRE_EXISTING_FIXED" \
             "$RESULT_PRE_EXISTING_FLAGGED"
         printf '  "target_changes": {"modified": %s, "files": %s},\n' \
@@ -408,14 +411,22 @@ write_result_file() {
             "$(json_quote "$AR_DIR")" "$(json_quote "$ARTIFACTS_DIR")" \
             "$(json_string_or_null "$synthesis_artifact")"
         printf '}\n'
-    } > "$temporary_file"
-    mv -f "$temporary_file" "$RESULT_FILE" 2>/dev/null || rm -f "$temporary_file"
+    } > "$temporary_file" || {
+        rm -f "$temporary_file"
+        return 1
+    }
+    if ! mv -f "$temporary_file" "$RESULT_FILE" 2>/dev/null; then
+        rm -f "$temporary_file"
+        return 1
+    fi
 }
 
 on_process_exit() {
     local exit_code=$?
     trap - EXIT
-    write_result_file "$exit_code" || true
+    if ! write_result_file "$exit_code"; then
+        log_error "Could not atomically write result file: $RESULT_FILE" >&2
+    fi
     [[ -z "$RESULT_TARGET_SNAPSHOT" ]] || rm -f "$RESULT_TARGET_SNAPSHOT"
     exit "$exit_code"
 }
@@ -744,6 +755,7 @@ init_tracking() {
     "include_pre_existing": false,
     "in_scope_findings": 0,
     "pre_existing_findings": 0,
+    "scope_conflicts": 0,
     "in_scope_fixed": 0,
     "pre_existing_fixed": 0,
     "pre_existing_flagged": 0,
@@ -780,16 +792,27 @@ update_result_finding_counts() {
     local counts
 
     counts="$(jq -cn --argjson first "$first_status" --argjson second "$second_status" '
-        (($first.issue_scopes // {}) * ($second.issue_scopes // {})) as $scopes |
+        [($first.issue_scopes // {}), ($second.issue_scopes // {})] |
+        map(to_entries[]) |
+        group_by(.key) |
+        map({
+            key: .[0].key,
+            values: ([.[].value] | unique),
+            scope: (if any(.value == "PRE_EXISTING") then
+                "PRE_EXISTING" else "IN_SCOPE" end)
+        }) as $findings |
         {
-            in_scope: ([$scopes[] | select(. == "IN_SCOPE")] | length),
-            pre_existing: ([$scopes[] | select(. == "PRE_EXISTING")] | length)
+            in_scope: ([$findings[] | select(.scope == "IN_SCOPE")] | length),
+            pre_existing: ([$findings[] | select(.scope == "PRE_EXISTING")] | length),
+            scope_conflicts: ([$findings[] | select(.values | length > 1)] | length)
         }
     ')"
     RESULT_IN_SCOPE_FINDINGS="$(jq -r '.in_scope' <<< "$counts")"
     RESULT_PRE_EXISTING_FINDINGS="$(jq -r '.pre_existing' <<< "$counts")"
+    RESULT_SCOPE_CONFLICTS="$(jq -r '.scope_conflicts' <<< "$counts")"
     update_tracking "in_scope_findings" "$RESULT_IN_SCOPE_FINDINGS"
     update_tracking "pre_existing_findings" "$RESULT_PRE_EXISTING_FINDINGS"
+    update_tracking "scope_conflicts" "$RESULT_SCOPE_CONFLICTS"
 }
 
 # Add to history

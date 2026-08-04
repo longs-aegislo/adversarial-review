@@ -29,7 +29,9 @@
   [退出状态契约](exit-statuses.zh.md)一致。
 - `iterations`：本次调用进入的迭代次数。
 - `counts`：来自已解析 status ledger 的去重 `IN_SCOPE`/`PRE_EXISTING` finding 数，
-  以及来自已解析 Synthesis status 的修复数和仅标记的历史问题数。
+  scope 冲突数，以及来自已解析 Synthesis status 的修复数和仅标记的历史问题数。
+  两份 reviewer ledger 对 scope 意见不一致时，会保守计入 `PRE_EXISTING`，同时计入
+  `scope_conflicts`。
 - `target_changes`：本次调用是否修改 Target，以及被修改、新建或删除的相对文件路径。
 - `paths`：状态目录、Artifact 目录，以及存在时的最终 Synthesis Artifact。
 
@@ -39,3 +41,6 @@
 
 所有值都来自人类可读工作流同源的已解析 status block、tracking state、CLI
 解析结果与 Target 快照；结果写入器不会重新解析终端文本。
+
+目的地无法被原子替换时（例如该路径是目录），脚本会保留审查本身的退出码，并向
+stderr 明确报告写入失败；持久化失败不会被静默忽略。
