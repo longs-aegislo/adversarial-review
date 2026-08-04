@@ -330,6 +330,24 @@ SUMMARY: Found critical type mixing bug
 ものにし、後続フェーズへ渡す際に肥大化しないようにしています。完全な記録は
 デバッグ用に `.raw.log` に残ります。
 
+## リポジトリ単位の Skill
+
+明示的な実装後／PR 前レビュー用として
+`.agents/skills/adversarial-review` を同梱しています。信頼済み Target Repo から
+`$adversarial-review` を呼び出すと、Adapter は現在の workspace を特定し、未コミット
+作業には `HEAD` baseline を使い、異種の `claude`／`codex` reviewer slots を
+`review-only` モードで選択します。
+
+実際の Agent 呼び出し前に、Adapter は Target Repo、baseline、reviewer slots、モードを
+表示し、同じ値で dry-run を実行します。文書化された dry-run 出力に有効かつ空でない
+ファイル scope がある場合だけ実レビューを開始します。result schema version 1 のみを
+受け付け、clean と findings remaining を区別し、最終 Synthesis と Artifacts のパスを
+表示します。commit、push、PR 作成、fetch、依存関係のインストール、Target Repo の変更は
+行いません。
+
+`tests/test_skill_scenarios.sh` は fixture Target Repo と fake CLI を使い、モデル呼び出しや
+サブスクリプションなしで clean、findings remaining、空 scope を決定的に検証します。
+
 ## 研究背景
 
 このアプローチは以下の研究に基づいています：

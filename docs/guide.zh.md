@@ -312,6 +312,22 @@ SUMMARY: Found critical type mixing bug
 来的，只保留最终回复，这样喂进后续阶段的 prompt 时体积不会滚雪球式膨胀。完整记录
 则保留在 `.raw.log` 里供调试查看。
 
+## 仓库级 Skill
+
+仓库提供 `.agents/skills/adversarial-review`，用于显式发起实现后或 PR 前审查。
+在受信任的 Target Repo 中调用 `$adversarial-review`；其 Adapter 会识别当前工作区，
+对未提交工作默认使用 `HEAD` baseline，并以 `review-only` 模式选择异构的
+`claude`／`codex` reviewer slots。
+
+任何真实 Agent 调用前，Adapter 都会显示 Target Repo、baseline、reviewer slots 和
+执行模式，再用完全相同的值执行 dry-run。只有文档化 dry-run 输出给出有效且非空的
+文件 scope 时才开始真实审查。它只接受结果 schema version 1，区分 clean 与仍有
+findings，并显示最终 Synthesis 与 Artifacts 路径。它不会提交、推送、创建 PR、fetch、
+安装依赖或修改 Target Repo。
+
+`tests/test_skill_scenarios.sh` 使用 fixture Target Repo 和伪 CLI，确定性覆盖 clean、
+findings remaining 与空 scope，既不调用模型也不依赖订阅。
+
 ## 研究背景
 
 这套方法基于以下研究：
