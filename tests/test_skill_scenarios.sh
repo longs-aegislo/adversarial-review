@@ -136,18 +136,35 @@ JSON
 fi
 
 category="${FAKE_RESULT_CATEGORY:-clean}"
+reason="${FAKE_RESULT_REASON:-$category}"
+schema_version="${FAKE_SCHEMA_VERSION:-1}"
 synthesis="/tmp/artifacts/iter1_4_synthesis.md"
 changed_files='[]'
 if [[ "$execution_mode" == "apply-fixes" && "${FAKE_APPLY_CHANGE:-false}" == "true" ]]; then
     printf '%s\n' 'fixed by review' >> "$target_dir/app.sh"
     changed_files='["app.sh"]'
 fi
+if [[ "${FAKE_MALFORMED_JSON:-false}" == "true" ]]; then
+    printf '%s\n' '{not-json' > "$result_file"
+    printf '%s\n' 'Review result: clean (misleading terminal prose)'
+    exit 70
+fi
+case "$category" in
+    clean) result_status=0 ;;
+    review-only-findings-remain) result_status=10 ;;
+    apply-fixes-findings-remain) result_status=11 ;;
+    incomplete-review) result_status=12 ;;
+    invalid-invocation) result_status=64 ;;
+    agent-backend-failure) result_status=70 ;;
+    write-boundary-violation) result_status=77 ;;
+    *) result_status="${FAKE_RESULT_STATUS:-70}" ;;
+esac
+result_status="${FAKE_RESULT_STATUS:-$result_status}"
 cat > "$result_file" <<JSON
-{"schema_version":1,"target_repo":{"path":"$target_dir"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"synthesis":{"requested_fixer":"$fixer","executed_by":"$fixer"},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"${FAKE_REAL_RESOLVED_BASE:-abc}"},"execution":{"mode":"$execution_mode","dry_run":false,"review_executed":true,"include_pre_existing":${FAKE_INCLUDE_PRE_EXISTING:-false}},"termination":{"category":"$category","reason":"$category","exit_code":0},"counts":{"findings":{"in_scope":2,"pre_existing":1},"fixes":{"in_scope":1,"pre_existing":${FAKE_PRE_EXISTING_FIXED:-0}},"pre_existing_flagged":1},"target_changes":{"modified":$([[ "$changed_files" == '[]' ]] && echo false || echo true),"files":$changed_files},"paths":{"artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":"$synthesis"}}
+{"schema_version":$schema_version,"target_repo":{"path":"$target_dir"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"synthesis":{"requested_fixer":"$fixer","executed_by":"$fixer"},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"${FAKE_REAL_RESOLVED_BASE:-abc}"},"execution":{"mode":"$execution_mode","dry_run":false,"review_executed":true,"include_pre_existing":${FAKE_INCLUDE_PRE_EXISTING:-false}},"termination":{"category":"$category","reason":"$reason","exit_code":$result_status},"iterations":1,"counts":{"findings":{"in_scope":2,"pre_existing":1,"scope_conflicts":${FAKE_SCOPE_CONFLICTS:-0}},"fixes":{"in_scope":1,"pre_existing":${FAKE_PRE_EXISTING_FIXED:-0}},"pre_existing_flagged":1},"target_changes":{"modified":$([[ "$changed_files" == '[]' ]] && echo false || echo true),"files":$changed_files},"paths":{"state_dir":"/tmp/state","artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":"$synthesis"}}
 JSON
-[[ "$category" == "clean" ]] && exit 0
-[[ "$execution_mode" == "apply-fixes" ]] && exit 11
-exit 10
+printf '%s\n' "${FAKE_TERMINAL_PROSE:-CLI terminal narration}"
+exit "$result_status"
 EOF
     chmod +x "$fake_cli"
 }
@@ -205,6 +222,12 @@ run_scenario() {
             FAKE_REAL_RESOLVED_BASE="${SCENARIO_REAL_RESOLVED_BASE:-abc}" \
             FAKE_INCLUDE_PRE_EXISTING="${SCENARIO_INCLUDE_PRE_EXISTING:-false}" \
             FAKE_PRE_EXISTING_FIXED="${SCENARIO_PRE_EXISTING_FIXED:-0}" \
+            FAKE_RESULT_REASON="${SCENARIO_RESULT_REASON:-}" \
+            FAKE_RESULT_STATUS="${SCENARIO_RESULT_STATUS:-}" \
+            FAKE_SCHEMA_VERSION="${SCENARIO_SCHEMA_VERSION:-1}" \
+            FAKE_MALFORMED_JSON="${SCENARIO_MALFORMED_JSON:-false}" \
+            FAKE_SCOPE_CONFLICTS="${SCENARIO_SCOPE_CONFLICTS:-0}" \
+            FAKE_TERMINAL_PROSE="${SCENARIO_TERMINAL_PROSE:-}" \
             "$SKILL_RUNNER" --cli "${SCENARIO_CLI:-$fake_cli}" ${SCENARIO_SLOT_ARGS:-} \
             "${verification_args[@]}"
     ) > "$output" 2>&1
@@ -429,6 +452,97 @@ test_explicit_findings_remaining_review() {
         "findings result should expose Artifacts"
     assert_selected_commands "$SCENARIO_TARGET"
     pass "explicit findings review reports Synthesis and Artifacts"
+}
+
+test_stable_termination_categories_are_actionable() {
+    local category reason expected_status expected_message
+    while IFS='|' read -r category reason expected_status expected_message; do
+        SCENARIO_RESULT_REASON="$reason" run_scenario "result-$category-$reason" "$category"
+        [[ $SCENARIO_STATUS -eq $expected_status ]] ||
+            fail "$category should preserve stable status $expected_status"
+        assert_contains "$SCENARIO_OUTPUT" "$expected_message" \
+            "$category should have a distinct actionable interpretation"
+        assert_contains "$SCENARIO_OUTPUT" "Reason: $reason" \
+            "$category should preserve the machine failure reason"
+        assert_contains "$SCENARIO_OUTPUT" "Artifacts: /tmp/artifacts" \
+            "$category should retain diagnostic artifacts"
+    done <<'CASES'
+incomplete-review|max-iterations|12|Review result: incomplete; inspect the synthesis and artifacts, then rerun with a higher iteration limit if appropriate
+incomplete-review|circuit-open|12|Review result: incomplete; inspect the synthesis and artifacts before deciding whether to rerun
+agent-backend-failure|codex-timeout|70|Review result: Agent/backend failure; resolve the backend error before retrying
+agent-backend-failure|malformed-agent-response|70|Review result: Agent/backend failure; resolve the backend error before retrying
+invalid-invocation|preflight-rejected|64|Review result: invalid invocation; correct the request or prerequisites before retrying
+write-boundary-violation|read-only-write-attempt|77|Review result: write-policy violation; inspect the audit artifacts and Target Repo diff before retrying
+CASES
+    pass "stable stopped and failure categories are distinct and actionable"
+}
+
+test_clean_result_reports_applied_fixes() {
+    SCENARIO_APPLY_CHANGE=true SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
+        run_scenario fixes-applied-clean clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "clean fixes-applied result should succeed"
+    assert_contains "$SCENARIO_OUTPUT" "Review result: clean" \
+        "a completed fixes-applied review should be distinguished from remaining findings"
+    assert_contains "$SCENARIO_OUTPUT" "Applied fixes (1): app.sh" \
+        "a clean fixes-applied result should list machine-reported changes"
+    assert_contains "$SCENARIO_OUTPUT" "Verification: no documented safe command was provided" \
+        "the result should disclose verification status"
+    pass "clean fixes-applied result reports changes and verification"
+}
+
+test_result_summary_reports_complete_supported_contract() {
+    SCENARIO_SCOPE_CONFLICTS=1 run_scenario complete-contract review-only-findings-remain
+
+    assert_contains "$SCENARIO_OUTPUT" "Execution: review-only; Target Repo: $SCENARIO_TARGET" \
+        "summary should include execution mode and target"
+    assert_contains "$SCENARIO_OUTPUT" "Scope: base HEAD (resolved: abc)" \
+        "summary should include requested and resolved scope"
+    assert_contains "$SCENARIO_OUTPUT" "Reviewers: slot A claude; slot B codex; Fixer: none" \
+        "summary should include reviewer assignments"
+    assert_contains "$SCENARIO_OUTPUT" "Termination: review-only-findings-remain (status 10)" \
+        "summary should include stable termination and status"
+    assert_contains "$SCENARIO_OUTPUT" "Findings: in scope 2; pre-existing 1; scope conflicts 1" \
+        "summary should distinguish all Finding Scope counts"
+    assert_contains "$SCENARIO_OUTPUT" "Fixes: in scope 1; pre-existing 0; pre-existing flagged 1" \
+        "summary should include fix and flagged counts"
+    assert_contains "$SCENARIO_OUTPUT" "Modified files (0): none" \
+        "summary should report modified files in review-only mode"
+    assert_contains "$SCENARIO_OUTPUT" "State: /tmp/state" \
+        "summary should expose the stable state artifact location"
+    pass "supported results expose the complete stable contract"
+}
+
+test_unsupported_schema_stops_without_prose_fallback() {
+    SCENARIO_SCHEMA_VERSION=2 SCENARIO_TERMINAL_PROSE="Review result: clean" \
+        run_scenario unsupported-schema clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "unsupported schema should stop as a compatibility error"
+    assert_contains "$SCENARIO_OUTPUT" "unsupported result schema: 2; supported schema: 1" \
+        "unsupported schema should give explicit compatibility guidance"
+    [[ "$SCENARIO_OUTPUT" != *"Review result: clean"* ]] ||
+        fail "unsupported schema must not fall back to terminal prose"
+    pass "unsupported schema stops without terminal-prose fallback"
+}
+
+test_malformed_result_stops_without_prose_fallback() {
+    SCENARIO_MALFORMED_JSON=true run_scenario malformed-result agent-backend-failure
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "malformed JSON should stop as a result error"
+    assert_contains "$SCENARIO_OUTPUT" "CLI did not produce valid machine JSON" \
+        "malformed JSON should identify the result error"
+    [[ "$SCENARIO_OUTPUT" != *"Review result: clean"* ]] ||
+        fail "malformed results must not fall back to misleading terminal prose"
+    pass "malformed machine result stops without prose or tracking fallback"
+}
+
+test_contradictory_result_stops_as_result_error() {
+    SCENARIO_RESULT_STATUS=70 run_scenario contradictory-result clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "contradictory result should stop as a result error"
+    assert_contains "$SCENARIO_OUTPUT" "invalid or contradictory machine result" \
+        "category and exit status disagreement should be rejected"
+    pass "contradictory machine result is never repaired from side channels"
 }
 
 test_ambiguous_fix_wording_remains_review_only() {
@@ -763,6 +877,12 @@ test_oversized_scope_stops_before_real_review() {
 
 test_explicit_clean_review
 test_explicit_findings_remaining_review
+test_stable_termination_categories_are_actionable
+test_result_summary_reports_complete_supported_contract
+test_clean_result_reports_applied_fixes
+test_unsupported_schema_stops_without_prose_fallback
+test_malformed_result_stops_without_prose_fallback
+test_contradictory_result_stops_as_result_error
 test_ambiguous_fix_wording_remains_review_only
 test_authorized_apply_fixes_requires_explicit_fixer
 test_authorized_apply_fixes_preserves_scope_and_reports_changes

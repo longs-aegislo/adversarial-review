@@ -92,7 +92,8 @@ cd adversarial-review
 
 - [仓库级 Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md)——
   显式调用且默认 review-only；仅在明确 review-and-fix 请求并指定 Fixer 时应用修复；先只读预检 CLI、backend、认证和依赖，再预览
-  安全推断或接受 baseline、预览受保护的文件 scope、启动 Agent，最后解释版本化机器结果
+  安全推断或接受 baseline、预览受保护的文件 scope、启动 Agent，最后严格校验版本化机器结果，
+  并分别给出 clean、findings、未完成、策略违规和基础设施故障的可行动说明
 - [详细指南](docs/guide.zh.md)——完整 CLI、审查阶段、状态管理、产出文件、
   自定义方式与成本说明
 - [进程退出状态](docs/exit-statuses.zh.md)——供 CI 与其他自动化使用的稳定状态契约

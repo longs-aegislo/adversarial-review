@@ -376,9 +376,14 @@ values and starts the real review only after the documented output contains a
 valid, non-empty, plausibly sized Review Scope. Empty, malformed, or more than
 500 files is treated as unsafe and stops before the real review. Every previewed
 path must also occur in the selected baseline's Git delta, so an accidental
-whole-repository scope below that limit is rejected too. It accepts only result schema version 1, distinguishes a
-clean review from remaining findings, and prints the final Synthesis and
-Artifacts paths. After apply-fixes it lists both machine-reported applied files
+whole-repository scope below that limit is rejected too. It accepts only result
+schema version 1 and validates every required field, cross-field invariant, and
+process/result exit status without falling back to terminal prose or tracking
+state. It reports mode, scope/base, reviewer/Fixer assignments, termination
+reason, iterations, scoped counts, modified files, verification, and
+State/Synthesis/Artifacts paths. Clean, findings remaining, maximum iterations,
+circuit open, invalid invocation, Agent/backend failure, and write-policy
+violation receive distinct actionable explanations. After apply-fixes it lists both machine-reported applied files
 and every path in the Target Repo Git diff, keeping unresolved findings
 separate. The caller passes the highest relevant safe verification command
 explicitly when repository documentation provides one. It passes the executable

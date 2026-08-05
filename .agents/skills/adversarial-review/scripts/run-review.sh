@@ -45,7 +45,51 @@ require_json() {
     local file="$1"
     jq -e . "$file" >/dev/null 2>&1 || fail "CLI did not produce valid machine JSON"
     [[ "$(jq -r '.schema_version' "$file")" == "1" ]] ||
-        fail "unsupported result schema: $(jq -r '.schema_version // "missing"' "$file")"
+        fail "unsupported result schema: $(jq -r '.schema_version // "missing"' "$file"); supported schema: 1"
+}
+
+require_completed_result_contract() {
+    local file="$1"
+
+    jq -e '
+        (.target_repo.path | type == "string" and length > 0) and
+        (.reviewers.slot_a | type == "string") and
+        (.reviewers.slot_b | type == "string") and
+        (.synthesis | type == "object") and
+        (.scope.kind == "base") and
+        (.scope.requested_base_ref | type == "string") and
+        (.scope.resolved_base_commit | type == "string" and length > 0) and
+        (.execution.mode == "review-only" or .execution.mode == "apply-fixes") and
+        (.execution.dry_run == false) and
+        (.execution.review_executed | type == "boolean") and
+        (.execution.include_pre_existing | type == "boolean") and
+        (.termination.reason | type == "string" and length > 0) and
+        (.termination.exit_code | type == "number") and
+        (.iterations | type == "number" and . >= 0 and floor == .) and
+        (.counts.findings.in_scope | type == "number" and . >= 0) and
+        (.counts.findings.pre_existing | type == "number" and . >= 0) and
+        (.counts.findings.scope_conflicts | type == "number" and . >= 0) and
+        (.counts.fixes.in_scope | type == "number" and . >= 0) and
+        (.counts.fixes.pre_existing | type == "number" and . >= 0) and
+        (.counts.pre_existing_flagged | type == "number" and . >= 0) and
+        (.target_changes.modified | type == "boolean") and
+        (.target_changes.files | type == "array") and
+        (all(.target_changes.files[]; type == "string")) and
+        (.paths.state_dir | type == "string" and length > 0) and
+        (.paths.artifacts_dir | type == "string" and length > 0) and
+        ((.paths.final_synthesis_artifact == null) or
+            (.paths.final_synthesis_artifact | type == "string" and length > 0)) and
+        ((.target_changes.modified == true) == (.target_changes.files | length > 0)) and
+        ((.termination.category == "clean" and .termination.exit_code == 0) or
+         (.termination.category == "review-only-findings-remain" and
+            .termination.exit_code == 10 and .execution.mode == "review-only") or
+         (.termination.category == "apply-fixes-findings-remain" and
+            .termination.exit_code == 11 and .execution.mode == "apply-fixes") or
+         (.termination.category == "incomplete-review" and .termination.exit_code == 12) or
+         (.termination.category == "invalid-invocation" and .termination.exit_code == 64) or
+         (.termination.category == "agent-backend-failure" and .termination.exit_code == 70) or
+         (.termination.category == "write-boundary-violation" and .termination.exit_code == 77))
+    ' "$file" >/dev/null 2>&1 || fail "invalid or contradictory machine result"
 }
 
 require_run_contract() {
@@ -247,6 +291,7 @@ trap 'rm -rf "$RUN_DIR"' EXIT
 DRY_RESULT="$RUN_DIR/dry-run.json"
 DRY_OUTPUT="$RUN_DIR/dry-run.out"
 REAL_RESULT="$RUN_DIR/review.json"
+REAL_OUTPUT="$RUN_DIR/review.out"
 
 mode_option="--$EXECUTION_MODE"
 fixer_args=()
@@ -297,14 +342,17 @@ echo "Review Scope ($scope_header): ${scope_files[*]}"
 set +e
 "$CLI" "$mode_option" --base "$BASE_REF" \
     --slot-a "$SLOT_A" --slot-b "$SLOT_B" "${fixer_args[@]}" \
-    --target-dir "$TARGET_DIR" --result-file "$REAL_RESULT"
+    --target-dir "$TARGET_DIR" --result-file "$REAL_RESULT" > "$REAL_OUTPUT" 2>&1
 review_status=$?
 set -e
 
 require_json "$REAL_RESULT"
+require_completed_result_contract "$REAL_RESULT"
 require_run_contract "$REAL_RESULT" false true
 [[ "$(jq -r '.scope.resolved_base_commit' "$REAL_RESULT")" == "$DRY_RESOLVED_BASE" ]] ||
     fail "real review resolved a different baseline commit than dry-run"
+[[ "$review_status" -eq "$(jq -r '.termination.exit_code' "$REAL_RESULT")" ]] ||
+    fail "invalid or contradictory machine result"
 
 category="$(jq -r '.termination.category' "$REAL_RESULT")"
 case "$category" in
@@ -314,10 +362,32 @@ case "$category" in
     review-only-findings-remain|apply-fixes-findings-remain)
         echo "Review result: Findings remaining (in scope: $(jq -r '.counts.findings.in_scope' "$REAL_RESULT"), pre-existing: $(jq -r '.counts.findings.pre_existing' "$REAL_RESULT"))"
         ;;
-    *)
-        echo "Review result: stopped ($(jq -r '.termination.reason' "$REAL_RESULT"))"
+    incomplete-review)
+        if [[ "$(jq -r '.termination.reason' "$REAL_RESULT")" == "max-iterations" ]]; then
+            echo "Review result: incomplete; inspect the synthesis and artifacts, then rerun with a higher iteration limit if appropriate"
+        else
+            echo "Review result: incomplete; inspect the synthesis and artifacts before deciding whether to rerun"
+        fi
+        ;;
+    invalid-invocation)
+        echo "Review result: invalid invocation; correct the request or prerequisites before retrying"
+        ;;
+    agent-backend-failure)
+        echo "Review result: Agent/backend failure; resolve the backend error before retrying"
+        ;;
+    write-boundary-violation)
+        echo "Review result: write-policy violation; inspect the audit artifacts and Target Repo diff before retrying"
         ;;
 esac
+echo "Execution: $(jq -r '.execution.mode' "$REAL_RESULT"); Target Repo: $(jq -r '.target_repo.path' "$REAL_RESULT")"
+echo "Scope: $(jq -r '.scope.kind' "$REAL_RESULT") $(jq -r '.scope.requested_base_ref' "$REAL_RESULT") (resolved: $(jq -r '.scope.resolved_base_commit' "$REAL_RESULT"))"
+echo "Reviewers: slot A $(jq -r '.reviewers.slot_a' "$REAL_RESULT"); slot B $(jq -r '.reviewers.slot_b' "$REAL_RESULT"); Fixer: $(jq -r 'if .synthesis.requested_fixer == null or .synthesis.requested_fixer == "" then "none" else .synthesis.requested_fixer end' "$REAL_RESULT")"
+echo "Termination: $category (status $(jq -r '.termination.exit_code' "$REAL_RESULT")); iterations: $(jq -r '.iterations' "$REAL_RESULT")"
+echo "Reason: $(jq -r '.termination.reason' "$REAL_RESULT")"
+echo "Findings: in scope $(jq -r '.counts.findings.in_scope' "$REAL_RESULT"); pre-existing $(jq -r '.counts.findings.pre_existing' "$REAL_RESULT"); scope conflicts $(jq -r '.counts.findings.scope_conflicts' "$REAL_RESULT")"
+echo "Fixes: in scope $(jq -r '.counts.fixes.in_scope' "$REAL_RESULT"); pre-existing $(jq -r '.counts.fixes.pre_existing' "$REAL_RESULT"); pre-existing flagged $(jq -r '.counts.pre_existing_flagged' "$REAL_RESULT")"
+mapfile -t modified_files < <(jq -r '.target_changes.files[]' "$REAL_RESULT")
+echo "Modified files (${#modified_files[@]}): ${modified_files[*]:-none}"
 if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
     mapfile -t applied_files < <(jq -r '.target_changes.files[]?' "$REAL_RESULT")
     echo "Applied fixes (${#applied_files[@]}): ${applied_files[*]:-none}"
@@ -330,6 +400,7 @@ if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
 fi
 echo "Synthesis: $(jq -r '.paths.final_synthesis_artifact // "not produced"' "$REAL_RESULT")"
 echo "Artifacts: $(jq -r '.paths.artifacts_dir // "not produced"' "$REAL_RESULT")"
+echo "State: $(jq -r '.paths.state_dir // "not produced"' "$REAL_RESULT")"
 if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
     if [[ -z "$VERIFICATION_EXECUTABLE" ]]; then
         echo "Verification: no documented safe command was provided"

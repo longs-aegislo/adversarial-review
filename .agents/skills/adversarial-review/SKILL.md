@@ -80,10 +80,15 @@ directly.
    `pytest`, `python[3] -m pytest`, and `bundle exec <rake|rspec>`. Do not add
    trailing arguments; they are rejected before Agent calls because supported
    tools may interpret them as executable configuration.
-7. Report the adapter's machine-result interpretation. Distinguish `clean`
-   from `Findings remaining`, and include the final Synthesis and Artifacts
-   paths it prints. Treat any other termination category as stopped or failed;
-   surface its reason without inferring success from terminal prose.
+7. Report the adapter's machine-result interpretation. It validates every
+   required schema-version-1 field and rejects missing, invalid, contradictory,
+   or unsupported results without consulting terminal prose or internal state.
+   The summary includes mode, Target Repo, requested and resolved base,
+   reviewer/Fixer assignments, termination and reason, iterations, scoped
+   finding/fix counts, modified files, verification, and State/Synthesis/
+   Artifacts paths. It distinguishes `clean`, findings remaining, incomplete
+   review (including maximum iterations and circuit open), invalid invocation,
+   Agent/backend failure, and write-policy violation with actionable guidance.
 
 Read [references/result-contract.md](references/result-contract.md) only when
 diagnosing result compatibility or a stopped workflow.
