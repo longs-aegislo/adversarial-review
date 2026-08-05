@@ -6,7 +6,10 @@ The adapter supports only `schema_version: 1` results from
 - A dry-run must report the explicitly selected `execution.mode`,
   `execution.dry_run: true`, and `execution.review_executed: false`.
 - A real run must report the same Target Repo, baseline, reviewer slots, and
-  execution mode, plus `execution.review_executed: true`.
+  execution mode. Completed and in-progress review outcomes report
+  `execution.review_executed: true`; `invalid-invocation` and
+  `agent-backend-failure` may report `false` when preflight stopped before any
+  Agent review call.
 - `termination.category: clean` means the review is clean.
 - `termination.category: review-only-findings-remain` or
   `apply-fixes-findings-remain` means unresolved

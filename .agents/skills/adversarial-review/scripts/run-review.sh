@@ -367,7 +367,9 @@ for scope_file in "${scope_files[@]}"; do
 done
 echo "Review Scope ($scope_header): ${scope_files[*]}"
 
-write_target_snapshot "$BEFORE_REVIEW_SNAPSHOT"
+if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+    write_target_snapshot "$BEFORE_REVIEW_SNAPSHOT"
+fi
 
 set +e
 "$CLI" "$mode_option" --base "$BASE_REF" \
