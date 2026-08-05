@@ -343,6 +343,18 @@ only the final reply, keeping it small when fed into later phases. The
 
 ## Repository-level Skill
 
+### Local Plugin installation
+
+The repo-local marketplace is declared at `.agents/plugins/marketplace.json`,
+and its only entry points to `plugins/adversarial-review`. Register the
+repository root with `codex plugin marketplace add`, list
+`adversarial-review-local`, and install
+`adversarial-review@adversarial-review-local`. Start a new thread so Codex
+discovers the installed Skill. The package has no MCP server, connector, hook,
+automation, or GitHub integration; it contains only the Skill, its display
+metadata, references, stable launch Adapter, and matching CLI runtime with its
+libraries and prompts.
+
 The repository ships `.agents/skills/adversarial-review` for post-implementation
 or pre-commit/PR adversarial reviews. Invoke `$adversarial-review` explicitly,
 or describe that goal clearly to use implicit discovery. Ordinary code
@@ -363,9 +375,10 @@ may proceed and disclose that no fetch occurred; a missing or divergent remote
 default stops with guidance to provide an explicit baseline or separately
 authorize fetch/reconciliation. The adapter never fetches itself.
 
-The adapter resolves `adversarial_review.sh` from `PATH` first, then from the
-root of the repository containing the Skill. Standalone Skill installations
-can set `ADVERSARIAL_REVIEW_BIN` or pass `--cli <path>` explicitly.
+The adapter resolves `adversarial_review.sh` from `PATH` first, then the runtime
+bundled under the same installed Plugin root, and finally the root of the
+repository containing a source-tree Skill. `ADVERSARIAL_REVIEW_BIN` and
+`--cli <path>` remain explicit overrides.
 
 Before any real Agent call, the adapter prints the Target Repo, baseline,
 reviewer slots, and mode. It first checks the CLI's required slot options, the
@@ -396,6 +409,12 @@ arguments that could select a runner, shell, configuration, or collected file
 are rejected before Agent calls. Otherwise the adapter reports that none was provided and never installs dependencies. Review
 authorization never expands to commits, pushes, PR creation, fetch, reset,
 clean, dependency installation, or modifying pre-existing findings.
+
+`tests/test_plugin_package.sh` uses an isolated `HOME` and `CODEX_HOME` to
+register, list, and install the local marketplace, assert discovery of exactly
+one Skill, then run that installed Skill Adapter through the bundled runtime
+with fake Agent backends. It verifies a stable machine result and an unchanged
+Target Repo without using model subscriptions or a source-tree runtime.
 
 Deterministic scenarios in `tests/test_skill_scenarios.sh` exercise clean,
 findings-remaining, authorized and ambiguous fix intent, modified-file
