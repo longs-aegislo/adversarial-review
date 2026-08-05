@@ -416,6 +416,9 @@ one Skill, then run that installed Skill Adapter through the bundled runtime
 with fake Agent backends after making the marketplace source unavailable. It
 verifies a stable machine result and an unchanged Target Repo without using
 model subscriptions, a source-tree runtime, or a conflicting runtime on PATH.
+When `codex` is unavailable, the package and containment assertions still run
+and the CLI integration portion reports `SKIP`; release or acceptance jobs can
+set `REQUIRE_CODEX_PLUGIN_TESTS=true` to require the real CLI path.
 
 Deterministic scenarios in `tests/test_skill_scenarios.sh` exercise clean,
 findings-remaining, authorized and ambiguous fix intent, modified-file

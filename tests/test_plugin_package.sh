@@ -75,7 +75,13 @@ done < <(jq -r '[.skills, .apps, .mcpServers, .hooks] | .[]? | strings' "$MANIFE
 
 echo "ok - plugin manifest, contents, and path boundaries are valid"
 
-command -v codex >/dev/null 2>&1 || fail "codex CLI is required for plugin installation test"
+if ! command -v codex >/dev/null 2>&1; then
+    if [[ "${REQUIRE_CODEX_PLUGIN_TESTS:-false}" == "true" ]]; then
+        fail "codex CLI is required when REQUIRE_CODEX_PLUGIN_TESTS=true"
+    fi
+    echo "ok - Codex CLI integration skipped (codex unavailable) # SKIP"
+    exit 0
+fi
 
 PROFILE_ROOT="$(mktemp -d)"
 trap 'rm -rf "$PROFILE_ROOT"' EXIT

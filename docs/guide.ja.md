@@ -394,6 +394,9 @@ Agent backends を使い、marketplace source を利用不能にした後で、�
 Adapter から bundled runtime へ入ります。`PATH` に競合 runtime があっても、モデル
 subscription や source-tree runtime を使わず、安定した機械結果と Target Repo が変更されない
 ことを検証します。
+`codex` が利用できない場合も package と境界の assertion は実行し、CLI integration 部分は
+`SKIP` と報告します。release または acceptance job は
+`REQUIRE_CODEX_PLUGIN_TESTS=true` を設定して実 CLI 経路を必須にできます。
 
 `tests/test_skill_scenarios.sh` は fixture Target Repo と fake CLI を使い、モデル呼び出しや
 サブスクリプションなしで clean、findings remaining、許可済み／曖昧な修正意図、変更ファイルの

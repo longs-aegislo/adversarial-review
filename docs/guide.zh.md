@@ -366,6 +366,8 @@ pre-existing findings。
 marketplace，断言只发现一个 Skill，使 marketplace source 不可访问后，再用 fake Agent
 backends 从已安装 Skill Adapter 进入 bundled runtime。即使 `PATH` 中存在冲突 runtime，
 它也不使用模型订阅或源码树 runtime，并验证稳定机器结果及 Target Repo 未发生变化。
+如果没有 `codex`，包结构与边界断言仍会运行，CLI 集成部分报告 `SKIP`；发布或验收任务可
+设置 `REQUIRE_CODEX_PLUGIN_TESTS=true`，强制要求真实 CLI 路径。
 
 `tests/test_skill_scenarios.sh` 使用 fixture Target Repo 和伪 CLI，确定性覆盖 clean、
 findings remaining、授权或含糊的修复意图、修改文件披露、有／无验证命令、禁止的权限扩张、baseline 选择、歧义 Git 状态、reviewer 选择、前置检查失败、
