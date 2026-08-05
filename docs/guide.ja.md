@@ -344,7 +344,8 @@ Adapter は最初に `PATH`、次に Skill を含むリポジトリのルート�
 
 実際の Agent 呼び出し前に、Adapter は Target Repo、baseline、reviewer slots、モードを
 表示します。まず CLI の必須 slot オプション、選択 backend の実行ファイルと認証、
-`jq`、GNU `timeout` のサポートを確認します。不足時は依存関係のインストール、認証情報の
+`jq`、CLI と構文互換の `timeout` サポートを確認します。不足時は依存関係の
+インストール、認証情報の
 変更、レビュー呼び出しを行わず停止します。既定は異種 `claude`／`codex` です。明示的な
 `claude`／`claude` または `codex`／`codex` は許可しますが、レビュー多様性の低い
 same-model redundancy として説明します。その後、同じ値で dry-run を実行します。

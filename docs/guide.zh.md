@@ -324,7 +324,8 @@ Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再尝试 Skill 所在
 
 任何真实 Agent 调用前，Adapter 都会显示 Target Repo、baseline、reviewer slots 和
 执行模式。它会先检查 CLI 所需的 slot 参数、所选 backend 可执行文件与认证、`jq`
-以及 GNU `timeout` 支持。缺少前置条件时，工作流会停止，不安装依赖、不修改凭据、
+以及与 CLI 语法兼容的 `timeout` 支持。缺少前置条件时，工作流会停止，不安装依赖、
+不修改凭据、
 也不调用审查。默认使用异构 `claude`／`codex`；显式请求 `claude`／`claude` 或
 `codex`／`codex` 时允许 same-model redundancy，但会说明审查多样性较低。随后用
 完全相同的值执行 dry-run。只有文档化 dry-run 输出给出有效且非空的

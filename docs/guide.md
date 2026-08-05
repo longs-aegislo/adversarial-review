@@ -355,7 +355,8 @@ can set `ADVERSARIAL_REVIEW_BIN` or pass `--cli <path>` explicitly.
 
 Before any real Agent call, the adapter prints the Target Repo, baseline,
 reviewer slots, and mode. It first checks the CLI's required slot options, the
-selected backend executables and authentication, `jq`, and GNU `timeout` support.
+selected backend executables and authentication, `jq`, and CLI-compatible
+`timeout` support.
 Missing prerequisites stop the workflow without installation, credential
 changes, or review calls. The default is heterogeneous `claude`/`codex`; an
 explicit `claude`/`claude` or `codex`/`codex` request is allowed but reported as

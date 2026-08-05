@@ -35,9 +35,9 @@ directly.
    or pass `--cli <path>`.
 
    Before a review invocation, the adapter checks the review CLI contract, the
-   selected backend executables and authentication, `jq`, and GNU `timeout`
-   support. It reports missing prerequisites without installing anything or
-   changing credentials. The adapter then prints Target Repo, baseline,
+   selected backend executables and authentication, `jq`, and timeout syntax
+   compatibility with the CLI. It reports missing prerequisites without
+   installing anything or changing credentials. The adapter then prints Target Repo, baseline,
    reviewer slots, and execution mode, performs a dry-run with the same
    explicit values, and starts the real review only after confirming a valid,
    non-empty Review Scope.

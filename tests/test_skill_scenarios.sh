@@ -11,6 +11,7 @@ mkdir -p "$TEST_BIN"
 for utility in bash cat git dirname mktemp rm sed tail awk; do
     ln -s "$(command -v "$utility")" "$TEST_BIN/$utility"
 done
+ln -s "$(type -P true)" "$TEST_BIN/true"
 if command -v jq >/dev/null 2>&1; then
     ln -s "$(command -v jq)" "$TEST_BIN/jq"
 elif [[ -x /tmp/adversarial-review-jq ]]; then
@@ -24,7 +25,7 @@ if command -v timeout >/dev/null 2>&1; then
 elif command -v gtimeout >/dev/null 2>&1; then
     ln -s "$(command -v gtimeout)" "$TEST_BIN/gtimeout"
 else
-    echo "not ok - GNU timeout is required for Skill scenario tests" >&2
+    echo "not ok - a timeout command is required for Skill scenario tests" >&2
     exit 1
 fi
 
@@ -245,7 +246,7 @@ test_incompatible_timeout_stops_before_review() {
     local timeout_name="timeout"
     [[ -e "$TEST_BIN/timeout" ]] || timeout_name="gtimeout"
     mv "$TEST_BIN/$timeout_name" "$TEST_BIN/$timeout_name.saved"
-    printf '%s\n' '#!/usr/bin/env bash' 'echo "BusyBox timeout"' > "$TEST_BIN/$timeout_name"
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 2' > "$TEST_BIN/$timeout_name"
     chmod +x "$TEST_BIN/$timeout_name"
     run_scenario incompatible-timeout clean
     rm -f "$TEST_BIN/$timeout_name"
@@ -256,6 +257,20 @@ test_incompatible_timeout_stops_before_review() {
         "incompatible timeout should be explained"
     [[ -z "$SCENARIO_COMMANDS" ]] || fail "incompatible timeout must not invoke the review CLI"
     pass "incompatible timeout stops before any review invocation"
+}
+
+test_non_gnu_compatible_timeout_is_accepted() {
+    local timeout_name="timeout"
+    [[ -e "$TEST_BIN/timeout" ]] || timeout_name="gtimeout"
+    mv "$TEST_BIN/$timeout_name" "$TEST_BIN/$timeout_name.saved"
+    printf '%s\n' '#!/usr/bin/env bash' 'shift' '"$@"' > "$TEST_BIN/$timeout_name"
+    chmod +x "$TEST_BIN/$timeout_name"
+    run_scenario compatible-timeout clean
+    rm -f "$TEST_BIN/$timeout_name"
+    mv "$TEST_BIN/$timeout_name.saved" "$TEST_BIN/$timeout_name"
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "CLI-compatible non-GNU timeout should be accepted"
+    pass "CLI-compatible non-GNU timeout passes preflight"
 }
 
 test_unsupported_cli_slots_stop_before_review() {
@@ -375,6 +390,7 @@ test_missing_cli_stops_before_review
 test_missing_jq_stops_before_review
 test_missing_timeout_stops_before_review
 test_incompatible_timeout_stops_before_review
+test_non_gnu_compatible_timeout_is_accepted
 test_unsupported_cli_slots_stop_before_review
 test_empty_scope_stops_before_real_review
 test_discovers_cli_from_skill_repository

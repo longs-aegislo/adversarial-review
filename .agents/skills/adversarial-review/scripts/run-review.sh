@@ -103,11 +103,10 @@ git -C "$TARGET_DIR" rev-parse --verify --quiet --end-of-options "${BASE_REF}^{c
 
 TIMEOUT_CMD="$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)"
 if [[ -z "$TIMEOUT_CMD" ]]; then
-    fail "missing timeout support: install GNU timeout (coreutils on macOS)"
+    fail "missing timeout support: install a CLI-compatible timeout command (coreutils on macOS)"
 fi
-TIMEOUT_VERSION="$("$TIMEOUT_CMD" --version 2>/dev/null || true)"
-[[ "$TIMEOUT_VERSION" == *"GNU coreutils"* ]] ||
-    fail "incompatible timeout support: GNU timeout is required"
+"$TIMEOUT_CMD" 1s true >/dev/null 2>&1 ||
+    fail "incompatible timeout support: the timeout command must accept '<duration>s <command>'"
 require_cli_contract
 require_backend "$SLOT_A"
 if [[ "$SLOT_B" != "$SLOT_A" ]]; then
