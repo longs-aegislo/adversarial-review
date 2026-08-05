@@ -1,6 +1,6 @@
 ---
 name: adversarial-review
-description: Run a repository-level adversarial code review after implementation or before a commit/PR, including explicit review-only requests. Use only when the user explicitly invokes $adversarial-review; do not trigger for ordinary code explanation, debugging, or a lightweight single-pass review.
+description: Run a repository-level adversarial code review, optionally applying fixes only after explicit review-and-fix authorization. Use only when the user explicitly invokes $adversarial-review; do not trigger for ordinary code explanation, debugging, or a lightweight single-pass review.
 ---
 
 # Adversarial Review
@@ -28,12 +28,25 @@ directly.
    explicitly requests `claude`/`claude` or `codex`/`codex`, allow that
    same-model redundancy and clearly report its lower review diversity. Never
    choose same-model redundancy merely because one backend is unavailable.
-4. Use `review-only` unless the user separately and explicitly authorizes
-   fixes. This version implements only the review-only path.
+4. Use `review-only` for review requests, ambiguous wording, or any request
+   that does not explicitly ask to fix the findings. Only a clear request such
+   as “review and fix”, “apply the review fixes”, or equivalent write intent
+   authorizes `apply-fixes`. Select the Fixer explicitly; never infer broader
+   permission to modify `PRE_EXISTING` findings.
+
+   Decision examples:
+
+   | Request | Mode |
+   | --- | --- |
+   | “Review this and suggest fixes.” | `review-only` |
+   | “Review this; do not change files.” | `review-only` |
+   | “Review this and fix anything you find.” | `apply-fixes` with an explicit Fixer |
+   | “Apply the fixes from the review.” | `apply-fixes` with an explicit Fixer |
 5. From the Target Repo, run:
 
    ```bash
    <skill-directory>/scripts/run-review.sh [--base <baseline>]
+   <skill-directory>/scripts/run-review.sh --apply-fixes --fixer <claude|codex> [--base <baseline>] [--verification-command '<documented command>']
    ```
 
    The adapter first looks for `adversarial_review.sh` on `PATH`, then for the
@@ -51,7 +64,13 @@ directly.
    large scopes stop before the real review. Every previewed path must also
    belong to the Git delta from the selected baseline, which rejects accidental
    whole-repository scopes even below the size limit.
-6. Report the adapter's machine-result interpretation. Distinguish `clean`
+6. For apply-fixes, inspect the Target Repo's instructions and documentation
+   for safe verification commands. Select the highest relevant documented
+   command (for example, the full test command instead of a single test) and
+   pass it with `--verification-command`. Do not invent a command or install
+   missing dependencies. If none is documented, omit the option; the adapter
+   reports that none was provided.
+7. Report the adapter's machine-result interpretation. Distinguish `clean`
    from `Findings remaining`, and include the final Synthesis and Artifacts
    paths it prints. Treat any other termination category as stopped or failed;
    surface its reason without inferring success from terminal prose.
@@ -61,6 +80,9 @@ diagnosing result compatibility or a stopped workflow.
 
 ## Safety boundaries
 
-Do not commit, push, create a PR, reset, clean, fetch, install dependencies, or
-modify the Target Repo as part of this Skill. Do not start a real review after
-an empty/invalid dry-run scope or with an unsupported result schema.
+Review authorization alone does not authorize commit, push, PR creation,
+reset, clean, fetch, dependency installation, or changes to `PRE_EXISTING`
+findings. In apply-fixes mode, report every path under both `Applied fixes`
+(from the machine result) and `Target Repo Diff` (from Git), and keep remaining
+findings distinct. Do not start a real review after an empty/invalid dry-run
+scope or with an unsupported result schema.
