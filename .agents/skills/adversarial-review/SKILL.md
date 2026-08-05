@@ -72,6 +72,14 @@ directly.
    and never evaluates shell syntax. Do not invent a command or install missing
    dependencies. If none is documented, omit the option; the adapter reports
    that none was provided.
+
+   The adapter accepts only fixed verification shapes: `bash -n <file>`,
+   `bash <script>`, a no-argument `./*test*` / `./*check*` / `./*verify*`
+   executable, package-manager `test` or `run <test|check|verify[:name]>`,
+   `make <test|check|verify>`, `cargo <test|check>`, `go test [./...]`,
+   `pytest`, `python[3] -m pytest`, and `bundle exec <rake|rspec>`. Do not add
+   trailing arguments; they are rejected before Agent calls because supported
+   tools may interpret them as executable configuration.
 7. Report the adapter's machine-result interpretation. Distinguish `clean`
    from `Findings remaining`, and include the final Synthesis and Artifacts
    paths it prints. Treat any other termination category as stopped or failed;

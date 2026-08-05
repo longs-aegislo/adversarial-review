@@ -383,7 +383,9 @@ and every path in the Target Repo Git diff, keeping unresolved findings
 separate. The caller passes the highest relevant safe verification command
 explicitly when repository documentation provides one. It passes the executable
 and repeated arguments as structured argv and executes them directly without a
-shell parser; otherwise the adapter reports that none was provided and never installs dependencies. Review
+shell parser. Each supported tool has a fixed, bounded argument shape; trailing
+arguments that could select a runner, shell, configuration, or collected file
+are rejected before Agent calls. Otherwise the adapter reports that none was provided and never installs dependencies. Review
 authorization never expands to commits, pushes, PR creation, fetch, reset,
 clean, dependency installation, or modifying pre-existing findings.
 

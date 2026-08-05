@@ -20,17 +20,23 @@ is_safe_verification_argv() {
             [[ "${1:-}" == "-n" && $# -eq 2 ]] ||
                 [[ $# -eq 1 && "$1" != -* ]]
             ;;
-        ./*test*|./*check*|./*verify*) return 0 ;;
+        ./*test*|./*check*|./*verify*) [[ $# -eq 0 ]] ;;
         npm|pnpm|yarn)
-            [[ "${1:-}" == "test" ]] ||
-                [[ "${1:-}" == "run" && "${2:-}" =~ ^(test|check|verify)(:|$) ]]
+            [[ $# -eq 1 && "${1:-}" == "test" ]] ||
+                [[ $# -eq 2 && "${1:-}" == "run" && "${2:-}" =~ ^(test|check|verify)(:|$) ]]
             ;;
-        make) [[ "${1:-}" =~ ^(test|check|verify)$ ]] ;;
-        cargo) [[ "${1:-}" == "test" || "${1:-}" == "check" ]] ;;
-        go) [[ "${1:-}" == "test" ]] ;;
-        pytest) return 0 ;;
-        python|python3) [[ "${1:-}" == "-m" && "${2:-}" == "pytest" ]] ;;
-        bundle) [[ "${1:-}" == "exec" && ("${2:-}" == "rake" || "${2:-}" == "rspec") ]] ;;
+        make) [[ $# -eq 1 && "${1:-}" =~ ^(test|check|verify)$ ]] ;;
+        cargo) [[ $# -eq 1 && ("${1:-}" == "test" || "${1:-}" == "check") ]] ;;
+        go)
+            [[ $# -eq 1 && "${1:-}" == "test" ]] ||
+                [[ $# -eq 2 && "${1:-}" == "test" && "${2:-}" == "./..." ]]
+            ;;
+        pytest) [[ $# -eq 0 ]] ;;
+        python|python3) [[ $# -eq 2 && "${1:-}" == "-m" && "${2:-}" == "pytest" ]] ;;
+        bundle)
+            [[ $# -eq 2 && "${1:-}" == "exec" &&
+                ("${2:-}" == "rake" || "${2:-}" == "rspec") ]]
+            ;;
         *) return 1 ;;
     esac
 }

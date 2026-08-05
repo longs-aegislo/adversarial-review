@@ -548,6 +548,26 @@ test_forbidden_permission_expansion_stops_before_review() {
     pass "commit, publish, fetch, reset, clean, and install remain separately authorized"
 }
 
+test_verification_tools_reject_unsafe_trailing_arguments() {
+    local executable first_arg second_arg scenario
+    while IFS='|' read -r executable first_arg second_arg scenario; do
+        SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
+            SCENARIO_VERIFICATION_COMMAND="$executable" \
+            SCENARIO_VERIFICATION_ARG1="$first_arg" \
+            SCENARIO_VERIFICATION_ARG2="$second_arg" \
+            run_scenario "$scenario" clean
+        [[ $SCENARIO_STATUS -eq 64 ]] || fail "unsafe trailing argv should stop: $scenario"
+        assert_contains "$SCENARIO_OUTPUT" "verification command expands authorization" \
+            "the complete verification argv shape must be validated"
+        [[ -z "$SCENARIO_COMMANDS" ]] || fail "unsafe trailing argv must stop before Agent calls"
+    done <<'CASES'
+make|test|SHELL=/tmp/evil-shell|unsafe-make-shell
+go|test|-exec=/tmp/evil-runner|unsafe-go-exec
+pytest|evil_test.py||unsafe-pytest-path
+CASES
+    pass "verification tools reject unsafe trailing arguments"
+}
+
 test_committed_feature_branch_uses_default_branch_merge_base() {
     local target="$TEST_ROOT/committed-feature-target"
 
@@ -751,6 +771,7 @@ test_apply_fixes_rejects_pre_existing_fixes
 test_apply_fixes_runs_documented_verification
 test_apply_fixes_reports_missing_documented_verification
 test_forbidden_permission_expansion_stops_before_review
+test_verification_tools_reject_unsafe_trailing_arguments
 test_same_model_redundancy claude codex
 test_same_model_redundancy codex claude
 test_auth_failure_stops_before_review
