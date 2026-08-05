@@ -101,7 +101,8 @@ for every field, an example object, and outer LLM/Skill routing guidance.
 
 - [Repository-level Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —
   explicitly invoked, review-only workflow that previews a base-scoped file list
-  before running Agents and reports versioned machine results
+  after read-only CLI/backend/authentication/dependency preflight, before running
+  Agents, and reports versioned machine results
 - [Detailed guide](docs/guide.md) — complete CLI reference, review phases,
   state management, artifacts, customization, and cost notes
 - [Process exit statuses](docs/exit-statuses.md) — stable statuses for CI and

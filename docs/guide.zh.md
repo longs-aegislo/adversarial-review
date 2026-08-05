@@ -323,13 +323,19 @@ Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再尝试 Skill 所在
 独立安装 Skill 时，可以设置 `ADVERSARIAL_REVIEW_BIN` 或显式传入 `--cli <路径>`。
 
 任何真实 Agent 调用前，Adapter 都会显示 Target Repo、baseline、reviewer slots 和
-执行模式，再用完全相同的值执行 dry-run。只有文档化 dry-run 输出给出有效且非空的
+执行模式。它会先检查 CLI 所需的 slot 参数、所选 backend 可执行文件与认证、`jq`
+以及与 CLI 语法兼容的 `timeout` 支持。缺少前置条件时，工作流会停止，不安装依赖、
+不修改凭据、
+也不调用审查。默认使用异构 `claude`／`codex`；显式请求 `claude`／`claude` 或
+`codex`／`codex` 时允许 same-model redundancy，但会说明审查多样性较低。随后用
+完全相同的值执行 dry-run。只有文档化 dry-run 输出给出有效且非空的
 文件 scope 时才开始真实审查。它只接受结果 schema version 1，区分 clean 与仍有
 findings，并显示最终 Synthesis 与 Artifacts 路径。它不会提交、推送、创建 PR、fetch、
 安装依赖或修改 Target Repo。
 
 `tests/test_skill_scenarios.sh` 使用 fixture Target Repo 和伪 CLI，确定性覆盖 clean、
-findings remaining、空 scope 与默认 CLI 发现路径，既不调用模型也不依赖订阅。
+findings remaining、reviewer 选择、前置检查失败、空 scope 与默认 CLI 发现路径，
+既不调用模型也不依赖订阅。
 
 ## 研究背景
 

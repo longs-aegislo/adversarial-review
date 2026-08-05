@@ -32,6 +32,33 @@ require_run_contract() {
         fail "CLI did not preserve the review-only execution contract"
 }
 
+require_cli_contract() {
+    local help_output
+    help_output="$("$CLI" --help 2>&1)" || fail "Adversarial Review CLI --help check failed"
+    for option in --slot-a --slot-b --target-dir --dry-run --review-only --result-file; do
+        [[ "$help_output" == *"$option"* ]] ||
+            fail "Adversarial Review CLI does not support required option: $option"
+    done
+}
+
+require_backend() {
+    local backend="$1"
+    command -v "$backend" >/dev/null 2>&1 ||
+        fail "missing Agent backend executable: $backend"
+
+    case "$backend" in
+        claude)
+            claude auth status >/dev/null 2>&1 ||
+                fail "Claude authentication check failed; authenticate before running a review"
+            ;;
+        codex)
+            codex login status >/dev/null 2>&1 ||
+                fail "Codex authentication check failed; authenticate before running a review"
+            ;;
+        *) fail "unsupported reviewer backend: $backend" ;;
+    esac
+}
+
 SKILL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 CLI="${ADVERSARIAL_REVIEW_BIN:-}"
 BASE_REF=""
@@ -61,8 +88,10 @@ else
     CLI="$(command -v "$CLI" 2>/dev/null || true)"
     [[ -n "$CLI" ]] || fail "Adversarial Review CLI was not found; set ADVERSARIAL_REVIEW_BIN or pass --cli"
 fi
-[[ "$SLOT_A" == "claude" && "$SLOT_B" == "codex" ]] ||
-    fail "this explicit review-only path requires reviewer slots claude and codex"
+[[ "$SLOT_A" == "claude" || "$SLOT_A" == "codex" ]] ||
+    fail "unsupported reviewer backend: $SLOT_A"
+[[ "$SLOT_B" == "claude" || "$SLOT_B" == "codex" ]] ||
+    fail "unsupported reviewer backend: $SLOT_B"
 
 TARGET_DIR="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "$TARGET_DIR" && -d "$TARGET_DIR" ]] || fail "current workspace is not a Git Target Repo"
@@ -72,9 +101,24 @@ TARGET_DIR="$(cd "$TARGET_DIR" && pwd -P)"
 git -C "$TARGET_DIR" rev-parse --verify --quiet --end-of-options "${BASE_REF}^{commit}" >/dev/null ||
     fail "baseline does not resolve to a commit: $BASE_REF"
 
+TIMEOUT_CMD="$(command -v gtimeout 2>/dev/null || command -v timeout 2>/dev/null || true)"
+if [[ -z "$TIMEOUT_CMD" ]]; then
+    fail "missing timeout support: install a CLI-compatible timeout command (coreutils on macOS)"
+fi
+"$TIMEOUT_CMD" 1s true >/dev/null 2>&1 ||
+    fail "incompatible timeout support: the timeout command must accept '<duration>s <command>'"
+require_cli_contract
+require_backend "$SLOT_A"
+if [[ "$SLOT_B" != "$SLOT_A" ]]; then
+    require_backend "$SLOT_B"
+fi
+
 echo "Target Repo: $TARGET_DIR"
 echo "Baseline: $BASE_REF"
 echo "Reviewer slots: $SLOT_A, $SLOT_B"
+if [[ "$SLOT_A" == "$SLOT_B" ]]; then
+    echo "Review diversity: same-model redundancy provides lower review diversity than heterogeneous reviewers"
+fi
 echo "Execution mode: review-only"
 
 RUN_DIR="$(mktemp -d)"

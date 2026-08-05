@@ -17,9 +17,10 @@ directly.
    supplied a base, pass it unchanged. If committed branch work requires a
    merge base and no reliable base is available, stop and ask instead of
    falling back to a whole-directory review.
-3. Default to heterogeneous reviewer slots `claude` and `codex`. This Skill's
-   explicit path requires both backends; report a missing dependency instead
-   of silently reducing review diversity.
+3. Default to heterogeneous reviewer slots `claude` and `codex`. If the user
+   explicitly requests `claude`/`claude` or `codex`/`codex`, allow that
+   same-model redundancy and clearly report its lower review diversity. Never
+   choose same-model redundancy merely because one backend is unavailable.
 4. Use `review-only` unless the user separately and explicitly authorizes
    fixes. This version implements only the review-only path.
 5. From the Target Repo, run:
@@ -33,10 +34,13 @@ directly.
    Skill installation, set `ADVERSARIAL_REVIEW_BIN` to the installed CLI path
    or pass `--cli <path>`.
 
-   The adapter prints Target Repo, baseline, reviewer slots, and execution mode
-   before invoking the CLI. It then performs a dry-run with the same explicit
-   values and starts the real review only after confirming a valid, non-empty
-   Review Scope.
+   Before a review invocation, the adapter checks the review CLI contract, the
+   selected backend executables and authentication, `jq`, and timeout syntax
+   compatibility with the CLI. It reports missing prerequisites without
+   installing anything or changing credentials. The adapter then prints Target Repo, baseline,
+   reviewer slots, and execution mode, performs a dry-run with the same
+   explicit values, and starts the real review only after confirming a valid,
+   non-empty Review Scope.
 6. Report the adapter's machine-result interpretation. Distinguish `clean`
    from `Findings remaining`, and include the final Synthesis and Artifacts
    paths it prints. Treat any other termination category as stopped or failed;

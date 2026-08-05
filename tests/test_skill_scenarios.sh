@@ -8,12 +8,24 @@ TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 TEST_BIN="$TEST_ROOT/bin"
 mkdir -p "$TEST_BIN"
+for utility in bash cat git dirname mktemp rm sed tail awk; do
+    ln -s "$(command -v "$utility")" "$TEST_BIN/$utility"
+done
+ln -s "$(type -P true)" "$TEST_BIN/true"
 if command -v jq >/dev/null 2>&1; then
     ln -s "$(command -v jq)" "$TEST_BIN/jq"
 elif [[ -x /tmp/adversarial-review-jq ]]; then
     ln -s /tmp/adversarial-review-jq "$TEST_BIN/jq"
 else
     echo "not ok - jq is required for Skill scenario tests" >&2
+    exit 1
+fi
+if command -v timeout >/dev/null 2>&1; then
+    ln -s "$(command -v timeout)" "$TEST_BIN/timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+    ln -s "$(command -v gtimeout)" "$TEST_BIN/gtimeout"
+else
+    echo "not ok - a timeout command is required for Skill scenario tests" >&2
     exit 1
 fi
 
@@ -54,6 +66,15 @@ make_fake_cli() {
     cat > "$fake_cli" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+if [[ "${1:-}" == "--help" ]]; then
+    if [[ "${FAKE_CLI_UNSUPPORTED_SLOTS:-false}" == "true" ]]; then
+        printf '%s\n' 'Usage: adversarial_review.sh --target-dir DIR --dry-run --review-only --result-file FILE'
+        exit 0
+    fi
+    printf '%s\n' 'Usage: adversarial_review.sh --slot-a AGENT --slot-b AGENT --target-dir DIR --dry-run --review-only --result-file FILE'
+    exit 0
+fi
 
 printf '<%s>' "$@" >> "${FAKE_COMMAND_LOG:?}"
 printf '\n' >> "$FAKE_COMMAND_LOG"
@@ -97,6 +118,21 @@ EOF
     chmod +x "$fake_cli"
 }
 
+make_fake_backend() {
+    local backend="$1"
+    local authenticated="${2:-true}"
+    cat > "$TEST_BIN/$backend" <<EOF
+#!/usr/bin/env bash
+printf '%s %s\\n' '$backend' "\$*" >> "\${FAKE_BACKEND_LOG:?}"
+if [[ "\$*" == 'auth status' || "\$*" == 'login status' ]]; then
+    [[ '$authenticated' == 'true' ]]
+    exit
+fi
+exit 99
+EOF
+    chmod +x "$TEST_BIN/$backend"
+}
+
 run_scenario() {
     local name="$1"
     local category="$2"
@@ -108,31 +144,156 @@ run_scenario() {
 
     make_target "$target"
     make_fake_cli "$fake_cli"
+    rm -f "$TEST_BIN/claude" "$TEST_BIN/codex"
+    [[ "${SCENARIO_CLAUDE_AVAILABLE:-true}" == "false" ]] ||
+        make_fake_backend claude "${SCENARIO_CLAUDE_AUTH:-true}"
+    [[ "${SCENARIO_CODEX_AVAILABLE:-true}" == "false" ]] ||
+        make_fake_backend codex "${SCENARIO_CODEX_AUTH:-true}"
     set +e
     (
         cd "$target"
-        PATH="$TEST_BIN:$PATH" FAKE_COMMAND_LOG="$command_log" FAKE_RESULT_CATEGORY="$category" \
+        PATH="$TEST_BIN" FAKE_COMMAND_LOG="$command_log" FAKE_BACKEND_LOG="$TEST_ROOT/$name.backends" FAKE_RESULT_CATEGORY="$category" \
+            FAKE_CLI_UNSUPPORTED_SLOTS="${SCENARIO_UNSUPPORTED_SLOTS:-false}" \
             FAKE_SCOPE_COUNT="${SCENARIO_SCOPE_COUNT:-1}" \
-            "$SKILL_RUNNER" --cli "$fake_cli"
+            "$SKILL_RUNNER" --cli "${SCENARIO_CLI:-$fake_cli}" ${SCENARIO_SLOT_ARGS:-}
     ) > "$output" 2>&1
     status=$?
     set -e
 
     SCENARIO_STATUS=$status
     SCENARIO_OUTPUT="$(cat "$output")"
-    SCENARIO_COMMANDS="$(cat "$command_log")"
+    SCENARIO_COMMANDS="$(cat "$command_log" 2>/dev/null || true)"
     SCENARIO_TARGET="$target"
+}
+
+test_same_model_redundancy() {
+    local backend="$1"
+    local unavailable_backend="$2"
+    local scenario_name="$backend-only"
+
+    if [[ "$unavailable_backend" == "claude" ]]; then
+        SCENARIO_CLAUDE_AVAILABLE=false SCENARIO_SLOT_ARGS="--slot-a $backend --slot-b $backend" \
+            run_scenario "$scenario_name" clean
+    else
+        SCENARIO_CODEX_AVAILABLE=false SCENARIO_SLOT_ARGS="--slot-a $backend --slot-b $backend" \
+            run_scenario "$scenario_name" clean
+    fi
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "intentional $backend redundancy should be supported"
+    assert_contains "$SCENARIO_OUTPUT" "Reviewer slots: $backend, $backend" \
+        "explicit $backend slots should be selected"
+    assert_contains "$SCENARIO_OUTPUT" "lower review diversity" \
+        "same-model redundancy must disclose reduced diversity"
+    assert_selected_commands "$SCENARIO_TARGET" "$backend" "$backend"
+    pass "explicit $backend-only redundancy preserves slots with a diversity warning"
+}
+
+test_auth_failure_stops_before_review() {
+    SCENARIO_CODEX_AUTH=false run_scenario codex-auth-failure clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "authentication failure should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "Codex authentication check failed" \
+        "failed authentication should identify the backend"
+    [[ ! -s "$TEST_ROOT/codex-auth-failure.commands" ]] ||
+        fail "authentication failure must not invoke the review CLI"
+    pass "authentication failure stops before any review invocation"
+}
+
+test_missing_backend_stops_before_review() {
+    SCENARIO_CODEX_AVAILABLE=false run_scenario missing-codex clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing backend should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "missing Agent backend executable: codex" \
+        "missing backend should be named"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing backend must not invoke the review CLI"
+    pass "missing backend executable stops before any review invocation"
+}
+
+test_missing_cli_stops_before_review() {
+    SCENARIO_CLI="$TEST_ROOT/not-installed/adversarial_review.sh" run_scenario missing-cli clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing CLI should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "CLI is not executable" "missing CLI should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing CLI must not start a review"
+    pass "missing CLI executable stops before any review invocation"
+}
+
+test_missing_jq_stops_before_review() {
+    mv "$TEST_BIN/jq" "$TEST_BIN/jq.saved"
+    run_scenario missing-jq clean
+    mv "$TEST_BIN/jq.saved" "$TEST_BIN/jq"
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing jq should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "missing dependency: jq" "missing jq should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing jq must not invoke the review CLI"
+    pass "missing jq stops before any review invocation"
+}
+
+test_missing_timeout_stops_before_review() {
+    local timeout_name="timeout"
+    [[ -e "$TEST_BIN/timeout" ]] || timeout_name="gtimeout"
+    mv "$TEST_BIN/$timeout_name" "$TEST_BIN/$timeout_name.saved"
+    run_scenario missing-timeout clean
+    mv "$TEST_BIN/$timeout_name.saved" "$TEST_BIN/$timeout_name"
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing timeout should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "missing timeout support" "missing timeout should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing timeout must not invoke the review CLI"
+    pass "missing timeout support stops before any review invocation"
+}
+
+test_incompatible_timeout_stops_before_review() {
+    local timeout_name="timeout"
+    [[ -e "$TEST_BIN/timeout" ]] || timeout_name="gtimeout"
+    mv "$TEST_BIN/$timeout_name" "$TEST_BIN/$timeout_name.saved"
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 2' > "$TEST_BIN/$timeout_name"
+    chmod +x "$TEST_BIN/$timeout_name"
+    run_scenario incompatible-timeout clean
+    rm -f "$TEST_BIN/$timeout_name"
+    mv "$TEST_BIN/$timeout_name.saved" "$TEST_BIN/$timeout_name"
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "incompatible timeout should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "incompatible timeout support" \
+        "incompatible timeout should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "incompatible timeout must not invoke the review CLI"
+    pass "incompatible timeout stops before any review invocation"
+}
+
+test_non_gnu_compatible_timeout_is_accepted() {
+    local timeout_name="timeout"
+    [[ -e "$TEST_BIN/timeout" ]] || timeout_name="gtimeout"
+    mv "$TEST_BIN/$timeout_name" "$TEST_BIN/$timeout_name.saved"
+    printf '%s\n' '#!/usr/bin/env bash' 'shift' '"$@"' > "$TEST_BIN/$timeout_name"
+    chmod +x "$TEST_BIN/$timeout_name"
+    run_scenario compatible-timeout clean
+    rm -f "$TEST_BIN/$timeout_name"
+    mv "$TEST_BIN/$timeout_name.saved" "$TEST_BIN/$timeout_name"
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "CLI-compatible non-GNU timeout should be accepted"
+    pass "CLI-compatible non-GNU timeout passes preflight"
+}
+
+test_unsupported_cli_slots_stop_before_review() {
+    SCENARIO_UNSUPPORTED_SLOTS=true run_scenario unsupported-slots clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "unsupported CLI slots should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "does not support required option: --slot-a" \
+        "unsupported slot contract should be explained"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "unsupported CLI must not start a review"
+    pass "unsupported CLI reviewer slots stop before any review invocation"
 }
 
 assert_selected_commands() {
     local target="$1"
+    local slot_a="${2:-claude}"
+    local slot_b="${3:-codex}"
     local dry_command real_command
     dry_command="$(sed -n '1p' <<< "$SCENARIO_COMMANDS")"
     real_command="$(sed -n '2p' <<< "$SCENARIO_COMMANDS")"
 
-    assert_contains "$dry_command" "<--dry-run><--review-only><--base><HEAD><--slot-a><claude><--slot-b><codex><--target-dir><$target><--result-file>" \
+    assert_contains "$dry_command" "<--dry-run><--review-only><--base><HEAD><--slot-a><$slot_a><--slot-b><$slot_b><--target-dir><$target><--result-file>" \
         "dry-run should use the complete explicit command contract"
-    assert_contains "$real_command" "<--review-only><--base><HEAD><--slot-a><claude><--slot-b><codex><--target-dir><$target><--result-file>" \
+    assert_contains "$real_command" "<--review-only><--base><HEAD><--slot-a><$slot_a><--slot-b><$slot_b><--target-dir><$target><--result-file>" \
         "real review should preserve the previewed command contract"
     [[ "$real_command" != *"<--dry-run>"* ]] || fail "real review must not retain --dry-run"
 }
@@ -161,11 +322,13 @@ test_discovers_cli_from_skill_repository() {
     cp "$SKILL_RUNNER" "$runner_dir/run-review.sh"
     chmod +x "$runner_dir/run-review.sh"
     make_fake_cli "$tool_repo/adversarial_review.sh"
+    make_fake_backend claude true
+    make_fake_backend codex true
 
     set +e
     (
         cd "$target"
-        PATH="$TEST_BIN:$PATH" FAKE_COMMAND_LOG="$command_log" \
+        PATH="$TEST_BIN" FAKE_COMMAND_LOG="$command_log" FAKE_BACKEND_LOG="$TEST_ROOT/discovery.backends" \
             "$runner_dir/run-review.sh"
     ) > "$output" 2>&1
     status=$?
@@ -219,6 +382,16 @@ test_explicit_findings_remaining_review() {
 
 test_explicit_clean_review
 test_explicit_findings_remaining_review
+test_same_model_redundancy claude codex
+test_same_model_redundancy codex claude
+test_auth_failure_stops_before_review
+test_missing_backend_stops_before_review
+test_missing_cli_stops_before_review
+test_missing_jq_stops_before_review
+test_missing_timeout_stops_before_review
+test_incompatible_timeout_stops_before_review
+test_non_gnu_compatible_timeout_is_accepted
+test_unsupported_cli_slots_stop_before_review
 test_empty_scope_stops_before_real_review
 test_discovers_cli_from_skill_repository
 

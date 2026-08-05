@@ -95,8 +95,9 @@ failure、`77` write-boundary violation です。完全なバージョン付き 
 ## ドキュメント
 
 - [リポジトリ単位の Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —
-  明示的に呼び出す review-only ワークフロー。baseline に基づくファイル scope を
-  Agent 実行前にプレビューし、バージョン付き機械結果を解釈します
+  明示的に呼び出す review-only ワークフロー。CLI、backend、認証、依存関係を
+  読み取り専用で事前確認し、baseline に基づくファイル scope を Agent 実行前に
+  プレビューして、バージョン付き機械結果を解釈します
 - [詳細ガイド](docs/guide.ja.md) — CLI全体、レビューフェーズ、状態管理、
   成果物、カスタマイズ、コストに関する説明
 - [プロセス終了ステータス](docs/exit-statuses.ja.md) — CI と自動化向けの安定した契約

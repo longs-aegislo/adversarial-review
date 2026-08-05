@@ -343,14 +343,21 @@ Adapter は最初に `PATH`、次に Skill を含むリポジトリのルート�
 `ADVERSARIAL_REVIEW_BIN` を設定するか `--cli <path>` を明示します。
 
 実際の Agent 呼び出し前に、Adapter は Target Repo、baseline、reviewer slots、モードを
-表示し、同じ値で dry-run を実行します。文書化された dry-run 出力に有効かつ空でない
+表示します。まず CLI の必須 slot オプション、選択 backend の実行ファイルと認証、
+`jq`、CLI と構文互換の `timeout` サポートを確認します。不足時は依存関係の
+インストール、認証情報の
+変更、レビュー呼び出しを行わず停止します。既定は異種 `claude`／`codex` です。明示的な
+`claude`／`claude` または `codex`／`codex` は許可しますが、レビュー多様性の低い
+same-model redundancy として説明します。その後、同じ値で dry-run を実行します。
+文書化された dry-run 出力に有効かつ空でない
 ファイル scope がある場合だけ実レビューを開始します。result schema version 1 のみを
 受け付け、clean と findings remaining を区別し、最終 Synthesis と Artifacts のパスを
 表示します。commit、push、PR 作成、fetch、依存関係のインストール、Target Repo の変更は
 行いません。
 
 `tests/test_skill_scenarios.sh` は fixture Target Repo と fake CLI を使い、モデル呼び出しや
-サブスクリプションなしで clean、findings remaining、空 scope、デフォルト CLI 検出を
+サブスクリプションなしで clean、findings remaining、reviewer 選択、前提条件エラー、
+空 scope、デフォルト CLI 検出を
 決定的に検証します。
 
 ## 研究背景
