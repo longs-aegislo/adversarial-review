@@ -1,6 +1,6 @@
 ---
 name: adversarial-review
-description: Run a repository-level adversarial code review, optionally applying fixes only after explicit review-and-fix authorization. Use only when the user explicitly invokes $adversarial-review; do not trigger for ordinary code explanation, debugging, or a lightweight single-pass review.
+description: Run a repository-level post-implementation adversarial review, review and fix completed changes, or perform a final adversarial check before a commit or PR. Do not use for ordinary code explanation, lightweight single-reviewer review, general debugging, or requests only to publish a PR.
 ---
 
 # Adversarial Review
@@ -9,21 +9,13 @@ Run the installed Adversarial Review CLI through the bundled safe adapter. Keep
 the CLI as the review engine; do not call Agent backends or parse tracking files
 directly.
 
-## Run an explicit review
+## Run the review
 
 1. Treat the trusted current workspace as the Target Repo. Do not substitute
    this Skill directory, its plugin directory, or the installed CLI directory.
 2. Let the adapter select a safe baseline unless the user supplied one. An
-   explicit base always wins. Otherwise it uses `HEAD` for worktree-only work,
-   or a known local default branch (`init.defaultBranch`, then `main`/`master`)
-   for committed feature-branch work (including
-   mixed committed and uncommitted changes). It stops before Agent calls for
-   detached HEAD, shallow history, an unknown local default branch, or a
-   missing/remote-only baseline. For a tracked feature branch it requires the
-   corresponding remote-tracking default ref to exist and match the local
-   default branch; an aligned pair may proceed, with a clear disclosure that no
-   fetch occurred. A missing or divergent pair stops and asks for separate
-   fetch authorization or an explicit base. The adapter never fetches itself.
+   explicit base always wins. Do not fetch to improve inference; stop when the
+   adapter reports ambiguity.
 3. Default to heterogeneous reviewer slots `claude` and `codex`. If the user
    explicitly requests `claude`/`claude` or `codex`/`codex`, allow that
    same-model redundancy and clearly report its lower review diversity. Never
@@ -54,16 +46,9 @@ directly.
    Skill installation, set `ADVERSARIAL_REVIEW_BIN` to the installed CLI path
    or pass `--cli <path>`.
 
-   Before a review invocation, the adapter checks the review CLI contract, the
-   selected backend executables and authentication, `jq`, and timeout syntax
-   compatibility with the CLI. It reports missing prerequisites without
-   installing anything or changing credentials. The adapter then prints Target Repo, baseline,
-   reviewer slots, and execution mode, performs a dry-run with the same
-   explicit values, and starts the real review only after confirming a valid,
-   non-empty, plausibly sized Review Scope. Empty, malformed, or unexpectedly
-   large scopes stop before the real review. Every previewed path must also
-   belong to the Git delta from the selected baseline, which rejects accidental
-   whole-repository scopes even below the size limit.
+   The adapter performs read-only prerequisite checks, prints Target Repo,
+   baseline, reviewer slots, and execution mode, then dry-runs the exact
+   invocation. Start the real review only after it accepts the Review Scope.
 6. For apply-fixes, inspect the Target Repo's instructions and documentation
    for safe verification commands. Select the highest relevant documented
    command (for example, the full test command instead of a single test). Pass
@@ -73,25 +58,15 @@ directly.
    dependencies. If none is documented, omit the option; the adapter reports
    that none was provided.
 
-   The adapter accepts only fixed verification shapes: `bash -n <file>`,
-   `bash <script>`, a no-argument `./*test*` / `./*check*` / `./*verify*`
-   executable, package-manager `test` or `run <test|check|verify[:name]>`,
-   `make <test|check|verify>`, `cargo <test|check>`, `go test [./...]`,
-   `pytest`, `python[3] -m pytest`, and `bundle exec <rake|rspec>`. Do not add
-   trailing arguments; they are rejected before Agent calls because supported
-   tools may interpret them as executable configuration.
-7. Report the adapter's machine-result interpretation. It validates every
-   required schema-version-1 field and rejects missing, invalid, contradictory,
-   or unsupported results without consulting terminal prose or internal state.
-   The summary includes mode, Target Repo, requested and resolved base,
-   reviewer/Fixer assignments, termination and reason, iterations, scoped
-   finding/fix counts, modified files, verification, and State/Synthesis/
-   Artifacts paths. It distinguishes `clean`, findings remaining, incomplete
-   review (including maximum iterations and circuit open), invalid invocation,
-   Agent/backend failure, and write-policy violation with actionable guidance.
+7. Report the adapter's machine-result interpretation and its actionable next
+   step. Do not reconstruct results from terminal prose or internal state.
 
 Read [references/result-contract.md](references/result-contract.md) only when
 diagnosing result compatibility or a stopped workflow.
+
+Read [references/workflow-guide.md](references/workflow-guide.md) only when you
+need baseline examples, result-status guidance, or prerequisite and
+compatibility troubleshooting, including accepted verification-command shapes.
 
 ## Safety boundaries
 

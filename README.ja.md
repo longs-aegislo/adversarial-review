@@ -95,11 +95,11 @@ failure、`77` write-boundary violation です。完全なバージョン付き 
 ## ドキュメント
 
 - [リポジトリ単位の Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —
-  明示呼び出しで既定は review-only。明確な review-and-fix 要求と Fixer 指定がある場合のみ修正します。CLI、backend、認証、依存関係を
+  明示呼び出し、または明確な実装後の敵対的レビューや commit/PR 前の確認から検出でき、既定は review-only。明確な review-and-fix 要求と Fixer 指定がある場合のみ修正します。CLI、backend、認証、依存関係を
   読み取り専用で事前確認し、baseline に基づくファイル scope を Agent 実行前に
   安全に baseline を推定または受け取り、保護されたファイル scope をプレビューして、
   バージョン付き機械結果を厳密に検証し、clean、findings、未完了、ポリシー違反、
-  インフラ障害を別々の実行可能な説明として示します
+  インフラ障害を別々の実行可能な説明として示します。通常のコード説明、軽量な単独 reviewer のレビュー、一般的なデバッグ、PR 公開だけの要求では起動せず、常に CLI の薄い Adapter として動作します
 - [詳細ガイド](docs/guide.ja.md) — CLI全体、レビューフェーズ、状態管理、
   成果物、カスタマイズ、コストに関する説明
 - [プロセス終了ステータス](docs/exit-statuses.ja.md) — CI と自動化向けの安定した契約

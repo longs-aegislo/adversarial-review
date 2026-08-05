@@ -343,9 +343,12 @@ only the final reply, keeping it small when fed into later phases. The
 
 ## Repository-level Skill
 
-The repository ships `.agents/skills/adversarial-review` for explicit
-post-implementation or pre-PR reviews. From the trusted Target Repo, invoke
-`$adversarial-review`; its adapter identifies that workspace, gives an explicit
+The repository ships `.agents/skills/adversarial-review` for post-implementation
+or pre-commit/PR adversarial reviews. Invoke `$adversarial-review` explicitly,
+or describe that goal clearly to use implicit discovery. Ordinary code
+explanation, lightweight single-reviewer review, general debugging, and a
+request only to publish a PR stay outside its trigger boundary. From the
+trusted Target Repo, its adapter identifies that workspace, gives an explicit
 baseline priority, uses `HEAD` for worktree-only changes, and uses a known local
 default branch (`init.defaultBranch`, then `main`/`master`) for committed feature work (including mixed committed and
 uncommitted changes). It selects heterogeneous `claude`/`codex` slots and
@@ -399,6 +402,17 @@ findings-remaining, authorized and ambiguous fix intent, modified-file
 disclosure, verification present/absent, forbidden permission expansion,
 baseline selection, ambiguous Git states, reviewer selection, prerequisite failures, unsafe scopes, and default CLI-discovery behavior with
 fixture Target Repos and a fake CLI, without model calls or subscriptions.
+They also preserve representative implicit post-implementation prompts and
+near-miss explanation, lightweight review, debugging, and PR-publication
+prompts, and assert that the Skill metadata describes those boundaries. Actual
+implicit selection is host/model-dependent; the deterministic suite does not
+claim to execute or verify the host's semantic router. Small authenticated
+backend evaluations may provide usability evidence but are not acceptance
+dependencies. The
+main Skill stays compact; baseline examples, result interpretation, and common
+preflight/compatibility remedies are loaded from its workflow reference only
+when needed. The Skill is a CLI Adapter: it does not reproduce the four review
+phases, tracking layout, or machine-result contract.
 
 ## Research Background
 

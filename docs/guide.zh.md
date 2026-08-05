@@ -314,8 +314,9 @@ SUMMARY: Found critical type mixing bug
 
 ## 仓库级 Skill
 
-仓库提供 `.agents/skills/adversarial-review`，用于显式发起实现后或 PR 前审查。
-在受信任的 Target Repo 中调用 `$adversarial-review`；其 Adapter 会识别当前工作区，
+仓库提供 `.agents/skills/adversarial-review`，用于实现后或 commit/PR 前对抗式审查。
+既可显式调用 `$adversarial-review`，也可通过明确描述该目标来隐式发现。普通代码解释、
+轻量单 reviewer 审查、一般调试和仅发布 PR 的请求不在触发范围内。在受信任的 Target Repo 中，其 Adapter 会识别当前工作区，
 显式 baseline 优先；仅有工作区改动时使用 `HEAD`，功能分支存在提交（包括同时有
 未提交改动）时使用已知的本地默认分支（`init.defaultBranch`，其次为 `main`／`master`）。
 它选择异构的 `claude`／`codex` reviewer slots，且默认使用 `review-only`。只有明确的
@@ -355,6 +356,12 @@ pre-existing findings。
 findings remaining、授权或含糊的修复意图、修改文件披露、有／无验证命令、禁止的权限扩张、baseline 选择、歧义 Git 状态、reviewer 选择、前置检查失败、
 异常 Review Scope 与默认 CLI 发现路径，
 既不调用模型也不依赖订阅。
+这些场景也保留代表性的隐式实现后审查 prompt，以及代码解释、轻量审查、调试和
+PR 发布 near-miss，并断言 Skill 元数据描述了这些边界。实际隐式选择取决于宿主／模型；
+确定性套件不声称执行或验证宿主的语义路由。少量真实认证 backend 评估可作为可用性证据，
+但不是验收依赖。主 Skill 保持精简；baseline 示例、结果解释及常见预检／兼容性处理
+仅在需要时从 workflow reference 加载。Skill 是 CLI Adapter，不复制四阶段流程、tracking
+布局或机器结果契约。
 
 ## 研究背景
 
