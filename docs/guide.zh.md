@@ -338,8 +338,11 @@ Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再尝试 Skill 所在
 Review Scope 时才开始真实审查；空、无法解析或超过 500 个文件的 scope 会安全停止。
 每个预览路径还必须属于所选 baseline 的 Git delta，因此低于数量上限的意外整仓 scope
 也会被拒绝。
-它只接受结果 schema version 1，区分 clean 与仍有
-findings，并显示最终 Synthesis 与 Artifacts 路径。apply-fixes 后，它分别列出机器结果中的
+它只接受结果 schema version 1，并校验所有必填字段、跨字段约束以及进程／结果退出状态，
+绝不退回解析终端 prose 或 tracking 状态。摘要包含模式、scope/base、reviewer/Fixer 分配、
+终止原因、迭代次数、按 Finding Scope 区分的计数、修改文件、验证结果及
+State/Synthesis/Artifacts 路径；clean、findings、最大迭代、断路器打开、非法调用、
+Agent/backend 失败和写入策略违规都有独立且可行动的说明。apply-fixes 后，它分别列出机器结果中的
 已应用文件与 Target Repo Git diff 的每个路径，并将未解决 findings 分开报告。仓库文档存在
 安全验证命令时，调用者显式传入最高且相关的命令，并将可执行文件与重复参数作为结构化 argv
 传递；Adapter 直接执行且不经过 shell 解析。否则 Adapter 明确报告未提供，且不安装依赖。

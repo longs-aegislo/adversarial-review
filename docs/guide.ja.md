@@ -361,9 +361,12 @@ same-model redundancy として説明します。その後、同じ値で dry-ru
 実レビューを開始します。空、解析不能、または 500 ファイル超の scope は安全に停止します。
 各 preview path は選択した baseline の Git delta に含まれる必要があるため、上限未満でも
 意図しないリポジトリ全体 scope は拒否されます。
-result schema version 1 のみを
-受け付け、clean と findings remaining を区別し、最終 Synthesis と Artifacts のパスを
-表示します。apply-fixes 後は機械結果の適用済みファイルと Target Repo Git diff の全パスを
+result schema version 1 のみを受け付け、必須フィールド、フィールド間の整合性、
+プロセス／結果終了ステータスを検証し、ターミナル prose や tracking 状態へフォールバックしません。
+モード、scope/base、reviewer/Fixer 割り当て、終了理由、反復回数、Finding Scope 別件数、
+変更ファイル、検証結果、State/Synthesis/Artifacts パスを表示し、clean、findings、最大反復、
+circuit open、不正な呼び出し、Agent/backend 失敗、書き込みポリシー違反をそれぞれ実行可能な
+説明として区別します。apply-fixes 後は機械結果の適用済みファイルと Target Repo Git diff の全パスを
 別々に示し、未解決 findings と区別します。リポジトリ文書に安全な検証コマンドがある場合、
 呼び出し側が最上位かつ関連するものを明示的に渡します。実行ファイルと反復可能な引数を構造化
 argv として渡し、Adapter は shell で再解析せず直接実行します。ない場合は未提供と報告し、
