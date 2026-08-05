@@ -340,8 +340,10 @@ SUMMARY: Found critical type mixing bug
 （`init.defaultBranch`、次に `main`／`master`）を使います。
 異種の `claude`／`codex` reviewer slots を `review-only` モードで選択します。detached
 HEAD、shallow history、local default branch を特定できない場合、または欠落・古い可能性がある remote baseline しかない場合は
-Agent 呼び出し前に停止します。Adapter は fetch を自動実行せず、結論が変わり得る場合は
-明示 baseline または個別の fetch 許可を求めます。
+Agent 呼び出し前に停止します。追跡済み feature branch では、local default と対応する
+remote-tracking default ref が一致する必要があります。一致時は fetch 未実行を明示して
+続行でき、欠落または不一致なら明示 baseline、あるいは fetch／branch 調整の個別許可を
+求めます。Adapter 自身は fetch を自動実行しません。
 
 Adapter は最初に `PATH`、次に Skill を含むリポジトリのルートから
 `adversarial_review.sh` を解決します。Skill を単独でインストールする場合は、

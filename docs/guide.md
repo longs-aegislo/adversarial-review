@@ -353,9 +353,11 @@ uncommitted changes). It selects heterogeneous `claude`/`codex` slots in
 
 Inference stops before Agent calls for detached HEAD, shallow history, a local
 branch whose default cannot be identified, or when only a missing or potentially
-stale remote baseline is available. The adapter
-never fetches; it asks for an explicit baseline or separate authorization to
-fetch when that could change the result.
+stale remote baseline is available. For a tracked feature branch, the local
+default must match the corresponding remote-tracking default ref. Matching refs
+may proceed and disclose that no fetch occurred; a missing or divergent remote
+default stops with guidance to provide an explicit baseline or separately
+authorize fetch/reconciliation. The adapter never fetches itself.
 
 The adapter resolves `adversarial_review.sh` from `PATH` first, then from the
 root of the repository containing the Skill. Standalone Skill installations

@@ -320,8 +320,10 @@ SUMMARY: Found critical type mixing bug
 未提交改动）时使用已知的本地默认分支（`init.defaultBranch`，其次为 `main`／`master`）。
 它以 `review-only` 模式选择异构的
 `claude`／`codex` reviewer slots。detached HEAD、浅克隆，或只有缺失／可能过期的远端
-baseline，或无法识别本地默认分支时，会在 Agent 调用前停止。Adapter 从不自动 fetch；若 fetch 可能改变结论，
-它会要求显式 baseline 或独立的 fetch 授权。
+baseline，或无法识别本地默认分支时，会在 Agent 调用前停止。对于已跟踪的功能分支，
+本地默认分支必须与对应的 remote-tracking 默认 ref 一致；一致时可以继续并披露未执行
+fetch，缺失或不一致时则要求显式 baseline，或独立授权 fetch／协调分支。Adapter 自身
+从不自动 fetch。
 
 Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再尝试 Skill 所在仓库的根目录。
 独立安装 Skill 时，可以设置 `ADVERSARIAL_REVIEW_BIN` 或显式传入 `--cli <路径>`。

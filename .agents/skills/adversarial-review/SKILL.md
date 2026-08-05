@@ -19,9 +19,11 @@ directly.
    for committed feature-branch work (including
    mixed committed and uncommitted changes). It stops before Agent calls for
    detached HEAD, shallow history, an unknown local default branch, or a
-   missing/remote-only baseline. Remote
-   refs may be stale: the adapter never fetches, and asks for separate fetch
-   authorization or an explicit base when fetching could change the decision.
+   missing/remote-only baseline. For a tracked feature branch it requires the
+   corresponding remote-tracking default ref to exist and match the local
+   default branch; an aligned pair may proceed, with a clear disclosure that no
+   fetch occurred. A missing or divergent pair stops and asks for separate
+   fetch authorization or an explicit base. The adapter never fetches itself.
 3. Default to heterogeneous reviewer slots `claude` and `codex`. If the user
    explicitly requests `claude`/`claude` or `codex`/`codex`, allow that
    same-model redundancy and clearly report its lower review diversity. Never

@@ -485,7 +485,7 @@ test_missing_upstream_stops_before_review() {
     git -C "$target" add feature.sh
     git -C "$target" commit -qm feature
     SCENARIO_TARGET_OVERRIDE="$target" run_scenario remote-only clean
-    assert_ambiguous_target_stops_before_cli "has no upstream and remote refs may be stale"
+    assert_ambiguous_target_stops_before_cli "feature branch has no upstream"
     assert_contains "$SCENARIO_OUTPUT" "authorize a separate fetch" \
         "possibly stale remote refs should require separate fetch authorization"
     pass "missing upstream stops without fetching"
@@ -496,13 +496,45 @@ test_possibly_stale_upstream_stops_before_review() {
     make_committed_feature_target "$target"
     git -C "$target" remote add origin "$TEST_ROOT/not-fetched-origin"
     git -C "$target" update-ref refs/remotes/origin/feature HEAD
+    git -C "$target" update-ref refs/remotes/origin/main main~1
     git -C "$target" branch --set-upstream-to origin/feature feature >/dev/null
     SCENARIO_TARGET_OVERRIDE="$target" run_scenario stale-upstream clean
 
-    assert_ambiguous_target_stops_before_cli "remote refs may be stale (origin/feature)"
+    assert_ambiguous_target_stops_before_cli "local main differs from origin/main"
     assert_contains "$SCENARIO_OUTPUT" "authorize a separate fetch" \
         "possibly stale upstream should require separate fetch authorization"
     pass "possibly stale upstream stops without fetching"
+}
+
+test_missing_remote_default_stops_before_review() {
+    local target="$TEST_ROOT/missing-remote-default-target"
+    make_committed_feature_target "$target"
+    git -C "$target" remote add origin "$TEST_ROOT/not-fetched-origin"
+    git -C "$target" update-ref refs/remotes/origin/feature HEAD
+    git -C "$target" branch --set-upstream-to origin/feature feature >/dev/null
+    SCENARIO_TARGET_OVERRIDE="$target" run_scenario missing-remote-default clean
+
+    assert_ambiguous_target_stops_before_cli "remote default ref is missing: origin/main"
+    assert_contains "$SCENARIO_OUTPUT" "authorize a separate fetch" \
+        "missing remote default should require separate fetch authorization"
+    pass "missing remote-tracking default stops without fetching"
+}
+
+test_fresh_remote_default_allows_merge_base() {
+    local target="$TEST_ROOT/fresh-remote-target"
+    make_committed_feature_target "$target"
+    git -C "$target" remote add origin "$TEST_ROOT/not-fetched-origin"
+    git -C "$target" update-ref refs/remotes/origin/feature HEAD
+    git -C "$target" update-ref refs/remotes/origin/main main
+    git -C "$target" branch --set-upstream-to origin/feature feature >/dev/null
+    SCENARIO_TARGET_OVERRIDE="$target" SCENARIO_SCOPE_FILES=feature.sh run_scenario fresh-remote clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "aligned local and remote defaults should permit baseline inference"
+    assert_contains "$SCENARIO_OUTPUT" "merge-base of feature and main" \
+        "normal tracked feature branch should use the default merge-base"
+    assert_contains "$SCENARIO_OUTPUT" "Remote baseline: local main matches origin/main; no fetch performed" \
+        "successful inference should disclose the no-fetch freshness limit"
+    pass "aligned remote-tracking default allows merge-base without fetching"
 }
 
 test_configured_nonstandard_default_branch_uses_merge_base() {
@@ -587,6 +619,8 @@ test_detached_head_stops_before_review
 test_shallow_repo_stops_before_review
 test_missing_upstream_stops_before_review
 test_possibly_stale_upstream_stops_before_review
+test_missing_remote_default_stops_before_review
+test_fresh_remote_default_allows_merge_base
 test_configured_nonstandard_default_branch_uses_merge_base
 test_unknown_default_branch_stops
 test_unexpected_whole_repo_scope_stops_before_real_review

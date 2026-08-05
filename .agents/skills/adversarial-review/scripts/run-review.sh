@@ -7,6 +7,10 @@ fail() {
     exit "${2:-64}"
 }
 
+fail_needs_base_or_fetch() {
+    fail "$1; provide an explicit base or authorize a separate fetch"
+}
+
 require_json() {
     local file="$1"
     jq -e . "$file" >/dev/null 2>&1 || fail "CLI did not produce valid machine JSON"
@@ -64,6 +68,7 @@ CLI="${ADVERSARIAL_REVIEW_BIN:-}"
 BASE_REF=""
 BASE_EXPLICIT=false
 BASE_DESCRIPTION=""
+REMOTE_BASELINE_NOTE=""
 SLOT_A="claude"
 SLOT_B="codex"
 
@@ -101,7 +106,7 @@ TARGET_DIR="$(cd "$TARGET_DIR" && pwd -P)"
 
 if [[ "$BASE_EXPLICIT" == "false" ]]; then
     [[ "$(git -C "$TARGET_DIR" rev-parse --is-shallow-repository)" == "false" ]] ||
-        fail "cannot infer a safe baseline for this shallow Target Repo; provide an explicit base or authorize a separate fetch"
+        fail_needs_base_or_fetch "cannot infer a safe baseline for this shallow Target Repo"
     current_branch="$(git -C "$TARGET_DIR" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
     [[ -n "$current_branch" ]] ||
         fail "cannot infer a safe baseline from detached HEAD; provide an explicit base"
@@ -120,19 +125,32 @@ if [[ "$BASE_EXPLICIT" == "false" ]]; then
         fail "cannot infer a safe baseline because the Target Repo has no known default branch; provide an explicit base"
     fi
 
-    if [[ -n "$(git -C "$TARGET_DIR" remote)" && "$current_branch" != "$default_branch" ]]; then
-        upstream_ref="$(git -C "$TARGET_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
-        if [[ -z "$upstream_ref" ]]; then
-            fail "cannot infer a safe baseline because the feature branch has no upstream and remote refs may be stale; provide an explicit base or authorize a separate fetch"
-        fi
-        fail "cannot infer a safe baseline because remote refs may be stale ($upstream_ref); provide an explicit base or authorize a separate fetch"
+    committed_branch_work=false
+    if [[ "$current_branch" != "$default_branch" ]] &&
+       [[ "$(git -C "$TARGET_DIR" rev-list --count "$default_branch..HEAD")" -gt 0 ]]; then
+        committed_branch_work=true
     fi
 
-    if [[ -n "$default_branch" && "$current_branch" != "$default_branch" ]] &&
-       [[ "$(git -C "$TARGET_DIR" rev-list --count "$default_branch..HEAD")" -gt 0 ]]; then
+    if [[ "$committed_branch_work" == "true" && -n "$(git -C "$TARGET_DIR" remote)" ]]; then
+        upstream_ref="$(git -C "$TARGET_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+        if [[ -z "$upstream_ref" ]]; then
+            fail_needs_base_or_fetch "cannot infer a safe baseline because the feature branch has no upstream"
+        fi
+
+        upstream_remote="$(git -C "$TARGET_DIR" config --get "branch.$current_branch.remote" 2>/dev/null || true)"
+        remote_default_ref="refs/remotes/$upstream_remote/$default_branch"
+        git -C "$TARGET_DIR" show-ref --verify --quiet "$remote_default_ref" ||
+            fail_needs_base_or_fetch "cannot infer a safe baseline because the remote default ref is missing: $upstream_remote/$default_branch"
+        if [[ "$(git -C "$TARGET_DIR" rev-parse "$default_branch")" != "$(git -C "$TARGET_DIR" rev-parse "$remote_default_ref")" ]]; then
+            fail_needs_base_or_fetch "cannot infer a safe baseline because local $default_branch differs from $upstream_remote/$default_branch"
+        fi
+        REMOTE_BASELINE_NOTE="local $default_branch matches $upstream_remote/$default_branch; no fetch performed"
+    fi
+
+    if [[ "$committed_branch_work" == "true" ]]; then
         BASE_REF="$(git -C "$TARGET_DIR" merge-base HEAD "$default_branch")"
         [[ -n "$BASE_REF" ]] || fail "cannot determine a merge-base for Target Repo branches $current_branch and $default_branch"
-        BASE_DESCRIPTION=" (merge-base of $current_branch and $default_branch)"
+        BASE_DESCRIPTION="merge-base of $current_branch and $default_branch"
     else
         BASE_REF="HEAD"
     fi
@@ -153,7 +171,8 @@ if [[ "$SLOT_B" != "$SLOT_A" ]]; then
 fi
 
 echo "Target Repo: $TARGET_DIR"
-echo "Baseline: $BASE_REF$BASE_DESCRIPTION"
+echo "Baseline: $BASE_REF${BASE_DESCRIPTION:+ ($BASE_DESCRIPTION)}"
+[[ -z "$REMOTE_BASELINE_NOTE" ]] || echo "Remote baseline: $REMOTE_BASELINE_NOTE"
 echo "Reviewer slots: $SLOT_A, $SLOT_B"
 if [[ "$SLOT_A" == "$SLOT_B" ]]; then
     echo "Review diversity: same-model redundancy provides lower review diversity than heterogeneous reviewers"
