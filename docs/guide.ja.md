@@ -359,9 +359,9 @@ remote-tracking default ref が一致する必要があります。一致時は 
 続行でき、欠落または不一致なら明示 baseline、あるいは fetch／branch 調整の個別許可を
 求めます。Adapter 自身は fetch を自動実行しません。
 
-Adapter は最初に `PATH`、次に同じインストール済み Plugin root 内の bundled runtime、
-最後に source-tree Skill を含むリポジトリの root から `adversarial_review.sh` を解決します。
-`ADVERSARIAL_REVIEW_BIN` と `--cli <path>` は明示的な runtime override として残ります。
+インストール済み Plugin の Adapter は、同じ Plugin root 内の bundled runtime を常に使い、
+runtime override を拒否します。source-tree Skill の場合だけ、明示 override、`PATH`、その
+リポジトリ root の順で `adversarial_review.sh` を解決します。
 
 実際の Agent 呼び出し前に、Adapter は Target Repo、baseline、reviewer slots、モードを
 表示します。まず CLI の必須 slot オプション、選択 backend の実行ファイルと認証、
@@ -390,8 +390,9 @@ argv として渡し、Adapter は shell で再解析せず直接実行します
 
 `tests/test_plugin_package.sh` は分離した `HOME` と `CODEX_HOME` でローカル marketplace
 を登録・一覧・インストールし、Skill が1つだけ検出されることを確認します。その後、fake
-Agent backends を使ってインストール済み Skill Adapter から bundled runtime へ入り、モデル
-subscription や source-tree runtime なしで、安定した機械結果と Target Repo が変更されない
+Agent backends を使い、marketplace source を利用不能にした後で、インストール済み Skill
+Adapter から bundled runtime へ入ります。`PATH` に競合 runtime があっても、モデル
+subscription や source-tree runtime を使わず、安定した機械結果と Target Repo が変更されない
 ことを検証します。
 
 `tests/test_skill_scenarios.sh` は fixture Target Repo と fake CLI を使い、モデル呼び出しや

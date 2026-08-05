@@ -23,7 +23,7 @@ jq -e '
     .interface.displayName == "Adversarial Review" and
     (.interface.shortDescription | type == "string" and length > 0) and
     (.interface.longDescription | contains("multi-agent adversarial review")) and
-    (.interface.defaultPrompt | all(contains("apply-fixes"))) and
+    (.interface.defaultPrompt | all(contains("multi-agent") and contains("apply-fixes"))) and
     (has("mcpServers") | not) and
     (has("apps") | not) and
     (has("hooks") | not)
@@ -79,13 +79,16 @@ command -v codex >/dev/null 2>&1 || fail "codex CLI is required for plugin insta
 
 PROFILE_ROOT="$(mktemp -d)"
 trap 'rm -rf "$PROFILE_ROOT"' EXIT
-mkdir -p "$PROFILE_ROOT/home" "$PROFILE_ROOT/codex"
+MARKETPLACE_SOURCE="$PROFILE_ROOT/marketplace-source"
+mkdir -p "$PROFILE_ROOT/home" "$PROFILE_ROOT/codex" "$MARKETPLACE_SOURCE/.agents/plugins"
+cp "$MARKETPLACE" "$MARKETPLACE_SOURCE/.agents/plugins/marketplace.json"
+cp -R "$REPO_ROOT/plugins" "$MARKETPLACE_SOURCE/plugins"
 
 run_codex() {
     HOME="$PROFILE_ROOT/home" CODEX_HOME="$PROFILE_ROOT/codex" codex "$@"
 }
 
-run_codex plugin marketplace add "$REPO_ROOT" --json > "$PROFILE_ROOT/marketplace-add.json" ||
+run_codex plugin marketplace add "$MARKETPLACE_SOURCE" --json > "$PROFILE_ROOT/marketplace-add.json" ||
     fail "Codex could not register the repository marketplace"
 
 AVAILABLE_JSON="$(run_codex plugin list --available --json)" ||
@@ -110,6 +113,8 @@ jq -e '
         .marketplaceName == "adversarial-review-local" and
         .installed == true and .enabled == true)
 ' <<< "$INSTALLED_JSON" >/dev/null || fail "installed adversarial-review is not enabled"
+
+mv "$MARKETPLACE_SOURCE" "$PROFILE_ROOT/source-unavailable"
 
 INSTALLED_SKILL="$INSTALLED_ROOT/skills/adversarial-review/SKILL.md"
 [[ -f "$INSTALLED_SKILL" ]] || fail "installed Plugin does not expose the adversarial-review Skill"
@@ -136,6 +141,8 @@ ln -s "$(type -P true)" "$FAKE_BIN/true"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/claude" "$FAKE_BIN/claude"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/codex" "$FAKE_BIN/codex"
 chmod +x "$FAKE_BIN/claude" "$FAKE_BIN/codex"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 99' > "$FAKE_BIN/adversarial_review.sh"
+chmod +x "$FAKE_BIN/adversarial_review.sh"
 
 TARGET_HASH_BEFORE="$(git -C "$TARGET_REPO" hash-object app.sh)"
 set +e

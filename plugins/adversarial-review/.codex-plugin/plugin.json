@@ -20,7 +20,7 @@
     "capabilities": ["Interactive"],
     "websiteURL": "https://github.com/longs-aegislo/adversarial-review",
     "defaultPrompt": [
-      "Review this repository adversarially; use review-only unless I explicitly request apply-fixes."
+      "Run a multi-agent adversarial review; use review-only unless I explicitly request apply-fixes."
     ]
   }
 }

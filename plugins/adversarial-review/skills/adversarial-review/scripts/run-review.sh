@@ -174,7 +174,9 @@ require_backend() {
 }
 
 SKILL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-CLI="${ADVERSARIAL_REVIEW_BIN:-}"
+BUNDLED_CLI="$SKILL_SCRIPT_DIR/../../../runtime/adversarial_review.sh"
+CLI_OVERRIDE="${ADVERSARIAL_REVIEW_BIN:-}"
+CLI=""
 BASE_REF=""
 BASE_EXPLICIT=false
 BASE_DESCRIPTION=""
@@ -188,7 +190,7 @@ VERIFICATION_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --cli) CLI="$2"; shift 2 ;;
+        --cli) CLI_OVERRIDE="$2"; shift 2 ;;
         --base) BASE_REF="$2"; BASE_EXPLICIT=true; shift 2 ;;
         --slot-a) SLOT_A="$2"; shift 2 ;;
         --slot-b) SLOT_B="$2"; shift 2 ;;
@@ -201,11 +203,15 @@ while [[ $# -gt 0 ]]; do
 done
 
 command -v jq >/dev/null 2>&1 || fail "missing dependency: jq"
+if [[ -x "$BUNDLED_CLI" ]]; then
+    [[ -z "$CLI_OVERRIDE" ]] ||
+        fail "the installed Plugin runtime cannot be overridden with ADVERSARIAL_REVIEW_BIN or --cli"
+    CLI="$BUNDLED_CLI"
+else
+    CLI="$CLI_OVERRIDE"
+fi
 if [[ -z "$CLI" ]]; then
     CLI="$(command -v adversarial_review.sh 2>/dev/null || true)"
-    if [[ -z "$CLI" && -x "$SKILL_SCRIPT_DIR/../../../runtime/adversarial_review.sh" ]]; then
-        CLI="$SKILL_SCRIPT_DIR/../../../runtime/adversarial_review.sh"
-    fi
     if [[ -z "$CLI" && -x "$SKILL_SCRIPT_DIR/../../../../adversarial_review.sh" ]]; then
         CLI="$SKILL_SCRIPT_DIR/../../../../adversarial_review.sh"
     fi

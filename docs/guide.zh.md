@@ -335,9 +335,9 @@ baseline，或无法识别本地默认分支时，会在 Agent 调用前停止�
 fetch，缺失或不一致时则要求显式 baseline，或独立授权 fetch／协调分支。Adapter 自身
 从不自动 fetch。
 
-Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再使用同一已安装 Plugin root 内的
-bundled runtime，最后才尝试源码树 Skill 所在仓库的根目录。仍可通过
-`ADVERSARIAL_REVIEW_BIN` 或 `--cli <路径>` 显式覆盖 runtime。
+已安装 Plugin 的 Adapter 始终使用同一 Plugin root 内的 bundled runtime，并拒绝 runtime
+override。源码树 Skill 才依次从显式 override、`PATH` 和所在仓库根目录解析
+`adversarial_review.sh`。
 
 任何真实 Agent 调用前，Adapter 都会显示 Target Repo、baseline、reviewer slots 和
 执行模式。它会先检查 CLI 所需的 slot 参数、所选 backend 可执行文件与认证、`jq`
@@ -363,9 +363,9 @@ Agent/backend 失败和写入策略违规都有独立且可行动的说明。app
 pre-existing findings。
 
 `tests/test_plugin_package.sh` 使用隔离的 `HOME` 与 `CODEX_HOME` 注册、列出并安装本地
-marketplace，断言只发现一个 Skill，再用 fake Agent backends 从已安装 Skill Adapter 进入
-bundled runtime。它不使用模型订阅或源码树 runtime，并验证稳定机器结果及 Target Repo
-未发生变化。
+marketplace，断言只发现一个 Skill，使 marketplace source 不可访问后，再用 fake Agent
+backends 从已安装 Skill Adapter 进入 bundled runtime。即使 `PATH` 中存在冲突 runtime，
+它也不使用模型订阅或源码树 runtime，并验证稳定机器结果及 Target Repo 未发生变化。
 
 `tests/test_skill_scenarios.sh` 使用 fixture Target Repo 和伪 CLI，确定性覆盖 clean、
 findings remaining、授权或含糊的修复意图、修改文件披露、有／无验证命令、禁止的权限扩张、baseline 选择、歧义 Git 状态、reviewer 选择、前置检查失败、

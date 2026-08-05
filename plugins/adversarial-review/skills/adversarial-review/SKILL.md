@@ -41,10 +41,10 @@ directly.
    <skill-directory>/scripts/run-review.sh --apply-fixes --fixer <claude|codex> [--base <baseline>] [--verification-command <executable> --verification-arg <arg> ...]
    ```
 
-   The adapter first looks for `adversarial_review.sh` on `PATH`, then uses the
-   runtime bundled in the same Plugin version. A source-repository Skill also
-   falls back to the CLI at that repository's root. `ADVERSARIAL_REVIEW_BIN`
-   or `--cli <path>` remains available for an explicit runtime override.
+   An installed Plugin always uses the runtime bundled in that same Plugin
+   version and rejects runtime overrides. A source-repository Skill looks on
+   `PATH`, then at that repository's root; there,
+   `ADVERSARIAL_REVIEW_BIN` or `--cli <path>` remains available explicitly.
 
    The adapter performs read-only prerequisite checks, prints Target Repo,
    baseline, reviewer slots, and execution mode, then dry-runs the exact

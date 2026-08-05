@@ -375,10 +375,10 @@ may proceed and disclose that no fetch occurred; a missing or divergent remote
 default stops with guidance to provide an explicit baseline or separately
 authorize fetch/reconciliation. The adapter never fetches itself.
 
-The adapter resolves `adversarial_review.sh` from `PATH` first, then the runtime
-bundled under the same installed Plugin root, and finally the root of the
-repository containing a source-tree Skill. `ADVERSARIAL_REVIEW_BIN` and
-`--cli <path>` remain explicit overrides.
+An installed Plugin Adapter always uses the runtime bundled under that same
+Plugin root and rejects runtime overrides. A source-tree Skill resolves
+`adversarial_review.sh` from an explicit override, then `PATH`, and finally the
+root of its repository.
 
 Before any real Agent call, the adapter prints the Target Repo, baseline,
 reviewer slots, and mode. It first checks the CLI's required slot options, the
@@ -413,8 +413,9 @@ clean, dependency installation, or modifying pre-existing findings.
 `tests/test_plugin_package.sh` uses an isolated `HOME` and `CODEX_HOME` to
 register, list, and install the local marketplace, assert discovery of exactly
 one Skill, then run that installed Skill Adapter through the bundled runtime
-with fake Agent backends. It verifies a stable machine result and an unchanged
-Target Repo without using model subscriptions or a source-tree runtime.
+with fake Agent backends after making the marketplace source unavailable. It
+verifies a stable machine result and an unchanged Target Repo without using
+model subscriptions, a source-tree runtime, or a conflicting runtime on PATH.
 
 Deterministic scenarios in `tests/test_skill_scenarios.sh` exercise clean,
 findings-remaining, authorized and ambiguous fix intent, modified-file
