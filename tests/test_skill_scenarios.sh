@@ -618,7 +618,7 @@ test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
     local skill_file="$SCRIPT_DIR/.agents/skills/adversarial-review/SKILL.md"
     local metadata_file="$SCRIPT_DIR/.agents/skills/adversarial-review/agents/openai.yaml"
     local scenarios_file="$SCRIPT_DIR/tests/fixtures/skill-discovery-scenarios.tsv"
-    local skill_description metadata scenario expected actual trigger_count=0 near_miss_count=0
+    local skill_description metadata scenario expected actual scenario_name trigger_count=0 near_miss_count=0
 
     skill_description="$(sed -n 's/^description: //p' "$skill_file")"
     metadata="$(cat "$metadata_file")"
@@ -641,9 +641,20 @@ test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
         case "$expected" in
             trigger)
                 trigger_count=$((trigger_count + 1))
+                scenario_name="implicit-discovery-$trigger_count"
+                run_scenario "$scenario_name" clean
+                [[ $SCENARIO_STATUS -eq 0 ]] ||
+                    fail "implicitly discovered scenario should enter the Skill workflow"
+                assert_contains "$SCENARIO_OUTPUT" "Execution mode: review-only" \
+                    "implicit review intent should enter the safe review-only workflow"
+                [[ -n "$SCENARIO_COMMANDS" ]] ||
+                    fail "implicitly discovered scenario should invoke the adapter's fake CLI"
                 ;;
             near-miss)
                 near_miss_count=$((near_miss_count + 1))
+                scenario_name="near-miss-$near_miss_count"
+                [[ ! -e "$TEST_ROOT/$scenario_name.commands" ]] ||
+                    fail "near-miss scenario must not enter the Skill workflow"
                 ;;
             *)
                 fail "unknown Skill discovery expectation: $expected"
