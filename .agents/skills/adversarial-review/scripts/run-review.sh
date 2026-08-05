@@ -11,22 +11,26 @@ fail_needs_base_or_fetch() {
     fail "$1; provide an explicit base or authorize a separate fetch"
 }
 
-is_safe_verification_command() {
-    local command="$1"
-    local -a words
+is_safe_verification_argv() {
+    local executable="$1"
+    shift
 
-    [[ "$command" != *[';&|`<>()$']* ]] || return 1
-    read -r -a words <<< "$command"
-    case "${words[*]}" in
-        "bash -n "*|"bash "*) return 0 ;;
+    case "$executable" in
+        bash)
+            [[ "${1:-}" == "-n" && $# -eq 2 ]] ||
+                [[ $# -eq 1 && "$1" != -* ]]
+            ;;
         ./*test*|./*check*|./*verify*) return 0 ;;
-        "npm test"*|"npm run test"*|"npm run check"*|"npm run verify"*) return 0 ;;
-        "pnpm test"*|"pnpm run test"*|"pnpm run check"*|"pnpm run verify"*) return 0 ;;
-        "yarn test"*|"yarn run test"*|"yarn run check"*|"yarn run verify"*) return 0 ;;
-        "make test"*|"make check"*|"make verify"*) return 0 ;;
-        "cargo test"*|"cargo check"*|"go test"*) return 0 ;;
-        pytest|"pytest "*|"python -m pytest"*|"python3 -m pytest"*) return 0 ;;
-        "bundle exec rake"*|"bundle exec rspec"*) return 0 ;;
+        npm|pnpm|yarn)
+            [[ "${1:-}" == "test" ]] ||
+                [[ "${1:-}" == "run" && "${2:-}" =~ ^(test|check|verify)(:|$) ]]
+            ;;
+        make) [[ "${1:-}" =~ ^(test|check|verify)$ ]] ;;
+        cargo) [[ "${1:-}" == "test" || "${1:-}" == "check" ]] ;;
+        go) [[ "${1:-}" == "test" ]] ;;
+        pytest) return 0 ;;
+        python|python3) [[ "${1:-}" == "-m" && "${2:-}" == "pytest" ]] ;;
+        bundle) [[ "${1:-}" == "exec" && ("${2:-}" == "rake" || "${2:-}" == "rspec") ]] ;;
         *) return 1 ;;
     esac
 }
@@ -102,7 +106,8 @@ SLOT_A="claude"
 SLOT_B="codex"
 EXECUTION_MODE="review-only"
 FIXER=""
-VERIFICATION_COMMAND=""
+VERIFICATION_EXECUTABLE=""
+VERIFICATION_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -112,7 +117,8 @@ while [[ $# -gt 0 ]]; do
         --slot-b) SLOT_B="$2"; shift 2 ;;
         --apply-fixes) EXECUTION_MODE="apply-fixes"; shift ;;
         --fixer) FIXER="$2"; shift 2 ;;
-        --verification-command) VERIFICATION_COMMAND="$2"; shift 2 ;;
+        --verification-command) VERIFICATION_EXECUTABLE="$2"; shift 2 ;;
+        --verification-arg) VERIFICATION_ARGS+=("$2"); shift 2 ;;
         *) fail "unknown option: $1" ;;
     esac
 done
@@ -140,12 +146,14 @@ if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
 elif [[ -n "$FIXER" ]]; then
     fail "--fixer is valid only with explicit --apply-fixes authorization"
 fi
-if [[ -n "$VERIFICATION_COMMAND" ]]; then
+if [[ -n "$VERIFICATION_EXECUTABLE" ]]; then
     [[ "$EXECUTION_MODE" == "apply-fixes" ]] ||
         fail "--verification-command is valid only with explicit --apply-fixes authorization"
-    if ! is_safe_verification_command "$VERIFICATION_COMMAND"; then
-        fail "verification command expands authorization beyond review-and-fix: $VERIFICATION_COMMAND"
+    if ! is_safe_verification_argv "$VERIFICATION_EXECUTABLE" "${VERIFICATION_ARGS[@]}"; then
+        fail "verification command expands authorization beyond review-and-fix: $VERIFICATION_EXECUTABLE ${VERIFICATION_ARGS[*]}"
     fi
+elif [[ ${#VERIFICATION_ARGS[@]} -gt 0 ]]; then
+    fail "--verification-arg requires --verification-command"
 fi
 
 TARGET_DIR="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
@@ -317,12 +325,14 @@ fi
 echo "Synthesis: $(jq -r '.paths.final_synthesis_artifact // "not produced"' "$REAL_RESULT")"
 echo "Artifacts: $(jq -r '.paths.artifacts_dir // "not produced"' "$REAL_RESULT")"
 if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
-    if [[ -z "$VERIFICATION_COMMAND" ]]; then
+    if [[ -z "$VERIFICATION_EXECUTABLE" ]]; then
         echo "Verification: no documented safe command was provided"
     else
-        echo "Verification command: $VERIFICATION_COMMAND"
+        printf 'Verification command:'
+        printf ' %q' "$VERIFICATION_EXECUTABLE" "${VERIFICATION_ARGS[@]}"
+        printf '\n'
         set +e
-        (cd "$TARGET_DIR" && bash -c "$VERIFICATION_COMMAND")
+        (cd "$TARGET_DIR" && "$VERIFICATION_EXECUTABLE" "${VERIFICATION_ARGS[@]}")
         verification_status=$?
         set -e
         if [[ $verification_status -eq 0 ]]; then

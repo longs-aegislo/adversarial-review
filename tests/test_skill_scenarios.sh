@@ -187,8 +187,15 @@ run_scenario() {
     (
         cd "$target"
         verification_args=()
-        [[ -z "${SCENARIO_VERIFICATION_COMMAND:-}" ]] || \
+        if [[ -n "${SCENARIO_VERIFICATION_COMMAND:-}" ]]; then
             verification_args=(--verification-command "$SCENARIO_VERIFICATION_COMMAND")
+            [[ -z "${SCENARIO_VERIFICATION_ARG1:-}" ]] ||
+                verification_args+=(--verification-arg "$SCENARIO_VERIFICATION_ARG1")
+            [[ -z "${SCENARIO_VERIFICATION_ARG2:-}" ]] ||
+                verification_args+=(--verification-arg "$SCENARIO_VERIFICATION_ARG2")
+            [[ -z "${SCENARIO_VERIFICATION_ARG3:-}" ]] ||
+                verification_args+=(--verification-arg "$SCENARIO_VERIFICATION_ARG3")
+        fi
         PATH="$TEST_BIN" FAKE_COMMAND_LOG="$command_log" FAKE_BACKEND_LOG="$TEST_ROOT/$name.backends" FAKE_RESULT_CATEGORY="$category" \
             FAKE_CLI_UNSUPPORTED_SLOTS="${SCENARIO_UNSUPPORTED_SLOTS:-false}" \
             FAKE_SCOPE_COUNT="${SCENARIO_SCOPE_COUNT:-1}" \
@@ -497,7 +504,8 @@ test_apply_fixes_rejects_pre_existing_fixes() {
 
 test_apply_fixes_runs_documented_verification() {
     SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
-        SCENARIO_VERIFICATION_COMMAND="bash -n app.sh" \
+        SCENARIO_VERIFICATION_COMMAND="bash" SCENARIO_VERIFICATION_ARG1="-n" \
+        SCENARIO_VERIFICATION_ARG2="app.sh" \
         run_scenario verified-fixes clean
 
     [[ $SCENARIO_STATUS -eq 0 ]] || fail "safe documented verification should pass"
@@ -521,14 +529,22 @@ test_forbidden_permission_expansion_stops_before_review() {
     local forbidden
     for forbidden in "git commit" "git push" "git fetch" "git reset" "git clean" \
         "gh pr create" "npm install"; do
+        read -r executable argument _ <<< "$forbidden"
         SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
-            SCENARIO_VERIFICATION_COMMAND="$forbidden" \
+            SCENARIO_VERIFICATION_COMMAND="$executable" SCENARIO_VERIFICATION_ARG1="$argument" \
             run_scenario "forbidden-${forbidden// /-}" clean
         [[ $SCENARIO_STATUS -eq 64 ]] || fail "forbidden command should stop: $forbidden"
         assert_contains "$SCENARIO_OUTPUT" "verification command expands authorization" \
             "forbidden permission expansion should be explained"
         [[ -z "$SCENARIO_COMMANDS" ]] || fail "forbidden verification must stop before Agent calls"
     done
+    SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" SCENARIO_VERIFICATION_COMMAND="bash" \
+        SCENARIO_VERIFICATION_ARG1="-c" SCENARIO_VERIFICATION_ARG2="git commit -am pwned" \
+        run_scenario forbidden-bash-wrapper clean
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "bash -c wrapper should stop before review"
+    assert_contains "$SCENARIO_OUTPUT" "verification command expands authorization" \
+        "structured argv validation must reject shell wrappers"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "shell wrapper must stop before Agent calls"
     pass "commit, publish, fetch, reset, clean, and install remain separately authorized"
 }
 

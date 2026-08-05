@@ -365,8 +365,9 @@ result schema version 1 のみを
 受け付け、clean と findings remaining を区別し、最終 Synthesis と Artifacts のパスを
 表示します。apply-fixes 後は機械結果の適用済みファイルと Target Repo Git diff の全パスを
 別々に示し、未解決 findings と区別します。リポジトリ文書に安全な検証コマンドがある場合、
-呼び出し側が最上位かつ関連するものを明示的に渡します。ない場合は未提供と報告し、依存関係を
-インストールしません。レビュー許可は commit、push、PR 作成、fetch、reset、clean、依存関係の
+呼び出し側が最上位かつ関連するものを明示的に渡します。実行ファイルと反復可能な引数を構造化
+argv として渡し、Adapter は shell で再解析せず直接実行します。ない場合は未提供と報告し、
+依存関係をインストールしません。レビュー許可は commit、push、PR 作成、fetch、reset、clean、依存関係の
 インストール、pre-existing findings の変更には拡張されません。
 
 `tests/test_skill_scenarios.sh` は fixture Target Repo と fake CLI を使い、モデル呼び出しや

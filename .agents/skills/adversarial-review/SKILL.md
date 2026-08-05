@@ -46,7 +46,7 @@ directly.
 
    ```bash
    <skill-directory>/scripts/run-review.sh [--base <baseline>]
-   <skill-directory>/scripts/run-review.sh --apply-fixes --fixer <claude|codex> [--base <baseline>] [--verification-command '<documented command>']
+   <skill-directory>/scripts/run-review.sh --apply-fixes --fixer <claude|codex> [--base <baseline>] [--verification-command <executable> --verification-arg <arg> ...]
    ```
 
    The adapter first looks for `adversarial_review.sh` on `PATH`, then for the
@@ -66,10 +66,12 @@ directly.
    whole-repository scopes even below the size limit.
 6. For apply-fixes, inspect the Target Repo's instructions and documentation
    for safe verification commands. Select the highest relevant documented
-   command (for example, the full test command instead of a single test) and
-   pass it with `--verification-command`. Do not invent a command or install
-   missing dependencies. If none is documented, omit the option; the adapter
-   reports that none was provided.
+   command (for example, the full test command instead of a single test). Pass
+   its executable with `--verification-command` and each argument separately
+   with a repeated `--verification-arg`; the adapter executes that argv directly
+   and never evaluates shell syntax. Do not invent a command or install missing
+   dependencies. If none is documented, omit the option; the adapter reports
+   that none was provided.
 7. Report the adapter's machine-result interpretation. Distinguish `clean`
    from `Findings remaining`, and include the final Synthesis and Artifacts
    paths it prints. Treat any other termination category as stopped or failed;

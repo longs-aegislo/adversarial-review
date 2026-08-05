@@ -341,8 +341,9 @@ Review Scope 时才开始真实审查；空、无法解析或超过 500 个文�
 它只接受结果 schema version 1，区分 clean 与仍有
 findings，并显示最终 Synthesis 与 Artifacts 路径。apply-fixes 后，它分别列出机器结果中的
 已应用文件与 Target Repo Git diff 的每个路径，并将未解决 findings 分开报告。仓库文档存在
-安全验证命令时，调用者显式传入最高且相关的命令；否则 Adapter 明确报告未提供，且不安装
-依赖。审查授权不会扩张为 commit、push、创建 PR、fetch、reset、clean、安装依赖或修改
+安全验证命令时，调用者显式传入最高且相关的命令，并将可执行文件与重复参数作为结构化 argv
+传递；Adapter 直接执行且不经过 shell 解析。否则 Adapter 明确报告未提供，且不安装依赖。
+审查授权不会扩张为 commit、push、创建 PR、fetch、reset、clean、安装依赖或修改
 pre-existing findings。
 
 `tests/test_skill_scenarios.sh` 使用 fixture Target Repo 和伪 CLI，确定性覆盖 clean、

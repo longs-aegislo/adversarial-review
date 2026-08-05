@@ -381,8 +381,9 @@ clean review from remaining findings, and prints the final Synthesis and
 Artifacts paths. After apply-fixes it lists both machine-reported applied files
 and every path in the Target Repo Git diff, keeping unresolved findings
 separate. The caller passes the highest relevant safe verification command
-explicitly when repository documentation provides one; otherwise the adapter
-reports that none was provided and never installs dependencies. Review
+explicitly when repository documentation provides one. It passes the executable
+and repeated arguments as structured argv and executes them directly without a
+shell parser; otherwise the adapter reports that none was provided and never installs dependencies. Review
 authorization never expands to commits, pushes, PR creation, fetch, reset,
 clean, dependency installation, or modifying pre-existing findings.
 
