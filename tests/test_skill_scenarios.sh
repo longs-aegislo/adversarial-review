@@ -618,7 +618,7 @@ test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
     local skill_file="$SCRIPT_DIR/.agents/skills/adversarial-review/SKILL.md"
     local metadata_file="$SCRIPT_DIR/.agents/skills/adversarial-review/agents/openai.yaml"
     local scenarios_file="$SCRIPT_DIR/tests/fixtures/skill-discovery-scenarios.tsv"
-    local skill_description metadata scenario expected trigger_count=0 near_miss_count=0
+    local skill_description metadata scenario expected actual trigger_count=0 near_miss_count=0
 
     skill_description="$(sed -n 's/^description: //p' "$skill_file")"
     metadata="$(cat "$metadata_file")"
@@ -635,6 +635,9 @@ test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
 
     while IFS=$'\t' read -r expected scenario; do
         [[ -n "$expected" && "${expected:0:1}" != "#" ]] || continue
+        actual="$(skill_discovery_route "$scenario")"
+        [[ "$actual" == "$expected" ]] ||
+            fail "Skill discovery routed '$scenario' as $actual; expected $expected"
         case "$expected" in
             trigger)
                 trigger_count=$((trigger_count + 1))
@@ -652,6 +655,22 @@ test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
     [[ $trigger_count -ge 3 ]] || fail "implicit discovery needs representative positive scenarios"
     [[ $near_miss_count -ge 4 ]] || fail "implicit discovery needs all required near-miss categories"
     pass "implicit discovery is enabled with post-implementation triggers and bounded near-misses"
+}
+
+skill_discovery_route() {
+    local prompt="${1,,}"
+
+    case "$prompt" in
+        *"explain "*|*"quick single-reviewer"*|*"debug "*|"push this branch and open a pr."*)
+            printf '%s\n' near-miss
+            ;;
+        *"adversarial review"*|*"review and fix"*"completed changes"*)
+            printf '%s\n' trigger
+            ;;
+        *)
+            printf '%s\n' near-miss
+            ;;
+    esac
 }
 
 test_skill_uses_progressive_disclosure_for_supporting_guidance() {

@@ -58,15 +58,8 @@ directly.
    dependencies. If none is documented, omit the option; the adapter reports
    that none was provided.
 
-7. Report the adapter's machine-result interpretation. It validates every
-   required schema-version-1 field and rejects missing, invalid, contradictory,
-   or unsupported results without consulting terminal prose or internal state.
-   The summary includes mode, Target Repo, requested and resolved base,
-   reviewer/Fixer assignments, termination and reason, iterations, scoped
-   finding/fix counts, modified files, verification, and State/Synthesis/
-   Artifacts paths. It distinguishes `clean`, findings remaining, incomplete
-   review (including maximum iterations and circuit open), invalid invocation,
-   Agent/backend failure, and write-policy violation with actionable guidance.
+7. Report the adapter's machine-result interpretation and its actionable next
+   step. Do not reconstruct results from terminal prose or internal state.
 
 Read [references/result-contract.md](references/result-contract.md) only when
 diagnosing result compatibility or a stopped workflow.

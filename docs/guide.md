@@ -402,7 +402,7 @@ findings-remaining, authorized and ambiguous fix intent, modified-file
 disclosure, verification present/absent, forbidden permission expansion,
 baseline selection, ambiguous Git states, reviewer selection, prerequisite failures, unsafe scopes, and default CLI-discovery behavior with
 fixture Target Repos and a fake CLI, without model calls or subscriptions.
-They also pin representative implicit post-implementation prompts and near-miss
+They also exercise a model-independent routing-policy oracle with representative implicit post-implementation prompts and near-miss
 explanation, lightweight review, debugging, and PR-publication prompts. The
 main Skill stays compact; baseline examples, result interpretation, and common
 preflight/compatibility remedies are loaded from its workflow reference only
