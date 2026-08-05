@@ -332,6 +332,17 @@ SUMMARY: Found critical type mixing bug
 
 ## リポジトリ単位の Skill
 
+### ローカル Plugin のインストール
+
+リポジトリ内 marketplace は `.agents/plugins/marketplace.json` にあり、唯一の entry は
+`plugins/adversarial-review` を指します。`codex plugin marketplace add` でリポジトリ
+root を登録し、`adversarial-review-local` を一覧してから
+`adversarial-review@adversarial-review-local` をインストールします。その後、新しい
+スレッドを開始して Codex にインストール済み Skill を検出させます。パッケージには MCP
+server、connector、hook、automation、GitHub integration はなく、Skill、表示 metadata、
+参照資料、安定した launch Adapter、同じバージョンの CLI runtime、ライブラリ、Prompt
+だけを含みます。
+
 実装後または commit/PR 前の敵対的レビュー用として
 `.agents/skills/adversarial-review` を同梱しています。`$adversarial-review` を明示的に
 呼び出すか、その目的を明確に述べると暗黙に検出されます。通常のコード説明、軽量な
@@ -348,9 +359,9 @@ remote-tracking default ref が一致する必要があります。一致時は 
 続行でき、欠落または不一致なら明示 baseline、あるいは fetch／branch 調整の個別許可を
 求めます。Adapter 自身は fetch を自動実行しません。
 
-Adapter は最初に `PATH`、次に Skill を含むリポジトリのルートから
-`adversarial_review.sh` を解決します。Skill を単独でインストールする場合は、
-`ADVERSARIAL_REVIEW_BIN` を設定するか `--cli <path>` を明示します。
+インストール済み Plugin の Adapter は、同じ Plugin root 内の bundled runtime を常に使い、
+runtime override を拒否します。source-tree Skill の場合だけ、明示 override、`PATH`、その
+リポジトリ root の順で `adversarial_review.sh` を解決します。
 
 実際の Agent 呼び出し前に、Adapter は Target Repo、baseline、reviewer slots、モードを
 表示します。まず CLI の必須 slot オプション、選択 backend の実行ファイルと認証、
@@ -376,6 +387,16 @@ argv として渡し、Adapter は shell で再解析せず直接実行します
 追加引数は Agent 呼び出し前に拒否します。
 依存関係をインストールしません。レビュー許可は commit、push、PR 作成、fetch、reset、clean、依存関係の
 インストール、pre-existing findings の変更には拡張されません。
+
+`tests/test_plugin_package.sh` は分離した `HOME` と `CODEX_HOME` でローカル marketplace
+を登録・一覧・インストールし、Skill が1つだけ検出されることを確認します。その後、fake
+Agent backends を使い、marketplace source を利用不能にした後で、インストール済み Skill
+Adapter から bundled runtime へ入ります。`PATH` に競合 runtime があっても、モデル
+subscription や source-tree runtime を使わず、安定した機械結果と Target Repo が変更されない
+ことを検証します。
+`codex` が利用できない場合も package と境界の assertion は実行し、CLI integration 部分は
+`SKIP` と報告します。release または acceptance job は
+`REQUIRE_CODEX_PLUGIN_TESTS=true` を設定して実 CLI 経路を必須にできます。
 
 `tests/test_skill_scenarios.sh` は fixture Target Repo と fake CLI を使い、モデル呼び出しや
 サブスクリプションなしで clean、findings remaining、許可済み／曖昧な修正意図、変更ファイルの

@@ -88,6 +88,22 @@ cd adversarial-review
 - **jq**：`brew install jq`（macOS）或 `apt install jq`（Linux）
 - **coreutils**（仅 macOS，用于 timeout）：`brew install coreutils`
 
+## 作为本地 Codex Plugin 安装
+
+本仓库也是一个自包含的本地 marketplace。可在隔离或普通 Codex profile 中注册当前
+checkout 并安装 Plugin：
+
+```bash
+codex plugin marketplace add /absolute/path/to/adversarial-review
+codex plugin list --marketplace adversarial-review-local --available
+codex plugin add adversarial-review@adversarial-review-local
+```
+
+安装后启动新的 Codex 对话，并在 Target Repo 中调用 `$adversarial-review`。安装单元只
+包含一个 Skill，以及匹配版本的 CLI runtime、库、Prompt 和参考资料；不依赖本源码
+checkout 或个人 Skill 安装。默认使用 `review-only`，只有显式 `apply-fixes` 请求才可能
+授权修改 Target Repo。
+
 ## 文档
 
 - [仓库级 Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md)——

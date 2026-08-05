@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+[[ " $* " == *" auth status "* ]] && exit 0
+
+prompt="$(cat)"
+phase=1
+[[ "$prompt" == *"Phase 2: Cross-Review"* ]] && phase=2
+[[ "$prompt" == *"Phase 3: Meta-Review"* ]] && phase=3
+[[ "$prompt" == *"Phase 4: Synthesis & Implementation"* ]] && phase=4
+
+case "$phase" in
+    1) response='CLAUDE-1
+---REVIEW_STATUS---
+ISSUES_FOUND: 1
+CRITICAL_COUNT: 0
+HIGH_COUNT: 1
+MEDIUM_COUNT: 0
+LOW_COUNT: 0
+ISSUE_SCOPES: CLAUDE-1=IN_SCOPE
+CONFIDENCE: HIGH
+EXIT_SIGNAL: false
+SUMMARY: Claude found one issue
+---END_REVIEW_STATUS---' ;;
+    2) response='---CROSS_REVIEW_STATUS---
+FINDINGS_VALIDATED: 1
+FINDINGS_CHALLENGED: 0
+FINDINGS_ADDED: 0
+ISSUE_SCOPES: CODEX-1=IN_SCOPE
+AGREEMENT_LEVEL: FULL
+CONFIDENCE: HIGH
+SUMMARY: Claude validated Codex
+---END_CROSS_REVIEW_STATUS---' ;;
+    3) response='---META_REVIEW_STATUS---
+POSITIONS_DEFENDED: 1
+POSITIONS_CONCEDED: 0
+NEW_ISSUES_ACCEPTED: 0
+NEW_ISSUES_REJECTED: 0
+REMAINING_DISAGREEMENTS: 0
+CONSENSUS_REACHED: YES
+SCOPE_DISAGREEMENTS: 0
+ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CODEX-1=IN_SCOPE
+SUMMARY: Claude reached consensus
+---END_META_REVIEW_STATUS---' ;;
+    4) response='## Unresolved in-scope findings
+
+- CLAUDE-1 and CODEX-1 remain unresolved.
+
+## Pre-existing issues noticed, not fixed
+
+- None.
+
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 0
+MEDIUM_CONFIDENCE_FIXES: 0
+ISSUES_SKIPPED: 2
+FILES_MODIFIED: 0
+IN_SCOPE_FIXED: 0
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+EXIT_SIGNAL: true
+SUMMARY: Reported unresolved findings without modifying files
+---END_SYNTHESIS_STATUS---' ;;
+esac
+
+if [[ " $* " == *" --output-format stream-json "* ]]; then
+    jq -cn --arg result "$response" '{type:"result",subtype:"success",is_error:false,result:$result}'
+else
+    printf '%s\n' "$response"
+fi

@@ -314,6 +314,15 @@ SUMMARY: Found critical type mixing bug
 
 ## 仓库级 Skill
 
+### 本地 Plugin 安装
+
+仓库内 marketplace 位于 `.agents/plugins/marketplace.json`，且唯一条目指向
+`plugins/adversarial-review`。使用 `codex plugin marketplace add` 注册仓库根目录，
+列出 `adversarial-review-local`，再安装
+`adversarial-review@adversarial-review-local`。随后启动新对话，让 Codex 发现已安装
+Skill。包内不含 MCP server、connector、hook、automation 或 GitHub integration；只包含
+Skill、展示 metadata、参考资料、稳定 launch Adapter，以及匹配的 CLI runtime、库和 Prompt。
+
 仓库提供 `.agents/skills/adversarial-review`，用于实现后或 commit/PR 前对抗式审查。
 既可显式调用 `$adversarial-review`，也可通过明确描述该目标来隐式发现。普通代码解释、
 轻量单 reviewer 审查、一般调试和仅发布 PR 的请求不在触发范围内。在受信任的 Target Repo 中，其 Adapter 会识别当前工作区，
@@ -326,8 +335,9 @@ baseline，或无法识别本地默认分支时，会在 Agent 调用前停止�
 fetch，缺失或不一致时则要求显式 baseline，或独立授权 fetch／协调分支。Adapter 自身
 从不自动 fetch。
 
-Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再尝试 Skill 所在仓库的根目录。
-独立安装 Skill 时，可以设置 `ADVERSARIAL_REVIEW_BIN` 或显式传入 `--cli <路径>`。
+已安装 Plugin 的 Adapter 始终使用同一 Plugin root 内的 bundled runtime，并拒绝 runtime
+override。源码树 Skill 才依次从显式 override、`PATH` 和所在仓库根目录解析
+`adversarial_review.sh`。
 
 任何真实 Agent 调用前，Adapter 都会显示 Target Repo、baseline、reviewer slots 和
 执行模式。它会先检查 CLI 所需的 slot 参数、所选 backend 可执行文件与认证、`jq`
@@ -351,6 +361,13 @@ Agent/backend 失败和写入策略违规都有独立且可行动的说明。app
 会在 Agent 调用前被拒绝。
 审查授权不会扩张为 commit、push、创建 PR、fetch、reset、clean、安装依赖或修改
 pre-existing findings。
+
+`tests/test_plugin_package.sh` 使用隔离的 `HOME` 与 `CODEX_HOME` 注册、列出并安装本地
+marketplace，断言只发现一个 Skill，使 marketplace source 不可访问后，再用 fake Agent
+backends 从已安装 Skill Adapter 进入 bundled runtime。即使 `PATH` 中存在冲突 runtime，
+它也不使用模型订阅或源码树 runtime，并验证稳定机器结果及 Target Repo 未发生变化。
+如果没有 `codex`，包结构与边界断言仍会运行，CLI 集成部分报告 `SKIP`；发布或验收任务可
+设置 `REQUIRE_CODEX_PLUGIN_TESTS=true`，强制要求真实 CLI 路径。
 
 `tests/test_skill_scenarios.sh` 使用 fixture Target Repo 和伪 CLI，确定性覆盖 clean、
 findings remaining、授权或含糊的修复意图、修改文件披露、有／无验证命令、禁止的权限扩张、baseline 选择、歧义 Git 状态、reviewer 选择、前置检查失败、

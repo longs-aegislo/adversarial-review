@@ -1,0 +1,26 @@
+{
+  "name": "adversarial-review",
+  "version": "0.1.0",
+  "description": "Run a multi-agent adversarial review of repository changes with explicit read-only and fix modes.",
+  "author": {
+    "name": "Adversarial Review maintainers",
+    "url": "https://github.com/longs-aegislo/adversarial-review"
+  },
+  "homepage": "https://github.com/longs-aegislo/adversarial-review#readme",
+  "repository": "https://github.com/longs-aegislo/adversarial-review",
+  "license": "MIT",
+  "keywords": ["code-review", "multi-agent", "adversarial-review"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Adversarial Review",
+    "shortDescription": "Multi-agent adversarial review for repository changes",
+    "longDescription": "Run a multi-agent adversarial review with bundled Claude and Codex orchestration. Reviews are read-only by default; only an explicit apply-fixes request may modify the target repository.",
+    "developerName": "Adversarial Review maintainers",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive"],
+    "websiteURL": "https://github.com/longs-aegislo/adversarial-review",
+    "defaultPrompt": [
+      "Run a multi-agent adversarial review; use review-only unless I explicitly request apply-fixes."
+    ]
+  }
+}

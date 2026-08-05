@@ -92,6 +92,23 @@ failure、`77` write-boundary violation です。完全なバージョン付き 
 - **jq**：`brew install jq`（macOS）または `apt install jq`（Linux）
 - **coreutils**（macOSのみ、timeout用）：`brew install coreutils`
 
+## ローカル Codex Plugin としてインストール
+
+このリポジトリは自己完結したローカル marketplace でもあります。分離した Codex
+profile または通常の profile から、この checkout を登録して Plugin をインストールします。
+
+```bash
+codex plugin marketplace add /absolute/path/to/adversarial-review
+codex plugin list --marketplace adversarial-review-local --available
+codex plugin add adversarial-review@adversarial-review-local
+```
+
+インストール後は新しい Codex スレッドを開始し、Target Repo から
+`$adversarial-review` を呼び出します。インストール単位には Skill が1つだけあり、同じ
+バージョンの CLI runtime、ライブラリ、Prompt、参照資料を同梱します。元の source
+checkout や個人 Skill のインストールには依存しません。既定は `review-only` で、明示的な
+`apply-fixes` 要求だけが Target Repo の変更を許可できます。
+
 ## ドキュメント
 
 - [リポジトリ単位の Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —

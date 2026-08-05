@@ -97,6 +97,24 @@ for every field, an example object, and outer LLM/Skill routing guidance.
 - **jq**: `brew install jq` (macOS) or `apt install jq` (Linux)
 - **coreutils** (macOS only, for timeout): `brew install coreutils`
 
+## Install as a local Codex Plugin
+
+This repository is also a self-contained local marketplace. From any isolated
+or regular Codex profile, register this checkout and install its Plugin:
+
+```bash
+codex plugin marketplace add /absolute/path/to/adversarial-review
+codex plugin list --marketplace adversarial-review-local --available
+codex plugin add adversarial-review@adversarial-review-local
+```
+
+Start a new Codex thread after installation and invoke `$adversarial-review`
+from the Target Repo. The installed Plugin contains exactly one Skill plus its
+matching CLI runtime, libraries, prompts, and references; it does not depend on
+this source checkout or a personal Skill installation. Reviews default to
+`review-only`. Only an explicit `apply-fixes` request can authorize Target Repo
+changes.
+
 ## Documentation
 
 - [Repository-level Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —
