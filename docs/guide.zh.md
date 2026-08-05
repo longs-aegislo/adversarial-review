@@ -362,10 +362,17 @@ Agent/backend 失败和写入策略违规都有独立且可行动的说明。app
 审查授权不会扩张为 commit、push、创建 PR、fetch、reset、clean、安装依赖或修改
 pre-existing findings。
 
+Plugin 安装不会配置 Bash、`jq`、GNU 兼容的 timeout 支持、Claude 或 Codex、认证、
+订阅、模型配额或网络访问；这些都是外部运行时前置条件。已安装 Adapter 会在 Agent
+启动前检查本地可观察的可用性与认证；订阅有效性、配额和网络故障仍属于 backend
+运行期条件，并报告为 Agent/backend failure。摘要保留 Findings 总数和已应用 Fixes，
+并依据这些稳定机器结果计数计算剩余 Findings。
+
 `tests/test_plugin_package.sh` 使用隔离的 `HOME` 与 `CODEX_HOME` 注册、列出并安装本地
 marketplace，断言只发现一个 Skill，使 marketplace source 不可访问后，再用 fake Agent
-backends 从已安装 Skill Adapter 进入 bundled runtime。即使 `PATH` 中存在冲突 runtime，
-它也不使用模型订阅或源码树 runtime，并验证稳定机器结果及 Target Repo 未发生变化。
+backends 从已安装 Skill Adapter 进入 bundled runtime。测试同时覆盖 review-only 与
+apply-fixes，包括仅 Phase 4 获得写授权、修改路径与验证结果报告、前置条件失败及显式
+same-model redundancy；即使 `PATH` 中存在冲突 runtime，也不使用模型订阅或源码树 runtime。
 如果没有 `codex`，包结构与边界断言仍会运行，CLI 集成部分报告 `SKIP`；发布或验收任务可
 设置 `REQUIRE_CODEX_PLUGIN_TESTS=true`，强制要求真实 CLI 路径。
 

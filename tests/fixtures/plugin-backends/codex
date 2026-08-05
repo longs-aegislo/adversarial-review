@@ -10,6 +10,10 @@ phase=1
 [[ "$prompt" == *"Phase 3: Meta-Review"* ]] && phase=3
 [[ "$prompt" == *"Phase 4: Synthesis & Implementation"* ]] && phase=4
 
+if [[ -n "${PLUGIN_BACKEND_LOG:-}" ]]; then
+    printf 'codex phase=%s argv=%s\n' "$phase" "$*" >> "$PLUGIN_BACKEND_LOG"
+fi
+
 output_file=""
 while [[ $# -gt 0 ]]; do
     if [[ "$1" == "-o" ]]; then

@@ -388,12 +388,20 @@ argv として渡し、Adapter は shell で再解析せず直接実行します
 依存関係をインストールしません。レビュー許可は commit、push、PR 作成、fetch、reset、clean、依存関係の
 インストール、pre-existing findings の変更には拡張されません。
 
+Plugin のインストールは Bash、`jq`、GNU 互換 timeout、Claude／Codex、認証、
+subscription、モデル quota、network access を設定しません。これらは外部 runtime
+前提条件です。インストール済み Adapter は Agent 起動前にローカルで確認できる可用性と
+認証を検査します。subscription の有効性、quota、network failure は backend 実行時条件
+として Agent/backend failure で報告します。概要は Findings 総数と適用済み Fixes を保持し、
+安定した機械結果の count から remaining Findings を算出します。
+
 `tests/test_plugin_package.sh` は分離した `HOME` と `CODEX_HOME` でローカル marketplace
 を登録・一覧・インストールし、Skill が1つだけ検出されることを確認します。その後、fake
 Agent backends を使い、marketplace source を利用不能にした後で、インストール済み Skill
-Adapter から bundled runtime へ入ります。`PATH` に競合 runtime があっても、モデル
-subscription や source-tree runtime を使わず、安定した機械結果と Target Repo が変更されない
-ことを検証します。
+Adapter から bundled runtime へ入ります。review-only と apply-fixes の両方について、
+Phase 4 のみの書き込み許可、変更 path と検証結果、前提条件 failure、明示的
+same-model redundancy を確認し、`PATH` に競合 runtime があってもモデル subscription や
+source-tree runtime を使いません。
 `codex` が利用できない場合も package と境界の assertion は実行し、CLI integration 部分は
 `SKIP` と報告します。release または acceptance job は
 `REQUIRE_CODEX_PLUGIN_TESTS=true` を設定して実 CLI 経路を必須にできます。

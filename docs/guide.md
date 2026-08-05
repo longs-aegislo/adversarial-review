@@ -410,12 +410,23 @@ are rejected before Agent calls. Otherwise the adapter reports that none was pro
 authorization never expands to commits, pushes, PR creation, fetch, reset,
 clean, dependency installation, or modifying pre-existing findings.
 
+Plugin installation intentionally does not provision Bash, `jq`, GNU-compatible
+timeout support, Claude or Codex, authentication, subscriptions, model quota,
+or network access. These are external runtime prerequisites. The installed
+Adapter checks locally observable availability and authentication before Agent
+startup; subscription validity, quota, and network failures remain backend
+runtime conditions and are reported as Agent/backend failures. Its summary
+keeps total Findings and applied Fixes visible and derives remaining Findings
+from those stable machine-result counts.
+
 `tests/test_plugin_package.sh` uses an isolated `HOME` and `CODEX_HOME` to
 register, list, and install the local marketplace, assert discovery of exactly
 one Skill, then run that installed Skill Adapter through the bundled runtime
 with fake Agent backends after making the marketplace source unavailable. It
-verifies a stable machine result and an unchanged Target Repo without using
-model subscriptions, a source-tree runtime, or a conflicting runtime on PATH.
+verifies review-only and apply-fixes, including Phase 4-only write
+authorization, changed-path and verification reporting, prerequisite failures,
+and explicit same-model redundancy, without using model subscriptions, a
+source-tree runtime, or a conflicting runtime on PATH.
 When `codex` is unavailable, the package and containment assertions still run
 and the CLI integration portion reports `SKIP`; release or acceptance jobs can
 set `REQUIRE_CODEX_PLUGIN_TESTS=true` to require the real CLI path.
