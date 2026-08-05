@@ -379,7 +379,7 @@ result schema version 1 のみを受け付け、必須フィールド、フィ�
 モード、scope/base、reviewer/Fixer 割り当て、終了理由、反復回数、Finding Scope 別件数、
 変更ファイル、検証結果、State/Synthesis/Artifacts パスを表示し、clean、findings、最大反復、
 circuit open、不正な呼び出し、Agent/backend 失敗、書き込みポリシー違反をそれぞれ実行可能な
-説明として区別します。apply-fixes 後は機械結果の適用済みファイルと Target Repo Git diff の全パスを
+説明として区別します。apply-fixes 後は機械結果の変更 path と Target Repo Git diff の全パスを
 別々に示し、未解決 findings と区別します。リポジトリ文書に安全な検証コマンドがある場合、
 呼び出し側が最上位かつ関連するものを明示的に渡します。実行ファイルと反復可能な引数を構造化
 argv として渡し、Adapter は shell で再解析せず直接実行します。ない場合は未提供と報告し、

@@ -12,6 +12,20 @@ fail() {
     exit 1
 }
 
+RUNTIME_UTILITIES=(awk basename bash cat cmp cut dirname find git grep head jq
+    mkdir mktemp mv readlink rm sed shasum sort stat tail timeout tr wc)
+
+link_utilities() {
+    local destination="$1"
+    shift
+
+    mkdir -p "$destination"
+    for utility in "$@"; do
+        ln -s "$(command -v "$utility")" "$destination/$utility"
+    done
+    ln -s "$(type -P true)" "$destination/true"
+}
+
 [[ -f "$MARKETPLACE" ]] || fail "repository marketplace is missing"
 [[ -f "$MANIFEST" ]] || fail "plugin manifest is missing"
 
@@ -140,10 +154,7 @@ git -C "$TARGET_REPO" add app.sh
 git -C "$TARGET_REPO" commit -qm initial
 printf '%s\n' 'review me' >> "$TARGET_REPO/app.sh"
 
-for utility in awk basename bash cat cmp cut dirname find git grep head jq mkdir mktemp mv readlink rm sed shasum sort stat tail timeout tr wc; do
-    ln -s "$(command -v "$utility")" "$FAKE_BIN/$utility"
-done
-ln -s "$(type -P true)" "$FAKE_BIN/true"
+link_utilities "$FAKE_BIN" "${RUNTIME_UTILITIES[@]}"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/claude" "$FAKE_BIN/claude"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/codex" "$FAKE_BIN/codex"
 chmod +x "$FAKE_BIN/claude" "$FAKE_BIN/codex"
@@ -186,11 +197,7 @@ grep -q "missing dependency: jq" "$PROFILE_ROOT/missing-jq.out" ||
     fail "missing jq preflight was not actionable"
 
 MISSING_CLAUDE_BIN="$PROFILE_ROOT/missing-claude-bin"
-mkdir -p "$MISSING_CLAUDE_BIN"
-for utility in awk basename bash cat cmp cut dirname find git grep head jq mkdir mktemp mv readlink rm sed shasum sort stat tail timeout tr wc; do
-    ln -s "$(command -v "$utility")" "$MISSING_CLAUDE_BIN/$utility"
-done
-ln -s "$(type -P true)" "$MISSING_CLAUDE_BIN/true"
+link_utilities "$MISSING_CLAUDE_BIN" "${RUNTIME_UTILITIES[@]}"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/codex" "$MISSING_CLAUDE_BIN/codex"
 chmod +x "$MISSING_CLAUDE_BIN/codex"
 MISSING_BACKEND_LOG="$PROFILE_ROOT/missing-backend.log"
@@ -212,11 +219,7 @@ grep -q "missing Agent backend executable: claude" "$PROFILE_ROOT/missing-claude
     fail "a review backend started before missing-backend preflight completed"
 
 MISSING_CODEX_BIN="$PROFILE_ROOT/missing-codex-bin"
-mkdir -p "$MISSING_CODEX_BIN"
-for utility in awk basename bash cat cmp cut dirname find git grep head jq mkdir mktemp mv readlink rm sed shasum sort stat tail timeout tr wc; do
-    ln -s "$(command -v "$utility")" "$MISSING_CODEX_BIN/$utility"
-done
-ln -s "$(type -P true)" "$MISSING_CODEX_BIN/true"
+link_utilities "$MISSING_CODEX_BIN" "${RUNTIME_UTILITIES[@]}"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/claude" "$MISSING_CODEX_BIN/claude"
 chmod +x "$MISSING_CODEX_BIN/claude"
 MISSING_CODEX_LOG="$PROFILE_ROOT/missing-codex-backends.log"

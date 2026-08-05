@@ -399,7 +399,7 @@ state. It reports mode, scope/base, reviewer/Fixer assignments, termination
 reason, iterations, scoped counts, modified files, verification, and
 State/Synthesis/Artifacts paths. Clean, findings remaining, maximum iterations,
 circuit open, invalid invocation, Agent/backend failure, and write-policy
-violation receive distinct actionable explanations. After apply-fixes it lists both machine-reported applied files
+violation receive distinct actionable explanations. After apply-fixes it lists both machine-result changed paths
 and every path in the Target Repo Git diff, keeping unresolved findings
 separate. The caller passes the highest relevant safe verification command
 explicitly when repository documentation provides one. It passes the executable
