@@ -100,7 +100,7 @@ for every field, an example object, and outer LLM/Skill routing guidance.
 ## Documentation
 
 - [Repository-level Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —
-  explicitly invoked, review-only workflow that previews a base-scoped file list
+  explicitly invoked, review-only workflow that safely infers or accepts a baseline and previews a guarded file list
   after read-only CLI/backend/authentication/dependency preflight, before running
   Agents, and reports versioned machine results
 - [Detailed guide](docs/guide.md) — complete CLI reference, review phases,

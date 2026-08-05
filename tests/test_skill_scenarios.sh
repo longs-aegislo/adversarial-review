@@ -8,7 +8,7 @@ TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 TEST_BIN="$TEST_ROOT/bin"
 mkdir -p "$TEST_BIN"
-for utility in bash cat git dirname mktemp rm sed tail awk; do
+for utility in bash cat git dirname grep mktemp rm sed sort tail awk; do
     ln -s "$(command -v "$utility")" "$TEST_BIN/$utility"
 done
 ln -s "$(type -P true)" "$TEST_BIN/true"
@@ -61,6 +61,19 @@ make_target() {
     printf '%s\n' 'committed' 'review me' > "$target/app.sh"
 }
 
+make_committed_feature_target() {
+    local target="$1"
+
+    make_target "$target"
+    git -C "$target" checkout -qb main
+    git -C "$target" add app.sh
+    git -C "$target" commit -qm main-change
+    git -C "$target" checkout -qb feature
+    printf '%s\n' 'committed feature' > "$target/feature.sh"
+    git -C "$target" add feature.sh
+    git -C "$target" commit -qm feature-work
+}
+
 make_fake_cli() {
     local fake_cli="$1"
     cat > "$fake_cli" <<'EOF'
@@ -69,10 +82,10 @@ set -euo pipefail
 
 if [[ "${1:-}" == "--help" ]]; then
     if [[ "${FAKE_CLI_UNSUPPORTED_SLOTS:-false}" == "true" ]]; then
-        printf '%s\n' 'Usage: adversarial_review.sh --target-dir DIR --dry-run --review-only --result-file FILE'
+        printf '%s\n' 'Usage: adversarial_review.sh --base REF --target-dir DIR --dry-run --review-only --result-file FILE'
         exit 0
     fi
-    printf '%s\n' 'Usage: adversarial_review.sh --slot-a AGENT --slot-b AGENT --target-dir DIR --dry-run --review-only --result-file FILE'
+    printf '%s\n' 'Usage: adversarial_review.sh --base REF --slot-a AGENT --slot-b AGENT --target-dir DIR --dry-run --review-only --result-file FILE'
     exit 0
 fi
 
@@ -97,12 +110,23 @@ for argument in "$@"; do
 done
 
 if [[ "$dry_run" == "true" ]]; then
+    scope_files="${FAKE_SCOPE_FILES:-app.sh}"
+    scope_count="${FAKE_SCOPE_COUNT:-1}"
     cat > "$result_file" <<JSON
 {"schema_version":1,"target_repo":{"path":"$target_dir"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"abc"},"execution":{"mode":"review-only","dry_run":true,"review_executed":false},"termination":{"category":"incomplete-review","reason":"max-iterations","exit_code":12},"paths":{"artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":null}}
 JSON
-    scope_count="${FAKE_SCOPE_COUNT:-1}"
     printf '[INFO] Files in scope (%s):\n' "$scope_count"
-    [[ "$scope_count" == "0" ]] || printf '%s\n' '  app.sh'
+    if [[ "$scope_count" == "1" ]]; then
+        printf '  %s\n' "$scope_files"
+    elif [[ -n "${FAKE_SCOPE_FILES:-}" ]]; then
+        sed 's/^/  /' <<< "$scope_files"
+    else
+        scope_index=1
+        while [[ "$scope_index" -le "$scope_count" ]]; do
+            printf '  file-%s.sh\n' "$scope_index"
+            scope_index=$((scope_index + 1))
+        done
+    fi
     printf '%s\n' '[INFO] Execution mode: review-only'
     exit 12
 fi
@@ -136,13 +160,13 @@ EOF
 run_scenario() {
     local name="$1"
     local category="$2"
-    local target="$TEST_ROOT/$name-target"
+    local target="${SCENARIO_TARGET_OVERRIDE:-$TEST_ROOT/$name-target}"
     local fake_cli="$TEST_ROOT/$name-cli"
     local output="$TEST_ROOT/$name.out"
     local command_log="$TEST_ROOT/$name.commands"
     local status
 
-    make_target "$target"
+    [[ -n "${SCENARIO_TARGET_OVERRIDE:-}" ]] || make_target "$target"
     make_fake_cli "$fake_cli"
     rm -f "$TEST_BIN/claude" "$TEST_BIN/codex"
     [[ "${SCENARIO_CLAUDE_AVAILABLE:-true}" == "false" ]] ||
@@ -155,6 +179,7 @@ run_scenario() {
         PATH="$TEST_BIN" FAKE_COMMAND_LOG="$command_log" FAKE_BACKEND_LOG="$TEST_ROOT/$name.backends" FAKE_RESULT_CATEGORY="$category" \
             FAKE_CLI_UNSUPPORTED_SLOTS="${SCENARIO_UNSUPPORTED_SLOTS:-false}" \
             FAKE_SCOPE_COUNT="${SCENARIO_SCOPE_COUNT:-1}" \
+            FAKE_SCOPE_FILES="${SCENARIO_SCOPE_FILES:-app.sh}" \
             "$SKILL_RUNNER" --cli "${SCENARIO_CLI:-$fake_cli}" ${SCENARIO_SLOT_ARGS:-}
     ) > "$output" 2>&1
     status=$?
@@ -380,6 +405,167 @@ test_explicit_findings_remaining_review() {
     pass "explicit findings review reports Synthesis and Artifacts"
 }
 
+test_committed_feature_branch_uses_default_branch_merge_base() {
+    local target="$TEST_ROOT/committed-feature-target"
+
+    make_committed_feature_target "$target"
+    SCENARIO_TARGET_OVERRIDE="$target" SCENARIO_SCOPE_FILES=feature.sh run_scenario committed-feature clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "committed feature work should select a safe baseline"
+    local merge_base
+    merge_base="$(git -C "$target" merge-base HEAD main)"
+    assert_contains "$SCENARIO_OUTPUT" "Baseline: $merge_base (merge-base of feature and main)" \
+        "committed feature work should use the default branch merge-base"
+    assert_contains "$(sed -n '1p' <<< "$SCENARIO_COMMANDS")" "<--base><$merge_base>" \
+        "dry-run should preview committed work against the merge-base"
+    pass "committed feature work uses the known default branch baseline"
+}
+
+test_explicit_base_takes_priority() {
+    SCENARIO_SLOT_ARGS="--base HEAD~0" run_scenario explicit-base clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "an explicit valid base should be accepted"
+    assert_contains "$SCENARIO_OUTPUT" "Baseline: HEAD~0" "explicit base should take priority"
+    assert_contains "$(sed -n '1p' <<< "$SCENARIO_COMMANDS")" "<--base><HEAD~0>" \
+        "preview should preserve the user's explicit base"
+    pass "explicit base takes priority over inference"
+}
+
+test_mixed_feature_work_preserves_commits_and_worktree_changes() {
+    local target="$TEST_ROOT/mixed-feature-target"
+
+    make_committed_feature_target "$target"
+    printf '%s\n' 'uncommitted feature' > "$target/worktree.sh"
+    SCENARIO_TARGET_OVERRIDE="$target" SCENARIO_SCOPE_COUNT=2 \
+        SCENARIO_SCOPE_FILES=$'feature.sh\nworktree.sh' run_scenario mixed-feature clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "mixed feature work should select a safe baseline"
+    assert_contains "$SCENARIO_OUTPUT" "merge-base of feature and main" \
+        "mixed committed and uncommitted work should retain the branch baseline"
+    assert_contains "$SCENARIO_OUTPUT" "Review Scope (2): feature.sh worktree.sh" \
+        "mixed preview should include both committed and uncommitted changes"
+    pass "mixed committed and uncommitted work uses the branch baseline"
+}
+
+assert_ambiguous_target_stops_before_cli() {
+    local expected="$1"
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "ambiguous Target Repo should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "$expected" "baseline ambiguity should be actionable"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "baseline ambiguity must stop before review CLI calls"
+}
+
+test_detached_head_stops_before_review() {
+    local target="$TEST_ROOT/detached-target"
+    make_target "$target"
+    git -C "$target" checkout -q --detach HEAD
+    SCENARIO_TARGET_OVERRIDE="$target" run_scenario detached clean
+    assert_ambiguous_target_stops_before_cli "detached HEAD"
+    pass "detached HEAD stops before Agent calls"
+}
+
+test_shallow_repo_stops_before_review() {
+    local source="$TEST_ROOT/shallow-source"
+    local target="$TEST_ROOT/shallow-target"
+    make_target "$source"
+    git clone -q --depth 1 "file://$source" "$target"
+    printf '%s\n' 'work' >> "$target/app.sh"
+    SCENARIO_TARGET_OVERRIDE="$target" run_scenario shallow clean
+    assert_ambiguous_target_stops_before_cli "shallow Target Repo"
+    assert_contains "$SCENARIO_OUTPUT" "authorize a separate fetch" \
+        "shallow history should disclose that fetch needs separate authorization"
+    pass "shallow Target Repo stops without fetching"
+}
+
+test_missing_upstream_stops_before_review() {
+    local target="$TEST_ROOT/remote-only-target"
+    make_target "$target"
+    git -C "$target" checkout -qb feature
+    git -C "$target" remote add origin "$TEST_ROOT/not-fetched-origin"
+    printf '%s\n' 'feature' > "$target/feature.sh"
+    git -C "$target" add feature.sh
+    git -C "$target" commit -qm feature
+    SCENARIO_TARGET_OVERRIDE="$target" run_scenario remote-only clean
+    assert_ambiguous_target_stops_before_cli "has no upstream and remote refs may be stale"
+    assert_contains "$SCENARIO_OUTPUT" "authorize a separate fetch" \
+        "possibly stale remote refs should require separate fetch authorization"
+    pass "missing upstream stops without fetching"
+}
+
+test_possibly_stale_upstream_stops_before_review() {
+    local target="$TEST_ROOT/stale-upstream-target"
+    make_committed_feature_target "$target"
+    git -C "$target" remote add origin "$TEST_ROOT/not-fetched-origin"
+    git -C "$target" update-ref refs/remotes/origin/feature HEAD
+    git -C "$target" branch --set-upstream-to origin/feature feature >/dev/null
+    SCENARIO_TARGET_OVERRIDE="$target" run_scenario stale-upstream clean
+
+    assert_ambiguous_target_stops_before_cli "remote refs may be stale (origin/feature)"
+    assert_contains "$SCENARIO_OUTPUT" "authorize a separate fetch" \
+        "possibly stale upstream should require separate fetch authorization"
+    pass "possibly stale upstream stops without fetching"
+}
+
+test_configured_nonstandard_default_branch_uses_merge_base() {
+    local target="$TEST_ROOT/develop-default-target"
+    make_target "$target"
+    git -C "$target" checkout -qb develop
+    git -C "$target" config init.defaultBranch develop
+    git -C "$target" add app.sh
+    git -C "$target" commit -qm develop-change
+    git -C "$target" checkout -qb feature
+    printf '%s\n' 'feature' > "$target/feature.sh"
+    git -C "$target" add feature.sh
+    git -C "$target" commit -qm feature
+    SCENARIO_TARGET_OVERRIDE="$target" SCENARIO_SCOPE_FILES=feature.sh run_scenario develop-default clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "configured nonstandard default branch should be usable"
+    assert_contains "$SCENARIO_OUTPUT" "merge-base of feature and develop" \
+        "configured Target Repo default branch should drive baseline selection"
+    assert_contains "$SCENARIO_OUTPUT" "Review Scope (1): feature.sh" \
+        "configured default branch preview should include committed feature work"
+    pass "configured nonstandard default branch uses its merge-base"
+}
+
+test_unknown_default_branch_stops() {
+    local target="$TEST_ROOT/unknown-default-target"
+    make_target "$target"
+    git -C "$target" branch topic HEAD
+    git -C "$target" checkout -q topic
+    git -C "$target" branch -D master >/dev/null
+    SCENARIO_TARGET_OVERRIDE="$target" run_scenario unknown-default clean
+
+    assert_ambiguous_target_stops_before_cli "no known default branch"
+    pass "unknown default branch stops instead of falling back to HEAD"
+}
+
+test_unexpected_whole_repo_scope_stops_before_real_review() {
+    local target="$TEST_ROOT/whole-repo-target"
+    make_target "$target"
+    printf '%s\n' 'unchanged' > "$target/unchanged.sh"
+    git -C "$target" add unchanged.sh
+    git -C "$target" commit -qm add-unchanged
+    printf '%s\n' 'review me' >> "$target/app.sh"
+    SCENARIO_TARGET_OVERRIDE="$target" SCENARIO_SCOPE_FILES=unchanged.sh run_scenario whole-repo clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "unexpected whole-repo scope should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "unexpected whole-repo or invalid Review Scope entry: unchanged.sh" \
+        "scope entries outside the Git delta should be rejected"
+    [[ "$(wc -l <<< "$SCENARIO_COMMANDS" | tr -d ' ')" == "1" ]] ||
+        fail "unexpected whole-repo scope must not start a real review"
+    pass "unexpected whole-repo dry-run scope stops before real Agent calls"
+}
+
+test_oversized_scope_stops_before_real_review() {
+    SCENARIO_SCOPE_COUNT=501 run_scenario oversized clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "an obviously large Review Scope should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "Review Scope is unexpectedly large" \
+        "oversized scope should provide actionable guidance"
+    [[ "$(wc -l <<< "$SCENARIO_COMMANDS" | tr -d ' ')" == "1" ]] ||
+        fail "oversized scope must not start a real review"
+    pass "oversized dry-run scope stops before real Agent calls"
+}
+
 test_explicit_clean_review
 test_explicit_findings_remaining_review
 test_same_model_redundancy claude codex
@@ -394,5 +580,16 @@ test_non_gnu_compatible_timeout_is_accepted
 test_unsupported_cli_slots_stop_before_review
 test_empty_scope_stops_before_real_review
 test_discovers_cli_from_skill_repository
+test_committed_feature_branch_uses_default_branch_merge_base
+test_explicit_base_takes_priority
+test_mixed_feature_work_preserves_commits_and_worktree_changes
+test_detached_head_stops_before_review
+test_shallow_repo_stops_before_review
+test_missing_upstream_stops_before_review
+test_possibly_stale_upstream_stops_before_review
+test_configured_nonstandard_default_branch_uses_merge_base
+test_unknown_default_branch_stops
+test_unexpected_whole_repo_scope_stops_before_real_review
+test_oversized_scope_stops_before_real_review
 
 echo "1..$tests_run"

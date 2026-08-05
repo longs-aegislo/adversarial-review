@@ -334,9 +334,14 @@ SUMMARY: Found critical type mixing bug
 
 明示的な実装後／PR 前レビュー用として
 `.agents/skills/adversarial-review` を同梱しています。信頼済み Target Repo から
-`$adversarial-review` を呼び出すと、Adapter は現在の workspace を特定し、未コミット
-作業には `HEAD` baseline を使い、異種の `claude`／`codex` reviewer slots を
-`review-only` モードで選択します。
+`$adversarial-review` を呼び出すと、Adapter は現在の workspace を特定します。
+明示 baseline を優先し、worktree の変更だけなら `HEAD`、feature branch に commit が
+ある場合（未コミット変更との混在を含む）は既知のローカル default branch
+（`init.defaultBranch`、次に `main`／`master`）を使います。
+異種の `claude`／`codex` reviewer slots を `review-only` モードで選択します。detached
+HEAD、shallow history、local default branch を特定できない場合、または欠落・古い可能性がある remote baseline しかない場合は
+Agent 呼び出し前に停止します。Adapter は fetch を自動実行せず、結論が変わり得る場合は
+明示 baseline または個別の fetch 許可を求めます。
 
 Adapter は最初に `PATH`、次に Skill を含むリポジトリのルートから
 `adversarial_review.sh` を解決します。Skill を単独でインストールする場合は、
@@ -349,15 +354,18 @@ Adapter は最初に `PATH`、次に Skill を含むリポジトリのルート�
 変更、レビュー呼び出しを行わず停止します。既定は異種 `claude`／`codex` です。明示的な
 `claude`／`claude` または `codex`／`codex` は許可しますが、レビュー多様性の低い
 same-model redundancy として説明します。その後、同じ値で dry-run を実行します。
-文書化された dry-run 出力に有効かつ空でない
-ファイル scope がある場合だけ実レビューを開始します。result schema version 1 のみを
+文書化された dry-run 出力に有効で空ではなく、妥当な大きさの Review Scope がある場合だけ
+実レビューを開始します。空、解析不能、または 500 ファイル超の scope は安全に停止します。
+各 preview path は選択した baseline の Git delta に含まれる必要があるため、上限未満でも
+意図しないリポジトリ全体 scope は拒否されます。
+result schema version 1 のみを
 受け付け、clean と findings remaining を区別し、最終 Synthesis と Artifacts のパスを
 表示します。commit、push、PR 作成、fetch、依存関係のインストール、Target Repo の変更は
 行いません。
 
 `tests/test_skill_scenarios.sh` は fixture Target Repo と fake CLI を使い、モデル呼び出しや
 サブスクリプションなしで clean、findings remaining、reviewer 選択、前提条件エラー、
-空 scope、デフォルト CLI 検出を
+baseline 選択、曖昧な Git 状態、異常な Review Scope、デフォルト CLI 検出を
 決定的に検証します。
 
 ## 研究背景
