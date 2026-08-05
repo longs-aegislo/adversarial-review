@@ -614,6 +614,57 @@ test_ambiguous_fix_wording_remains_review_only() {
     pass "ambiguous fix wording remains review-only without explicit authorization"
 }
 
+test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
+    local skill_file="$SCRIPT_DIR/.agents/skills/adversarial-review/SKILL.md"
+    local metadata_file="$SCRIPT_DIR/.agents/skills/adversarial-review/agents/openai.yaml"
+    local scenarios_file="$SCRIPT_DIR/tests/fixtures/skill-discovery-scenarios.tsv"
+    local skill_description metadata scenario expected trigger_count=0 near_miss_count=0
+
+    skill_description="$(sed -n 's/^description: //p' "$skill_file")"
+    metadata="$(cat "$metadata_file")"
+    assert_contains "$metadata" 'allow_implicit_invocation: true' \
+        "validated discovery scenarios should enable implicit invocation"
+    assert_contains "$skill_description" 'post-implementation' \
+        "the discovery description should name the post-implementation goal"
+    assert_contains "$skill_description" 'review and fix' \
+        "the discovery description should name review-and-fix intent"
+    assert_contains "$skill_description" 'before a commit or PR' \
+        "the discovery description should name the pre-publication review goal"
+    assert_contains "$skill_description" 'Do not use' \
+        "the discovery description should bound near-miss requests"
+
+    while IFS=$'\t' read -r expected scenario; do
+        [[ -n "$expected" && "${expected:0:1}" != "#" ]] || continue
+        case "$expected" in
+            trigger)
+                trigger_count=$((trigger_count + 1))
+                ;;
+            near-miss)
+                near_miss_count=$((near_miss_count + 1))
+                ;;
+            *)
+                fail "unknown Skill discovery expectation: $expected"
+                ;;
+        esac
+        [[ -n "$scenario" ]] || fail "Skill discovery scenario prompt must not be empty"
+    done < "$scenarios_file"
+
+    [[ $trigger_count -ge 3 ]] || fail "implicit discovery needs representative positive scenarios"
+    [[ $near_miss_count -ge 4 ]] || fail "implicit discovery needs all required near-miss categories"
+    pass "implicit discovery is enabled with post-implementation triggers and bounded near-misses"
+}
+
+test_skill_uses_progressive_disclosure_for_supporting_guidance() {
+    local skill_text
+    skill_text="$(cat "$SCRIPT_DIR/.agents/skills/adversarial-review/SKILL.md")"
+
+    assert_contains "$skill_text" '[references/workflow-guide.md](references/workflow-guide.md)' \
+        "the main Skill should link supporting guidance on demand"
+    [[ -f "$SCRIPT_DIR/.agents/skills/adversarial-review/references/workflow-guide.md" ]] ||
+        fail "supporting baseline, result, and troubleshooting guidance is missing"
+    pass "supporting guidance is progressively disclosed from the compact main Skill"
+}
+
 test_authorized_apply_fixes_requires_explicit_fixer() {
     SCENARIO_SLOT_ARGS="--apply-fixes" run_scenario missing-fixer clean
 
@@ -939,6 +990,8 @@ test_malformed_result_stops_without_prose_fallback
 test_contradictory_result_stops_as_result_error
 test_missing_or_non_integer_required_fields_stop
 test_ambiguous_fix_wording_remains_review_only
+test_implicit_discovery_routes_only_post_implementation_adversarial_review
+test_skill_uses_progressive_disclosure_for_supporting_guidance
 test_authorized_apply_fixes_requires_explicit_fixer
 test_authorized_apply_fixes_preserves_scope_and_reports_changes
 test_apply_fixes_rejects_changed_resolved_baseline

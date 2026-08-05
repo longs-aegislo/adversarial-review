@@ -3,4 +3,4 @@ interface:
   short_description: "Safely run a repository-level adversarial code review"
   default_prompt: "Use $adversarial-review to review the changes in this repository without modifying them."
 policy:
-  allow_implicit_invocation: false
+  allow_implicit_invocation: true

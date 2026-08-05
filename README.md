@@ -100,11 +100,13 @@ for every field, an example object, and outer LLM/Skill routing guidance.
 ## Documentation
 
 - [Repository-level Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —
-  explicitly invoked workflow that defaults to review-only and applies fixes
+  discoverable for explicit or clearly implied post-implementation adversarial
+  review and pre-commit/PR checks; it defaults to review-only and applies fixes
   only for clear review-and-fix requests with a named Fixer; it safely infers or accepts a baseline and previews a guarded file list
   after read-only CLI/backend/authentication/dependency preflight, before running
   Agents, then strictly validates versioned machine results and gives distinct,
-  actionable summaries for clean, findings, incomplete, policy, and infrastructure outcomes
+  actionable summaries for clean, findings, incomplete, policy, and infrastructure outcomes. Ordinary explanation,
+  lightweight single-reviewer review, debugging, and PR publication do not trigger it; the Skill remains a thin CLI Adapter.
 - [Detailed guide](docs/guide.md) — complete CLI reference, review phases,
   state management, artifacts, customization, and cost notes
 - [Process exit statuses](docs/exit-statuses.md) — stable statuses for CI and

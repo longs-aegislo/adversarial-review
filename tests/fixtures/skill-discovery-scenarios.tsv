@@ -1,0 +1,8 @@
+# expected	prompt
+trigger	Run an adversarial review of the implementation I just finished.
+trigger	Review and fix the completed changes using independent Claude and Codex reviewers.
+trigger	Before I commit or open a PR, put these changes through an adversarial review.
+near-miss	Explain how the baseline selection code works.
+near-miss	Give this diff a quick single-reviewer code review.
+near-miss	Debug the failing result-file test.
+near-miss	Push this branch and open a PR.
