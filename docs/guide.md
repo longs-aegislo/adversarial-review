@@ -416,8 +416,9 @@ or network access. These are external runtime prerequisites. The installed
 Adapter checks locally observable availability and authentication before Agent
 startup; subscription validity, quota, and network failures remain backend
 runtime conditions and are reported as Agent/backend failures. Its summary
-keeps total Findings and applied Fixes visible and derives remaining Findings
-from those stable machine-result counts.
+keeps total Findings, scoped applied-Fix counts, and changed paths distinct.
+It reports remaining Findings only from the stable termination category:
+`none`, `present`, or `unknown` when the review did not complete.
 
 `tests/test_plugin_package.sh` uses an isolated `HOME` and `CODEX_HOME` to
 register, list, and install the local marketplace, assert discovery of exactly

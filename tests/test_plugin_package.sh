@@ -211,6 +211,46 @@ grep -q "missing Agent backend executable: claude" "$PROFILE_ROOT/missing-claude
 [[ ! -s "$MISSING_BACKEND_LOG" ]] ||
     fail "a review backend started before missing-backend preflight completed"
 
+MISSING_CODEX_BIN="$PROFILE_ROOT/missing-codex-bin"
+mkdir -p "$MISSING_CODEX_BIN"
+for utility in awk basename bash cat cmp cut dirname find git grep head jq mkdir mktemp mv readlink rm sed shasum sort stat tail timeout tr wc; do
+    ln -s "$(command -v "$utility")" "$MISSING_CODEX_BIN/$utility"
+done
+ln -s "$(type -P true)" "$MISSING_CODEX_BIN/true"
+cp "$REPO_ROOT/tests/fixtures/plugin-backends/claude" "$MISSING_CODEX_BIN/claude"
+chmod +x "$MISSING_CODEX_BIN/claude"
+MISSING_CODEX_LOG="$PROFILE_ROOT/missing-codex-backends.log"
+set +e
+(
+    cd "$TARGET_REPO"
+    PLUGIN_BACKEND_LOG="$MISSING_CODEX_LOG" PATH="$MISSING_CODEX_BIN" \
+        "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+) > "$PROFILE_ROOT/missing-codex.out" 2>&1
+MISSING_CODEX_STATUS=$?
+set -e
+[[ $MISSING_CODEX_STATUS -eq 64 ]] || fail "missing Codex preflight returned an unexpected status"
+grep -q "missing Agent backend executable: codex" "$PROFILE_ROOT/missing-codex.out" ||
+    fail "missing Codex preflight was not actionable"
+[[ ! -s "$MISSING_CODEX_LOG" ]] ||
+    fail "a review backend started before missing-Codex preflight completed"
+
+MISSING_SHELL_BIN="$PROFILE_ROOT/missing-shell-bin"
+mkdir -p "$MISSING_SHELL_BIN"
+MISSING_SHELL_LOG="$PROFILE_ROOT/missing-shell-backends.log"
+set +e
+(
+    cd "$TARGET_REPO"
+    PLUGIN_BACKEND_LOG="$MISSING_SHELL_LOG" PATH="$MISSING_SHELL_BIN" \
+        "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+) > "$PROFILE_ROOT/missing-shell.out" 2>&1
+MISSING_SHELL_STATUS=$?
+set -e
+[[ $MISSING_SHELL_STATUS -eq 127 ]] || fail "missing Bash launcher returned an unexpected status"
+grep -Eq "(bash.*No such file|bash.*not found|No such file.*bash)" "$PROFILE_ROOT/missing-shell.out" ||
+    fail "missing Bash launcher failure was not actionable"
+[[ ! -s "$MISSING_SHELL_LOG" ]] ||
+    fail "a review backend started without Bash support"
+
 MISSING_TIMEOUT_BIN="$PROFILE_ROOT/missing-timeout-bin"
 mkdir -p "$MISSING_TIMEOUT_BIN"
 for utility in bash dirname git jq tr; do
@@ -275,11 +315,13 @@ unset PLUGIN_APPLY_FIXES PLUGIN_BACKEND_LOG
     cat "$PROFILE_ROOT/apply.out" >&2
     fail "installed Skill apply-fixes invocation did not complete cleanly"
 }
-grep -q "Applied fixes (1): app.sh" "$PROFILE_ROOT/apply.out" ||
-    fail "installed Skill did not report machine-result applied paths"
+grep -q "Applied fixes: in scope 2; pre-existing 0" "$PROFILE_ROOT/apply.out" ||
+    fail "installed Skill did not report machine-result fix counts"
+grep -q "Machine-result changed paths (1): app.sh" "$PROFILE_ROOT/apply.out" ||
+    fail "installed Skill did not report machine-result changed paths"
 grep -q "Target Repo Diff (1): app.sh" "$PROFILE_ROOT/apply.out" ||
     fail "installed Skill did not report Target Repo diff paths"
-grep -q "Remaining findings: in scope 0; pre-existing 0" "$PROFILE_ROOT/apply.out" ||
+grep -q "Remaining findings: none" "$PROFILE_ROOT/apply.out" ||
     fail "installed Skill did not report remaining Finding Scope counts"
 grep -q "Verification result: passed" "$PROFILE_ROOT/apply.out" ||
     fail "installed Skill did not report verification success"

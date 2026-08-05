@@ -366,7 +366,8 @@ Plugin 安装不会配置 Bash、`jq`、GNU 兼容的 timeout 支持、Claude �
 订阅、模型配额或网络访问；这些都是外部运行时前置条件。已安装 Adapter 会在 Agent
 启动前检查本地可观察的可用性与认证；订阅有效性、配额和网络故障仍属于 backend
 运行期条件，并报告为 Agent/backend failure。摘要保留 Findings 总数和已应用 Fixes，
-并依据这些稳定机器结果计数计算剩余 Findings。
+将 scoped Fix 数量与修改路径分开，并仅依据稳定终止类别把剩余 Findings 报告为
+`none`、`present`，或在审查未完成时报告 `unknown`。
 
 `tests/test_plugin_package.sh` 使用隔离的 `HOME` 与 `CODEX_HOME` 注册、列出并安装本地
 marketplace，断言只发现一个 Skill，使 marketplace source 不可访问后，再用 fake Agent

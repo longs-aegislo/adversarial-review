@@ -393,7 +393,8 @@ subscription、モデル quota、network access を設定しません。これ�
 前提条件です。インストール済み Adapter は Agent 起動前にローカルで確認できる可用性と
 認証を検査します。subscription の有効性、quota、network failure は backend 実行時条件
 として Agent/backend failure で報告します。概要は Findings 総数と適用済み Fixes を保持し、
-安定した機械結果の count から remaining Findings を算出します。
+scoped Fix 数と変更 path を分離します。remaining Findings は安定した終了 category
+だけから `none`、`present`、または review 未完了時の `unknown` として報告します。
 
 `tests/test_plugin_package.sh` は分離した `HOME` と `CODEX_HOME` でローカル marketplace
 を登録・一覧・インストールし、Skill が1つだけ検出されることを確認します。その後、fake
