@@ -345,9 +345,19 @@ only the final reply, keeping it small when fed into later phases. The
 
 The repository ships `.agents/skills/adversarial-review` for explicit
 post-implementation or pre-PR reviews. From the trusted Target Repo, invoke
-`$adversarial-review`; its adapter identifies that workspace, defaults the
-baseline to `HEAD` for uncommitted work, and selects the heterogeneous
-`claude`/`codex` slots in `review-only` mode.
+`$adversarial-review`; its adapter identifies that workspace, gives an explicit
+baseline priority, uses `HEAD` for worktree-only changes, and uses a known local
+default branch (`init.defaultBranch`, then `main`/`master`) for committed feature work (including mixed committed and
+uncommitted changes). It selects heterogeneous `claude`/`codex` slots in
+`review-only` mode.
+
+Inference stops before Agent calls for detached HEAD, shallow history, a local
+branch whose default cannot be identified, or when only a missing or potentially
+stale remote baseline is available. For a tracked feature branch, the local
+default must match the corresponding remote-tracking default ref. Matching refs
+may proceed and disclose that no fetch occurred; a missing or divergent remote
+default stops with guidance to provide an explicit baseline or separately
+authorize fetch/reconciliation. The adapter never fetches itself.
 
 The adapter resolves `adversarial_review.sh` from `PATH` first, then from the
 root of the repository containing the Skill. Standalone Skill installations
@@ -362,14 +372,17 @@ changes, or review calls. The default is heterogeneous `claude`/`codex`; an
 explicit `claude`/`claude` or `codex`/`codex` request is allowed but reported as
 lower-diversity same-model redundancy. It then runs a dry-run with those exact
 values and starts the real review only after the documented output contains a
-valid, non-empty file scope. It accepts only result schema version 1, distinguishes a
+valid, non-empty, plausibly sized Review Scope. Empty, malformed, or more than
+500 files is treated as unsafe and stops before the real review. Every previewed
+path must also occur in the selected baseline's Git delta, so an accidental
+whole-repository scope below that limit is rejected too. It accepts only result schema version 1, distinguishes a
 clean review from remaining findings, and prints the final Synthesis and
 Artifacts paths. It never commits, pushes, creates a PR, fetches, installs
 dependencies, or modifies the Target Repo.
 
 Deterministic scenarios in `tests/test_skill_scenarios.sh` exercise clean,
-findings-remaining, reviewer selection, prerequisite failures, empty-scope,
-and default CLI-discovery behavior with
+findings-remaining, baseline selection, ambiguous Git states, reviewer
+selection, prerequisite failures, unsafe scopes, and default CLI-discovery behavior with
 fixture Target Repos and a fake CLI, without model calls or subscriptions.
 
 ## Research Background

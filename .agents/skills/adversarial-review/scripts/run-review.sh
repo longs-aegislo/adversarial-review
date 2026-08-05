@@ -7,6 +7,10 @@ fail() {
     exit "${2:-64}"
 }
 
+fail_needs_base_or_fetch() {
+    fail "$1; provide an explicit base or authorize a separate fetch"
+}
+
 require_json() {
     local file="$1"
     jq -e . "$file" >/dev/null 2>&1 || fail "CLI did not produce valid machine JSON"
@@ -35,7 +39,7 @@ require_run_contract() {
 require_cli_contract() {
     local help_output
     help_output="$("$CLI" --help 2>&1)" || fail "Adversarial Review CLI --help check failed"
-    for option in --slot-a --slot-b --target-dir --dry-run --review-only --result-file; do
+    for option in --base --slot-a --slot-b --target-dir --dry-run --review-only --result-file; do
         [[ "$help_output" == *"$option"* ]] ||
             fail "Adversarial Review CLI does not support required option: $option"
     done
@@ -62,13 +66,16 @@ require_backend() {
 SKILL_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 CLI="${ADVERSARIAL_REVIEW_BIN:-}"
 BASE_REF=""
+BASE_EXPLICIT=false
+BASE_DESCRIPTION=""
+REMOTE_BASELINE_NOTE=""
 SLOT_A="claude"
 SLOT_B="codex"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --cli) CLI="$2"; shift 2 ;;
-        --base) BASE_REF="$2"; shift 2 ;;
+        --base) BASE_REF="$2"; BASE_EXPLICIT=true; shift 2 ;;
         --slot-a) SLOT_A="$2"; shift 2 ;;
         --slot-b) SLOT_B="$2"; shift 2 ;;
         *) fail "unknown option: $1" ;;
@@ -97,7 +104,57 @@ TARGET_DIR="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "$TARGET_DIR" && -d "$TARGET_DIR" ]] || fail "current workspace is not a Git Target Repo"
 TARGET_DIR="$(cd "$TARGET_DIR" && pwd -P)"
 
-[[ -n "$BASE_REF" ]] || BASE_REF="HEAD"
+if [[ "$BASE_EXPLICIT" == "false" ]]; then
+    [[ "$(git -C "$TARGET_DIR" rev-parse --is-shallow-repository)" == "false" ]] ||
+        fail_needs_base_or_fetch "cannot infer a safe baseline for this shallow Target Repo"
+    current_branch="$(git -C "$TARGET_DIR" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    [[ -n "$current_branch" ]] ||
+        fail "cannot infer a safe baseline from detached HEAD; provide an explicit base"
+
+    default_branch=""
+    configured_default="$(git -C "$TARGET_DIR" config --get init.defaultBranch 2>/dev/null || true)"
+    for candidate in "$configured_default" main master; do
+        [[ -n "$candidate" ]] || continue
+        if git -C "$TARGET_DIR" show-ref --verify --quiet "refs/heads/$candidate"; then
+            default_branch="$candidate"
+            break
+        fi
+    done
+
+    if [[ -z "$default_branch" ]]; then
+        fail "cannot infer a safe baseline because the Target Repo has no known default branch; provide an explicit base"
+    fi
+
+    committed_branch_work=false
+    if [[ "$current_branch" != "$default_branch" ]] &&
+       [[ "$(git -C "$TARGET_DIR" rev-list --count "$default_branch..HEAD")" -gt 0 ]]; then
+        committed_branch_work=true
+    fi
+
+    if [[ "$committed_branch_work" == "true" && -n "$(git -C "$TARGET_DIR" remote)" ]]; then
+        upstream_ref="$(git -C "$TARGET_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+        if [[ -z "$upstream_ref" ]]; then
+            fail_needs_base_or_fetch "cannot infer a safe baseline because the feature branch has no upstream"
+        fi
+
+        upstream_remote="$(git -C "$TARGET_DIR" config --get "branch.$current_branch.remote" 2>/dev/null || true)"
+        remote_default_ref="refs/remotes/$upstream_remote/$default_branch"
+        git -C "$TARGET_DIR" show-ref --verify --quiet "$remote_default_ref" ||
+            fail_needs_base_or_fetch "cannot infer a safe baseline because the remote default ref is missing: $upstream_remote/$default_branch"
+        if [[ "$(git -C "$TARGET_DIR" rev-parse "$default_branch")" != "$(git -C "$TARGET_DIR" rev-parse "$remote_default_ref")" ]]; then
+            fail_needs_base_or_fetch "cannot infer a safe baseline because local $default_branch differs from $upstream_remote/$default_branch"
+        fi
+        REMOTE_BASELINE_NOTE="local $default_branch matches $upstream_remote/$default_branch; no fetch performed"
+    fi
+
+    if [[ "$committed_branch_work" == "true" ]]; then
+        BASE_REF="$(git -C "$TARGET_DIR" merge-base HEAD "$default_branch")"
+        [[ -n "$BASE_REF" ]] || fail "cannot determine a merge-base for Target Repo branches $current_branch and $default_branch"
+        BASE_DESCRIPTION="merge-base of $current_branch and $default_branch"
+    else
+        BASE_REF="HEAD"
+    fi
+fi
 git -C "$TARGET_DIR" rev-parse --verify --quiet --end-of-options "${BASE_REF}^{commit}" >/dev/null ||
     fail "baseline does not resolve to a commit: $BASE_REF"
 
@@ -114,7 +171,8 @@ if [[ "$SLOT_B" != "$SLOT_A" ]]; then
 fi
 
 echo "Target Repo: $TARGET_DIR"
-echo "Baseline: $BASE_REF"
+echo "Baseline: $BASE_REF${BASE_DESCRIPTION:+ ($BASE_DESCRIPTION)}"
+[[ -z "$REMOTE_BASELINE_NOTE" ]] || echo "Remote baseline: $REMOTE_BASELINE_NOTE"
 echo "Reviewer slots: $SLOT_A, $SLOT_B"
 if [[ "$SLOT_A" == "$SLOT_B" ]]; then
     echo "Review diversity: same-model redundancy provides lower review diversity than heterogeneous reviewers"
@@ -140,6 +198,8 @@ require_run_contract "$DRY_RESULT" true false
 
 scope_header="$(sed -n 's/.*Files in scope (\([0-9][0-9]*\)):.*/\1/p' "$DRY_OUTPUT" | tail -1)"
 [[ -n "$scope_header" && "$scope_header" -gt 0 ]] || fail "dry-run returned an empty or invalid Review Scope"
+[[ "$scope_header" -le 500 ]] ||
+    fail "dry-run Review Scope is unexpectedly large ($scope_header files); inspect the baseline or provide a narrower explicit base"
 scope_files=()
 while IFS= read -r scope_file; do
     scope_files+=("$scope_file")
@@ -152,6 +212,18 @@ done < <(awk -v count="$scope_header" '
     }
 ' "$DRY_OUTPUT")
 [[ ${#scope_files[@]} -eq $scope_header ]] || fail "dry-run Review Scope could not be parsed safely"
+
+expected_scope="$RUN_DIR/expected-scope"
+{
+    git -C "$TARGET_DIR" diff --name-only "$BASE_REF...HEAD"
+    git -C "$TARGET_DIR" diff --name-only
+    git -C "$TARGET_DIR" diff --cached --name-only
+    git -C "$TARGET_DIR" ls-files --others --exclude-standard
+} | sed '/^$/d' | sort -u > "$expected_scope"
+for scope_file in "${scope_files[@]}"; do
+    grep -Fxq -- "$scope_file" "$expected_scope" ||
+        fail "dry-run returned an unexpected whole-repo or invalid Review Scope entry: $scope_file"
+done
 echo "Review Scope ($scope_header): ${scope_files[*]}"
 
 set +e

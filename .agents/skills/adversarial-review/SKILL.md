@@ -13,10 +13,17 @@ directly.
 
 1. Treat the trusted current workspace as the Target Repo. Do not substitute
    this Skill directory, its plugin directory, or the installed CLI directory.
-2. Select an explicit baseline. For uncommitted work, use `HEAD`. If the user
-   supplied a base, pass it unchanged. If committed branch work requires a
-   merge base and no reliable base is available, stop and ask instead of
-   falling back to a whole-directory review.
+2. Let the adapter select a safe baseline unless the user supplied one. An
+   explicit base always wins. Otherwise it uses `HEAD` for worktree-only work,
+   or a known local default branch (`init.defaultBranch`, then `main`/`master`)
+   for committed feature-branch work (including
+   mixed committed and uncommitted changes). It stops before Agent calls for
+   detached HEAD, shallow history, an unknown local default branch, or a
+   missing/remote-only baseline. For a tracked feature branch it requires the
+   corresponding remote-tracking default ref to exist and match the local
+   default branch; an aligned pair may proceed, with a clear disclosure that no
+   fetch occurred. A missing or divergent pair stops and asks for separate
+   fetch authorization or an explicit base. The adapter never fetches itself.
 3. Default to heterogeneous reviewer slots `claude` and `codex`. If the user
    explicitly requests `claude`/`claude` or `codex`/`codex`, allow that
    same-model redundancy and clearly report its lower review diversity. Never
@@ -26,7 +33,7 @@ directly.
 5. From the Target Repo, run:
 
    ```bash
-   <skill-directory>/scripts/run-review.sh --base <baseline>
+   <skill-directory>/scripts/run-review.sh [--base <baseline>]
    ```
 
    The adapter first looks for `adversarial_review.sh` on `PATH`, then for the
@@ -40,7 +47,10 @@ directly.
    installing anything or changing credentials. The adapter then prints Target Repo, baseline,
    reviewer slots, and execution mode, performs a dry-run with the same
    explicit values, and starts the real review only after confirming a valid,
-   non-empty Review Scope.
+   non-empty, plausibly sized Review Scope. Empty, malformed, or unexpectedly
+   large scopes stop before the real review. Every previewed path must also
+   belong to the Git delta from the selected baseline, which rejects accidental
+   whole-repository scopes even below the size limit.
 6. Report the adapter's machine-result interpretation. Distinguish `clean`
    from `Findings remaining`, and include the final Synthesis and Artifacts
    paths it prints. Treat any other termination category as stopped or failed;

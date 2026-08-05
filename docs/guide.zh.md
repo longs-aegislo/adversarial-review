@@ -316,8 +316,14 @@ SUMMARY: Found critical type mixing bug
 
 仓库提供 `.agents/skills/adversarial-review`，用于显式发起实现后或 PR 前审查。
 在受信任的 Target Repo 中调用 `$adversarial-review`；其 Adapter 会识别当前工作区，
-对未提交工作默认使用 `HEAD` baseline，并以 `review-only` 模式选择异构的
-`claude`／`codex` reviewer slots。
+显式 baseline 优先；仅有工作区改动时使用 `HEAD`，功能分支存在提交（包括同时有
+未提交改动）时使用已知的本地默认分支（`init.defaultBranch`，其次为 `main`／`master`）。
+它以 `review-only` 模式选择异构的
+`claude`／`codex` reviewer slots。detached HEAD、浅克隆，或只有缺失／可能过期的远端
+baseline，或无法识别本地默认分支时，会在 Agent 调用前停止。对于已跟踪的功能分支，
+本地默认分支必须与对应的 remote-tracking 默认 ref 一致；一致时可以继续并披露未执行
+fetch，缺失或不一致时则要求显式 baseline，或独立授权 fetch／协调分支。Adapter 自身
+从不自动 fetch。
 
 Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再尝试 Skill 所在仓库的根目录。
 独立安装 Skill 时，可以设置 `ADVERSARIAL_REVIEW_BIN` 或显式传入 `--cli <路径>`。
@@ -328,13 +334,17 @@ Adapter 会先从 `PATH` 解析 `adversarial_review.sh`，再尝试 Skill 所在
 不修改凭据、
 也不调用审查。默认使用异构 `claude`／`codex`；显式请求 `claude`／`claude` 或
 `codex`／`codex` 时允许 same-model redundancy，但会说明审查多样性较低。随后用
-完全相同的值执行 dry-run。只有文档化 dry-run 输出给出有效且非空的
-文件 scope 时才开始真实审查。它只接受结果 schema version 1，区分 clean 与仍有
+完全相同的值执行 dry-run。只有文档化 dry-run 输出给出有效、非空且规模合理的
+Review Scope 时才开始真实审查；空、无法解析或超过 500 个文件的 scope 会安全停止。
+每个预览路径还必须属于所选 baseline 的 Git delta，因此低于数量上限的意外整仓 scope
+也会被拒绝。
+它只接受结果 schema version 1，区分 clean 与仍有
 findings，并显示最终 Synthesis 与 Artifacts 路径。它不会提交、推送、创建 PR、fetch、
 安装依赖或修改 Target Repo。
 
 `tests/test_skill_scenarios.sh` 使用 fixture Target Repo 和伪 CLI，确定性覆盖 clean、
-findings remaining、reviewer 选择、前置检查失败、空 scope 与默认 CLI 发现路径，
+findings remaining、baseline 选择、歧义 Git 状态、reviewer 选择、前置检查失败、
+异常 Review Scope 与默认 CLI 发现路径，
 既不调用模型也不依赖订阅。
 
 ## 研究背景
