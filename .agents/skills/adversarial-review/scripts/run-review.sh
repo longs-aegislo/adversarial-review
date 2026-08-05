@@ -11,6 +11,18 @@ fail_needs_base_or_fetch() {
     fail "$1; provide an explicit base or authorize a separate fetch"
 }
 
+write_target_snapshot() {
+    local destination="$1"
+
+    {
+        git -C "$TARGET_DIR" diff --no-ext-diff --binary HEAD
+        git -C "$TARGET_DIR" ls-files --others --exclude-standard -z |
+            while IFS= read -r -d '' path; do
+                printf 'untracked %s %s\n' "$path" "$(git -C "$TARGET_DIR" hash-object -- "$path")"
+            done
+    } > "$destination"
+}
+
 is_safe_verification_argv() {
     local executable="$1"
     shift
@@ -44,18 +56,23 @@ is_safe_verification_argv() {
 require_json() {
     local file="$1"
     jq -e . "$file" >/dev/null 2>&1 || fail "CLI did not produce valid machine JSON"
-    [[ "$(jq -r '.schema_version' "$file")" == "1" ]] ||
-        fail "unsupported result schema: $(jq -r '.schema_version // "missing"' "$file"); supported schema: 1"
+    jq -e '(.schema_version | type == "number" and . == 1 and floor == .)' "$file" >/dev/null 2>&1 ||
+        fail "unsupported or invalid result schema: $(jq -r '(.schema_version // "missing") | type + " " + tostring' "$file"); supported schema: integer 1"
 }
 
 require_completed_result_contract() {
     local file="$1"
 
     jq -e '
+        (.target_repo.identity | type == "string" and length > 0) and
         (.target_repo.path | type == "string" and length > 0) and
+        ((.target_repo.git_root == null) or (.target_repo.git_root | type == "string")) and
+        ((.target_repo.remote_url == null) or (.target_repo.remote_url | type == "string")) and
+        ((.target_repo.head_commit == null) or (.target_repo.head_commit | type == "string")) and
         (.reviewers.slot_a | type == "string") and
         (.reviewers.slot_b | type == "string") and
-        (.synthesis | type == "object") and
+        ((.synthesis.requested_fixer == null) or (.synthesis.requested_fixer | type == "string")) and
+        ((.synthesis.executed_by == null) or (.synthesis.executed_by | type == "string")) and
         (.scope.kind == "base") and
         (.scope.requested_base_ref | type == "string") and
         (.scope.resolved_base_commit | type == "string" and length > 0) and
@@ -66,12 +83,12 @@ require_completed_result_contract() {
         (.termination.reason | type == "string" and length > 0) and
         (.termination.exit_code | type == "number") and
         (.iterations | type == "number" and . >= 0 and floor == .) and
-        (.counts.findings.in_scope | type == "number" and . >= 0) and
-        (.counts.findings.pre_existing | type == "number" and . >= 0) and
-        (.counts.findings.scope_conflicts | type == "number" and . >= 0) and
-        (.counts.fixes.in_scope | type == "number" and . >= 0) and
-        (.counts.fixes.pre_existing | type == "number" and . >= 0) and
-        (.counts.pre_existing_flagged | type == "number" and . >= 0) and
+        (.counts.findings.in_scope | type == "number" and . >= 0 and floor == .) and
+        (.counts.findings.pre_existing | type == "number" and . >= 0 and floor == .) and
+        (.counts.findings.scope_conflicts | type == "number" and . >= 0 and floor == .) and
+        (.counts.fixes.in_scope | type == "number" and . >= 0 and floor == .) and
+        (.counts.fixes.pre_existing | type == "number" and . >= 0 and floor == .) and
+        (.counts.pre_existing_flagged | type == "number" and . >= 0 and floor == .) and
         (.target_changes.modified | type == "boolean") and
         (.target_changes.files | type == "array") and
         (all(.target_changes.files[]; type == "string")) and
@@ -106,13 +123,23 @@ require_run_contract() {
         fail "CLI resolved different reviewer slots"
     [[ "$(jq -r '.execution.mode' "$file")" == "$EXECUTION_MODE" &&
        "$(jq -r '.execution.dry_run' "$file")" == "$expected_dry_run" &&
-       "$(jq -r '.execution.review_executed' "$file")" == "$expected_review_executed" &&
        "$(jq -r '.execution.include_pre_existing' "$file")" == "false" ]] ||
         fail "CLI did not preserve the execution contract"
+    if [[ "$expected_review_executed" == "failure-aware" ]]; then
+        review_executed="$(jq -r '.execution.review_executed' "$file")"
+        category="$(jq -r '.termination.category' "$file")"
+        [[ "$review_executed" == "true" ||
+           ("$review_executed" == "false" &&
+            ("$category" == "invalid-invocation" || "$category" == "agent-backend-failure")) ]] ||
+            fail "CLI did not preserve the execution contract"
+    else
+        [[ "$(jq -r '.execution.review_executed' "$file")" == "$expected_review_executed" ]] ||
+            fail "CLI did not preserve the execution contract"
+    fi
     if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
         [[ "$(jq -r '.synthesis.requested_fixer' "$file")" == "$FIXER" ]] ||
             fail "CLI resolved a different Fixer"
-        if [[ "$expected_review_executed" == "true" ]]; then
+        if [[ "$expected_review_executed" != "false" ]]; then
             [[ "$(jq -r '.counts.fixes.pre_existing' "$file")" == "0" ]] ||
                 fail "CLI modified PRE_EXISTING findings without separate authorization"
         fi
@@ -292,6 +319,7 @@ DRY_RESULT="$RUN_DIR/dry-run.json"
 DRY_OUTPUT="$RUN_DIR/dry-run.out"
 REAL_RESULT="$RUN_DIR/review.json"
 REAL_OUTPUT="$RUN_DIR/review.out"
+BEFORE_REVIEW_SNAPSHOT="$RUN_DIR/before-review.snapshot"
 
 mode_option="--$EXECUTION_MODE"
 fixer_args=()
@@ -339,6 +367,8 @@ for scope_file in "${scope_files[@]}"; do
 done
 echo "Review Scope ($scope_header): ${scope_files[*]}"
 
+write_target_snapshot "$BEFORE_REVIEW_SNAPSHOT"
+
 set +e
 "$CLI" "$mode_option" --base "$BASE_REF" \
     --slot-a "$SLOT_A" --slot-b "$SLOT_B" "${fixer_args[@]}" \
@@ -346,13 +376,28 @@ set +e
 review_status=$?
 set -e
 
+REVIEW_ONLY_TARGET_CHANGED=false
+if [[ "$EXECUTION_MODE" == "review-only" ]]; then
+    AFTER_REVIEW_SNAPSHOT="$RUN_DIR/after-review.snapshot"
+    write_target_snapshot "$AFTER_REVIEW_SNAPSHOT"
+    if cmp -s "$BEFORE_REVIEW_SNAPSHOT" "$AFTER_REVIEW_SNAPSHOT"; then
+        echo "Target Repo changes during review: none (confirmed)"
+    else
+        REVIEW_ONLY_TARGET_CHANGED=true
+        echo "Target Repo changes during review: detected (unauthorized)"
+    fi
+fi
+
 require_json "$REAL_RESULT"
 require_completed_result_contract "$REAL_RESULT"
-require_run_contract "$REAL_RESULT" false true
+require_run_contract "$REAL_RESULT" false failure-aware
 [[ "$(jq -r '.scope.resolved_base_commit' "$REAL_RESULT")" == "$DRY_RESOLVED_BASE" ]] ||
     fail "real review resolved a different baseline commit than dry-run"
 [[ "$review_status" -eq "$(jq -r '.termination.exit_code' "$REAL_RESULT")" ]] ||
     fail "invalid or contradictory machine result"
+[[ "$REVIEW_ONLY_TARGET_CHANGED" == "false" ||
+   "$(jq -r '.termination.category' "$REAL_RESULT")" == "write-boundary-violation" ]] ||
+    fail "Target Repo changed during a review-only invocation"
 
 category="$(jq -r '.termination.category' "$REAL_RESULT")"
 case "$category" in
@@ -389,8 +434,7 @@ echo "Fixes: in scope $(jq -r '.counts.fixes.in_scope' "$REAL_RESULT"); pre-exis
 mapfile -t modified_files < <(jq -r '.target_changes.files[]' "$REAL_RESULT")
 echo "Modified files (${#modified_files[@]}): ${modified_files[*]:-none}"
 if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
-    mapfile -t applied_files < <(jq -r '.target_changes.files[]?' "$REAL_RESULT")
-    echo "Applied fixes (${#applied_files[@]}): ${applied_files[*]:-none}"
+    echo "Applied fixes (${#modified_files[@]}): ${modified_files[*]:-none}"
     mapfile -t target_diff_files < <({
         git -C "$TARGET_DIR" diff --name-only
         git -C "$TARGET_DIR" diff --cached --name-only

@@ -8,7 +8,7 @@ TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 TEST_BIN="$TEST_ROOT/bin"
 mkdir -p "$TEST_BIN"
-for utility in bash cat git dirname grep mktemp rm sed sort tail awk; do
+for utility in bash cat cmp git dirname grep mktemp mv rm sed sort tail awk; do
     ln -s "$(command -v "$utility")" "$TEST_BIN/$utility"
 done
 ln -s "$(type -P true)" "$TEST_BIN/true"
@@ -145,6 +145,9 @@ if [[ "$execution_mode" == "apply-fixes" && "${FAKE_APPLY_CHANGE:-false}" == "tr
     changed_files='["app.sh"]'
 fi
 if [[ "${FAKE_MALFORMED_JSON:-false}" == "true" ]]; then
+    if [[ "${FAKE_UNAUTHORIZED_CHANGE:-false}" == "true" ]]; then
+        printf '%s\n' 'unauthorized backend write' >> "$target_dir/app.sh"
+    fi
     printf '%s\n' '{not-json' > "$result_file"
     printf '%s\n' 'Review result: clean (misleading terminal prose)'
     exit 70
@@ -161,8 +164,12 @@ case "$category" in
 esac
 result_status="${FAKE_RESULT_STATUS:-$result_status}"
 cat > "$result_file" <<JSON
-{"schema_version":$schema_version,"target_repo":{"path":"$target_dir"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"synthesis":{"requested_fixer":"$fixer","executed_by":"$fixer"},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"${FAKE_REAL_RESOLVED_BASE:-abc}"},"execution":{"mode":"$execution_mode","dry_run":false,"review_executed":true,"include_pre_existing":${FAKE_INCLUDE_PRE_EXISTING:-false}},"termination":{"category":"$category","reason":"$reason","exit_code":$result_status},"iterations":1,"counts":{"findings":{"in_scope":2,"pre_existing":1,"scope_conflicts":${FAKE_SCOPE_CONFLICTS:-0}},"fixes":{"in_scope":1,"pre_existing":${FAKE_PRE_EXISTING_FIXED:-0}},"pre_existing_flagged":1},"target_changes":{"modified":$([[ "$changed_files" == '[]' ]] && echo false || echo true),"files":$changed_files},"paths":{"state_dir":"/tmp/state","artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":"$synthesis"}}
+{"schema_version":$schema_version,"target_repo":{"identity":"$target_dir","path":"$target_dir","git_root":"$target_dir","remote_url":null,"head_commit":"abc"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"synthesis":{"requested_fixer":"$fixer","executed_by":"$fixer"},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"${FAKE_REAL_RESOLVED_BASE:-abc}"},"execution":{"mode":"$execution_mode","dry_run":false,"review_executed":${FAKE_REVIEW_EXECUTED:-true},"include_pre_existing":${FAKE_INCLUDE_PRE_EXISTING:-false}},"termination":{"category":"$category","reason":"$reason","exit_code":$result_status},"iterations":1,"counts":{"findings":{"in_scope":${FAKE_IN_SCOPE_FINDINGS:-2},"pre_existing":1,"scope_conflicts":${FAKE_SCOPE_CONFLICTS:-0}},"fixes":{"in_scope":1,"pre_existing":${FAKE_PRE_EXISTING_FIXED:-0}},"pre_existing_flagged":1},"target_changes":{"modified":$([[ "$changed_files" == '[]' ]] && echo false || echo true),"files":$changed_files},"paths":{"state_dir":"/tmp/state","artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":"$synthesis"}}
 JSON
+if [[ "${FAKE_REMOVE_IDENTITY:-false}" == "true" ]]; then
+    jq 'del(.target_repo.identity)' "$result_file" > "$result_file.tmp"
+    mv "$result_file.tmp" "$result_file"
+fi
 printf '%s\n' "${FAKE_TERMINAL_PROSE:-CLI terminal narration}"
 exit "$result_status"
 EOF
@@ -228,6 +235,10 @@ run_scenario() {
             FAKE_MALFORMED_JSON="${SCENARIO_MALFORMED_JSON:-false}" \
             FAKE_SCOPE_CONFLICTS="${SCENARIO_SCOPE_CONFLICTS:-0}" \
             FAKE_TERMINAL_PROSE="${SCENARIO_TERMINAL_PROSE:-}" \
+            FAKE_REVIEW_EXECUTED="${SCENARIO_REVIEW_EXECUTED:-true}" \
+            FAKE_IN_SCOPE_FINDINGS="${SCENARIO_IN_SCOPE_FINDINGS:-2}" \
+            FAKE_REMOVE_IDENTITY="${SCENARIO_REMOVE_IDENTITY:-false}" \
+            FAKE_UNAUTHORIZED_CHANGE="${SCENARIO_UNAUTHORIZED_CHANGE:-false}" \
             "$SKILL_RUNNER" --cli "${SCENARIO_CLI:-$fake_cli}" ${SCENARIO_SLOT_ARGS:-} \
             "${verification_args[@]}"
     ) > "$output" 2>&1
@@ -466,6 +477,10 @@ test_stable_termination_categories_are_actionable() {
             "$category should preserve the machine failure reason"
         assert_contains "$SCENARIO_OUTPUT" "Artifacts: /tmp/artifacts" \
             "$category should retain diagnostic artifacts"
+        if [[ "$category" == "agent-backend-failure" || "$category" == "invalid-invocation" ]]; then
+            assert_contains "$SCENARIO_OUTPUT" "Target Repo changes during review: none (confirmed)" \
+                "$category should independently confirm that the Target Repo was unchanged"
+        fi
     done <<'CASES'
 incomplete-review|max-iterations|12|Review result: incomplete; inspect the synthesis and artifacts, then rerun with a higher iteration limit if appropriate
 incomplete-review|circuit-open|12|Review result: incomplete; inspect the synthesis and artifacts before deciding whether to rerun
@@ -475,6 +490,18 @@ invalid-invocation|preflight-rejected|64|Review result: invalid invocation; corr
 write-boundary-violation|read-only-write-attempt|77|Review result: write-policy violation; inspect the audit artifacts and Target Repo diff before retrying
 CASES
     pass "stable stopped and failure categories are distinct and actionable"
+}
+
+test_preflight_failure_preserves_reason_without_review() {
+    SCENARIO_REVIEW_EXECUTED=false SCENARIO_RESULT_REASON=backend-preflight-failed \
+        run_scenario preflight-failure agent-backend-failure
+
+    [[ $SCENARIO_STATUS -eq 70 ]] || fail "preflight failure should preserve backend status"
+    assert_contains "$SCENARIO_OUTPUT" "Reason: backend-preflight-failed" \
+        "preflight failure should preserve its real machine reason"
+    assert_contains "$SCENARIO_OUTPUT" "Target Repo changes during review: none (confirmed)" \
+        "preflight failure should confirm that no unauthorized Target Repo change occurred"
+    pass "preflight failure preserves reason and confirms no Target Repo changes"
 }
 
 test_clean_result_reports_applied_fixes() {
@@ -518,19 +545,31 @@ test_unsupported_schema_stops_without_prose_fallback() {
         run_scenario unsupported-schema clean
 
     [[ $SCENARIO_STATUS -eq 64 ]] || fail "unsupported schema should stop as a compatibility error"
-    assert_contains "$SCENARIO_OUTPUT" "unsupported result schema: 2; supported schema: 1" \
+    assert_contains "$SCENARIO_OUTPUT" "unsupported or invalid result schema: number 2; supported schema: integer 1" \
         "unsupported schema should give explicit compatibility guidance"
     [[ "$SCENARIO_OUTPUT" != *"Review result: clean"* ]] ||
         fail "unsupported schema must not fall back to terminal prose"
     pass "unsupported schema stops without terminal-prose fallback"
 }
 
+test_string_schema_version_is_invalid() {
+    SCENARIO_SCHEMA_VERSION='"1"' run_scenario string-schema clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "string schema version should stop"
+    assert_contains "$SCENARIO_OUTPUT" "unsupported or invalid result schema: string 1; supported schema: integer 1" \
+        "schema version must be the documented integer type"
+    pass "string schema version is rejected with compatibility guidance"
+}
+
 test_malformed_result_stops_without_prose_fallback() {
-    SCENARIO_MALFORMED_JSON=true run_scenario malformed-result agent-backend-failure
+    SCENARIO_MALFORMED_JSON=true SCENARIO_UNAUTHORIZED_CHANGE=true \
+        run_scenario malformed-result agent-backend-failure
 
     [[ $SCENARIO_STATUS -eq 64 ]] || fail "malformed JSON should stop as a result error"
     assert_contains "$SCENARIO_OUTPUT" "CLI did not produce valid machine JSON" \
         "malformed JSON should identify the result error"
+    assert_contains "$SCENARIO_OUTPUT" "Target Repo changes during review: detected (unauthorized)" \
+        "no-change audit should run before malformed-result parsing can stop the adapter"
     [[ "$SCENARIO_OUTPUT" != *"Review result: clean"* ]] ||
         fail "malformed results must not fall back to misleading terminal prose"
     pass "malformed machine result stops without prose or tracking fallback"
@@ -543,6 +582,19 @@ test_contradictory_result_stops_as_result_error() {
     assert_contains "$SCENARIO_OUTPUT" "invalid or contradictory machine result" \
         "category and exit status disagreement should be rejected"
     pass "contradictory machine result is never repaired from side channels"
+}
+
+test_missing_or_non_integer_required_fields_stop() {
+    SCENARIO_REMOVE_IDENTITY=true run_scenario missing-required-field clean
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "missing required schema field should stop"
+    assert_contains "$SCENARIO_OUTPUT" "invalid or contradictory machine result" \
+        "missing required schema field should be rejected"
+
+    SCENARIO_IN_SCOPE_FINDINGS=1.5 run_scenario fractional-count clean
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "fractional finding count should stop"
+    assert_contains "$SCENARIO_OUTPUT" "invalid or contradictory machine result" \
+        "schema integer fields should reject fractional numbers"
+    pass "missing and non-integer required fields stop as result errors"
 }
 
 test_ambiguous_fix_wording_remains_review_only() {
@@ -878,11 +930,14 @@ test_oversized_scope_stops_before_real_review() {
 test_explicit_clean_review
 test_explicit_findings_remaining_review
 test_stable_termination_categories_are_actionable
+test_preflight_failure_preserves_reason_without_review
 test_result_summary_reports_complete_supported_contract
 test_clean_result_reports_applied_fixes
 test_unsupported_schema_stops_without_prose_fallback
+test_string_schema_version_is_invalid
 test_malformed_result_stops_without_prose_fallback
 test_contradictory_result_stops_as_result_error
+test_missing_or_non_integer_required_fields_stop
 test_ambiguous_fix_wording_remains_review_only
 test_authorized_apply_fixes_requires_explicit_fixer
 test_authorized_apply_fixes_preserves_scope_and_reports_changes
