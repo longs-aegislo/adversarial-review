@@ -85,7 +85,7 @@ if [[ "${1:-}" == "--help" ]]; then
         printf '%s\n' 'Usage: adversarial_review.sh --base REF --target-dir DIR --dry-run --review-only --result-file FILE'
         exit 0
     fi
-    printf '%s\n' 'Usage: adversarial_review.sh --base REF --slot-a AGENT --slot-b AGENT --target-dir DIR --dry-run --review-only --result-file FILE'
+    printf '%s\n' 'Usage: adversarial_review.sh --base REF --slot-a AGENT --slot-b AGENT --fixer AGENT --target-dir DIR --dry-run --review-only --apply-fixes --result-file FILE'
     exit 0
 fi
 
@@ -98,6 +98,8 @@ base_ref=""
 slot_a=""
 slot_b=""
 dry_run=false
+execution_mode=review-only
+fixer=""
 previous=""
 for argument in "$@"; do
     [[ "$previous" == "--result-file" ]] && result_file="$argument"
@@ -105,7 +107,9 @@ for argument in "$@"; do
     [[ "$previous" == "--base" ]] && base_ref="$argument"
     [[ "$previous" == "--slot-a" ]] && slot_a="$argument"
     [[ "$previous" == "--slot-b" ]] && slot_b="$argument"
+    [[ "$previous" == "--fixer" ]] && fixer="$argument"
     [[ "$argument" == "--dry-run" ]] && dry_run=true
+    [[ "$argument" == "--apply-fixes" ]] && execution_mode=apply-fixes
     previous="$argument"
 done
 
@@ -113,7 +117,7 @@ if [[ "$dry_run" == "true" ]]; then
     scope_files="${FAKE_SCOPE_FILES:-app.sh}"
     scope_count="${FAKE_SCOPE_COUNT:-1}"
     cat > "$result_file" <<JSON
-{"schema_version":1,"target_repo":{"path":"$target_dir"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"abc"},"execution":{"mode":"review-only","dry_run":true,"review_executed":false},"termination":{"category":"incomplete-review","reason":"max-iterations","exit_code":12},"paths":{"artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":null}}
+{"schema_version":1,"target_repo":{"path":"$target_dir"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"synthesis":{"requested_fixer":"$fixer","executed_by":null},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"${FAKE_DRY_RESOLVED_BASE:-abc}"},"execution":{"mode":"$execution_mode","dry_run":true,"review_executed":false,"include_pre_existing":false},"termination":{"category":"incomplete-review","reason":"max-iterations","exit_code":12},"target_changes":{"modified":false,"files":[]},"paths":{"artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":null}}
 JSON
     printf '[INFO] Files in scope (%s):\n' "$scope_count"
     if [[ "$scope_count" == "1" ]]; then
@@ -127,16 +131,22 @@ JSON
             scope_index=$((scope_index + 1))
         done
     fi
-    printf '%s\n' '[INFO] Execution mode: review-only'
+    printf '[INFO] Execution mode: %s\n' "$execution_mode"
     exit 12
 fi
 
 category="${FAKE_RESULT_CATEGORY:-clean}"
 synthesis="/tmp/artifacts/iter1_4_synthesis.md"
+changed_files='[]'
+if [[ "$execution_mode" == "apply-fixes" && "${FAKE_APPLY_CHANGE:-false}" == "true" ]]; then
+    printf '%s\n' 'fixed by review' >> "$target_dir/app.sh"
+    changed_files='["app.sh"]'
+fi
 cat > "$result_file" <<JSON
-{"schema_version":1,"target_repo":{"path":"$target_dir"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"abc"},"execution":{"mode":"review-only","dry_run":false,"review_executed":true},"termination":{"category":"$category","reason":"$category","exit_code":0},"counts":{"findings":{"in_scope":2,"pre_existing":1}},"paths":{"artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":"$synthesis"}}
+{"schema_version":1,"target_repo":{"path":"$target_dir"},"reviewers":{"slot_a":"$slot_a","slot_b":"$slot_b"},"synthesis":{"requested_fixer":"$fixer","executed_by":"$fixer"},"scope":{"kind":"base","requested_base_ref":"$base_ref","resolved_base_commit":"${FAKE_REAL_RESOLVED_BASE:-abc}"},"execution":{"mode":"$execution_mode","dry_run":false,"review_executed":true,"include_pre_existing":${FAKE_INCLUDE_PRE_EXISTING:-false}},"termination":{"category":"$category","reason":"$category","exit_code":0},"counts":{"findings":{"in_scope":2,"pre_existing":1},"fixes":{"in_scope":1,"pre_existing":${FAKE_PRE_EXISTING_FIXED:-0}},"pre_existing_flagged":1},"target_changes":{"modified":$([[ "$changed_files" == '[]' ]] && echo false || echo true),"files":$changed_files},"paths":{"artifacts_dir":"/tmp/artifacts","final_synthesis_artifact":"$synthesis"}}
 JSON
 [[ "$category" == "clean" ]] && exit 0
+[[ "$execution_mode" == "apply-fixes" ]] && exit 11
 exit 10
 EOF
     chmod +x "$fake_cli"
@@ -176,11 +186,27 @@ run_scenario() {
     set +e
     (
         cd "$target"
+        verification_args=()
+        if [[ -n "${SCENARIO_VERIFICATION_COMMAND:-}" ]]; then
+            verification_args=(--verification-command "$SCENARIO_VERIFICATION_COMMAND")
+            [[ -z "${SCENARIO_VERIFICATION_ARG1:-}" ]] ||
+                verification_args+=(--verification-arg "$SCENARIO_VERIFICATION_ARG1")
+            [[ -z "${SCENARIO_VERIFICATION_ARG2:-}" ]] ||
+                verification_args+=(--verification-arg "$SCENARIO_VERIFICATION_ARG2")
+            [[ -z "${SCENARIO_VERIFICATION_ARG3:-}" ]] ||
+                verification_args+=(--verification-arg "$SCENARIO_VERIFICATION_ARG3")
+        fi
         PATH="$TEST_BIN" FAKE_COMMAND_LOG="$command_log" FAKE_BACKEND_LOG="$TEST_ROOT/$name.backends" FAKE_RESULT_CATEGORY="$category" \
             FAKE_CLI_UNSUPPORTED_SLOTS="${SCENARIO_UNSUPPORTED_SLOTS:-false}" \
             FAKE_SCOPE_COUNT="${SCENARIO_SCOPE_COUNT:-1}" \
             FAKE_SCOPE_FILES="${SCENARIO_SCOPE_FILES:-app.sh}" \
-            "$SKILL_RUNNER" --cli "${SCENARIO_CLI:-$fake_cli}" ${SCENARIO_SLOT_ARGS:-}
+            FAKE_APPLY_CHANGE="${SCENARIO_APPLY_CHANGE:-false}" \
+            FAKE_DRY_RESOLVED_BASE="${SCENARIO_DRY_RESOLVED_BASE:-abc}" \
+            FAKE_REAL_RESOLVED_BASE="${SCENARIO_REAL_RESOLVED_BASE:-abc}" \
+            FAKE_INCLUDE_PRE_EXISTING="${SCENARIO_INCLUDE_PRE_EXISTING:-false}" \
+            FAKE_PRE_EXISTING_FIXED="${SCENARIO_PRE_EXISTING_FIXED:-0}" \
+            "$SKILL_RUNNER" --cli "${SCENARIO_CLI:-$fake_cli}" ${SCENARIO_SLOT_ARGS:-} \
+            "${verification_args[@]}"
     ) > "$output" 2>&1
     status=$?
     set -e
@@ -405,6 +431,143 @@ test_explicit_findings_remaining_review() {
     pass "explicit findings review reports Synthesis and Artifacts"
 }
 
+test_ambiguous_fix_wording_remains_review_only() {
+    local skill_text
+    skill_text="$(cat "$SCRIPT_DIR/.agents/skills/adversarial-review/SKILL.md")"
+    assert_contains "$skill_text" '| “Review this and suggest fixes.” | `review-only` |' \
+        "the Skill routing seam must classify representative ambiguous wording"
+    assert_contains "$skill_text" '| “Review this and fix anything you find.” | `apply-fixes` with an explicit Fixer |' \
+        "the Skill routing seam must distinguish explicit write intent"
+
+    run_scenario ambiguous-fix-wording clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "ambiguous authorization should remain review-only"
+    assert_contains "$SCENARIO_OUTPUT" "Execution mode: review-only" \
+        "ambiguous wording must not authorize writes"
+    assert_selected_commands "$SCENARIO_TARGET"
+    pass "ambiguous fix wording remains review-only without explicit authorization"
+}
+
+test_authorized_apply_fixes_requires_explicit_fixer() {
+    SCENARIO_SLOT_ARGS="--apply-fixes" run_scenario missing-fixer clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "apply-fixes without a Fixer should stop safely"
+    assert_contains "$SCENARIO_OUTPUT" "--apply-fixes requires an explicit --fixer" \
+        "write authorization must name the Fixer"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "missing Fixer must stop before Agent calls"
+    pass "apply-fixes requires an explicit Fixer"
+}
+
+test_authorized_apply_fixes_preserves_scope_and_reports_changes() {
+    SCENARIO_APPLY_CHANGE=true SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
+        run_scenario apply-fixes apply-fixes-findings-remain
+
+    [[ $SCENARIO_STATUS -eq 11 ]] || fail "authorized apply-fixes should preserve status 11"
+    assert_contains "$SCENARIO_OUTPUT" "Execution mode: apply-fixes" \
+        "authorized fix requests should select apply-fixes"
+    assert_contains "$SCENARIO_OUTPUT" "Fixer: codex" "the selected Fixer should be disclosed"
+    assert_contains "$SCENARIO_OUTPUT" "Applied fixes (1): app.sh" \
+        "machine-result changes should be disclosed"
+    assert_contains "$SCENARIO_OUTPUT" "Target Repo Diff (1): app.sh" \
+        "post-run target diff should disclose every changed file"
+    assert_contains "$SCENARIO_OUTPUT" "Findings remaining (in scope: 2, pre-existing: 1)" \
+        "remaining findings should stay distinct from applied fixes"
+    local dry_command real_command
+    dry_command="$(sed -n '1p' <<< "$SCENARIO_COMMANDS")"
+    real_command="$(sed -n '2p' <<< "$SCENARIO_COMMANDS")"
+    assert_contains "$dry_command" "<--dry-run><--apply-fixes><--base><HEAD><--slot-a><claude><--slot-b><codex><--fixer><codex>" \
+        "dry-run should preview the complete authorized fix contract"
+    assert_contains "$real_command" "<--apply-fixes><--base><HEAD><--slot-a><claude><--slot-b><codex><--fixer><codex>" \
+        "real review should preserve the previewed fix contract"
+    pass "authorized apply-fixes previews scope and separates changes from findings"
+}
+
+test_apply_fixes_rejects_changed_resolved_baseline() {
+    SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
+        SCENARIO_REAL_RESOLVED_BASE="def" run_scenario changed-resolved-base clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "changed resolved baseline should stop"
+    assert_contains "$SCENARIO_OUTPUT" "different baseline commit than dry-run" \
+        "dry-run and real review must resolve the same baseline commit"
+    pass "apply-fixes rejects a baseline commit that changed after dry-run"
+}
+
+test_apply_fixes_rejects_pre_existing_fixes() {
+    SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" SCENARIO_PRE_EXISTING_FIXED=1 \
+        run_scenario pre-existing-fix clean
+
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "unauthorized pre-existing fixes should stop"
+    assert_contains "$SCENARIO_OUTPUT" "modified PRE_EXISTING findings" \
+        "machine results must prove that pre-existing fixes stayed zero"
+    pass "apply-fixes rejects unauthorized pre-existing fixes in the machine result"
+}
+
+test_apply_fixes_runs_documented_verification() {
+    SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
+        SCENARIO_VERIFICATION_COMMAND="bash" SCENARIO_VERIFICATION_ARG1="-n" \
+        SCENARIO_VERIFICATION_ARG2="app.sh" \
+        run_scenario verified-fixes clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "safe documented verification should pass"
+    assert_contains "$SCENARIO_OUTPUT" "Verification command: bash -n app.sh" \
+        "the selected documented command should be disclosed"
+    assert_contains "$SCENARIO_OUTPUT" "Verification result: passed" \
+        "successful verification should be reported"
+    pass "apply-fixes runs the selected documented verification"
+}
+
+test_apply_fixes_reports_missing_documented_verification() {
+    SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" run_scenario no-verification clean
+
+    [[ $SCENARIO_STATUS -eq 0 ]] || fail "missing verification docs should not invent a command"
+    assert_contains "$SCENARIO_OUTPUT" "Verification: no documented safe command was provided" \
+        "absence of a documented safe command should be explicit"
+    pass "apply-fixes does not invent or install a verification command"
+}
+
+test_forbidden_permission_expansion_stops_before_review() {
+    local forbidden
+    for forbidden in "git commit" "git push" "git fetch" "git reset" "git clean" \
+        "gh pr create" "npm install"; do
+        read -r executable argument _ <<< "$forbidden"
+        SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
+            SCENARIO_VERIFICATION_COMMAND="$executable" SCENARIO_VERIFICATION_ARG1="$argument" \
+            run_scenario "forbidden-${forbidden// /-}" clean
+        [[ $SCENARIO_STATUS -eq 64 ]] || fail "forbidden command should stop: $forbidden"
+        assert_contains "$SCENARIO_OUTPUT" "verification command expands authorization" \
+            "forbidden permission expansion should be explained"
+        [[ -z "$SCENARIO_COMMANDS" ]] || fail "forbidden verification must stop before Agent calls"
+    done
+    SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" SCENARIO_VERIFICATION_COMMAND="bash" \
+        SCENARIO_VERIFICATION_ARG1="-c" SCENARIO_VERIFICATION_ARG2="git commit -am pwned" \
+        run_scenario forbidden-bash-wrapper clean
+    [[ $SCENARIO_STATUS -eq 64 ]] || fail "bash -c wrapper should stop before review"
+    assert_contains "$SCENARIO_OUTPUT" "verification command expands authorization" \
+        "structured argv validation must reject shell wrappers"
+    [[ -z "$SCENARIO_COMMANDS" ]] || fail "shell wrapper must stop before Agent calls"
+    pass "commit, publish, fetch, reset, clean, and install remain separately authorized"
+}
+
+test_verification_tools_reject_unsafe_trailing_arguments() {
+    local executable first_arg second_arg scenario
+    while IFS='|' read -r executable first_arg second_arg scenario; do
+        SCENARIO_SLOT_ARGS="--apply-fixes --fixer codex" \
+            SCENARIO_VERIFICATION_COMMAND="$executable" \
+            SCENARIO_VERIFICATION_ARG1="$first_arg" \
+            SCENARIO_VERIFICATION_ARG2="$second_arg" \
+            run_scenario "$scenario" clean
+        [[ $SCENARIO_STATUS -eq 64 ]] || fail "unsafe trailing argv should stop: $scenario"
+        assert_contains "$SCENARIO_OUTPUT" "verification command expands authorization" \
+            "the complete verification argv shape must be validated"
+        [[ -z "$SCENARIO_COMMANDS" ]] || fail "unsafe trailing argv must stop before Agent calls"
+    done <<'CASES'
+make|test|SHELL=/tmp/evil-shell|unsafe-make-shell
+go|test|-exec=/tmp/evil-runner|unsafe-go-exec
+pytest|evil_test.py||unsafe-pytest-path
+CASES
+    pass "verification tools reject unsafe trailing arguments"
+}
+
 test_committed_feature_branch_uses_default_branch_merge_base() {
     local target="$TEST_ROOT/committed-feature-target"
 
@@ -600,6 +763,15 @@ test_oversized_scope_stops_before_real_review() {
 
 test_explicit_clean_review
 test_explicit_findings_remaining_review
+test_ambiguous_fix_wording_remains_review_only
+test_authorized_apply_fixes_requires_explicit_fixer
+test_authorized_apply_fixes_preserves_scope_and_reports_changes
+test_apply_fixes_rejects_changed_resolved_baseline
+test_apply_fixes_rejects_pre_existing_fixes
+test_apply_fixes_runs_documented_verification
+test_apply_fixes_reports_missing_documented_verification
+test_forbidden_permission_expansion_stops_before_review
+test_verification_tools_reject_unsafe_trailing_arguments
 test_same_model_redundancy claude codex
 test_same_model_redundancy codex claude
 test_auth_failure_stops_before_review

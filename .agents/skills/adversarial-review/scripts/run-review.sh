@@ -11,6 +11,36 @@ fail_needs_base_or_fetch() {
     fail "$1; provide an explicit base or authorize a separate fetch"
 }
 
+is_safe_verification_argv() {
+    local executable="$1"
+    shift
+
+    case "$executable" in
+        bash)
+            [[ "${1:-}" == "-n" && $# -eq 2 ]] ||
+                [[ $# -eq 1 && "$1" != -* ]]
+            ;;
+        ./*test*|./*check*|./*verify*) [[ $# -eq 0 ]] ;;
+        npm|pnpm|yarn)
+            [[ $# -eq 1 && "${1:-}" == "test" ]] ||
+                [[ $# -eq 2 && "${1:-}" == "run" && "${2:-}" =~ ^(test|check|verify)(:|$) ]]
+            ;;
+        make) [[ $# -eq 1 && "${1:-}" =~ ^(test|check|verify)$ ]] ;;
+        cargo) [[ $# -eq 1 && ("${1:-}" == "test" || "${1:-}" == "check") ]] ;;
+        go)
+            [[ $# -eq 1 && "${1:-}" == "test" ]] ||
+                [[ $# -eq 2 && "${1:-}" == "test" && "${2:-}" == "./..." ]]
+            ;;
+        pytest) [[ $# -eq 0 ]] ;;
+        python|python3) [[ $# -eq 2 && "${1:-}" == "-m" && "${2:-}" == "pytest" ]] ;;
+        bundle)
+            [[ $# -eq 2 && "${1:-}" == "exec" &&
+                ("${2:-}" == "rake" || "${2:-}" == "rspec") ]]
+            ;;
+        *) return 1 ;;
+    esac
+}
+
 require_json() {
     local file="$1"
     jq -e . "$file" >/dev/null 2>&1 || fail "CLI did not produce valid machine JSON"
@@ -30,16 +60,25 @@ require_run_contract() {
     [[ "$(jq -r '.reviewers.slot_a' "$file")" == "$SLOT_A" &&
        "$(jq -r '.reviewers.slot_b' "$file")" == "$SLOT_B" ]] ||
         fail "CLI resolved different reviewer slots"
-    [[ "$(jq -r '.execution.mode' "$file")" == "review-only" &&
+    [[ "$(jq -r '.execution.mode' "$file")" == "$EXECUTION_MODE" &&
        "$(jq -r '.execution.dry_run' "$file")" == "$expected_dry_run" &&
-       "$(jq -r '.execution.review_executed' "$file")" == "$expected_review_executed" ]] ||
-        fail "CLI did not preserve the review-only execution contract"
+       "$(jq -r '.execution.review_executed' "$file")" == "$expected_review_executed" &&
+       "$(jq -r '.execution.include_pre_existing' "$file")" == "false" ]] ||
+        fail "CLI did not preserve the execution contract"
+    if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
+        [[ "$(jq -r '.synthesis.requested_fixer' "$file")" == "$FIXER" ]] ||
+            fail "CLI resolved a different Fixer"
+        if [[ "$expected_review_executed" == "true" ]]; then
+            [[ "$(jq -r '.counts.fixes.pre_existing' "$file")" == "0" ]] ||
+                fail "CLI modified PRE_EXISTING findings without separate authorization"
+        fi
+    fi
 }
 
 require_cli_contract() {
     local help_output
     help_output="$("$CLI" --help 2>&1)" || fail "Adversarial Review CLI --help check failed"
-    for option in --base --slot-a --slot-b --target-dir --dry-run --review-only --result-file; do
+    for option in --base --slot-a --slot-b --fixer --target-dir --dry-run --review-only --apply-fixes --result-file; do
         [[ "$help_output" == *"$option"* ]] ||
             fail "Adversarial Review CLI does not support required option: $option"
     done
@@ -71,6 +110,10 @@ BASE_DESCRIPTION=""
 REMOTE_BASELINE_NOTE=""
 SLOT_A="claude"
 SLOT_B="codex"
+EXECUTION_MODE="review-only"
+FIXER=""
+VERIFICATION_EXECUTABLE=""
+VERIFICATION_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -78,6 +121,10 @@ while [[ $# -gt 0 ]]; do
         --base) BASE_REF="$2"; BASE_EXPLICIT=true; shift 2 ;;
         --slot-a) SLOT_A="$2"; shift 2 ;;
         --slot-b) SLOT_B="$2"; shift 2 ;;
+        --apply-fixes) EXECUTION_MODE="apply-fixes"; shift ;;
+        --fixer) FIXER="$2"; shift 2 ;;
+        --verification-command) VERIFICATION_EXECUTABLE="$2"; shift 2 ;;
+        --verification-arg) VERIFICATION_ARGS+=("$2"); shift 2 ;;
         *) fail "unknown option: $1" ;;
     esac
 done
@@ -99,6 +146,21 @@ fi
     fail "unsupported reviewer backend: $SLOT_A"
 [[ "$SLOT_B" == "claude" || "$SLOT_B" == "codex" ]] ||
     fail "unsupported reviewer backend: $SLOT_B"
+if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
+    [[ -n "$FIXER" ]] || fail "--apply-fixes requires an explicit --fixer"
+    [[ "$FIXER" == "claude" || "$FIXER" == "codex" ]] || fail "unsupported Fixer: $FIXER"
+elif [[ -n "$FIXER" ]]; then
+    fail "--fixer is valid only with explicit --apply-fixes authorization"
+fi
+if [[ -n "$VERIFICATION_EXECUTABLE" ]]; then
+    [[ "$EXECUTION_MODE" == "apply-fixes" ]] ||
+        fail "--verification-command is valid only with explicit --apply-fixes authorization"
+    if ! is_safe_verification_argv "$VERIFICATION_EXECUTABLE" "${VERIFICATION_ARGS[@]}"; then
+        fail "verification command expands authorization beyond review-and-fix: $VERIFICATION_EXECUTABLE ${VERIFICATION_ARGS[*]}"
+    fi
+elif [[ ${#VERIFICATION_ARGS[@]} -gt 0 ]]; then
+    fail "--verification-arg requires --verification-command"
+fi
 
 TARGET_DIR="$(git -C "$PWD" rev-parse --show-toplevel 2>/dev/null || true)"
 [[ -n "$TARGET_DIR" && -d "$TARGET_DIR" ]] || fail "current workspace is not a Git Target Repo"
@@ -177,7 +239,8 @@ echo "Reviewer slots: $SLOT_A, $SLOT_B"
 if [[ "$SLOT_A" == "$SLOT_B" ]]; then
     echo "Review diversity: same-model redundancy provides lower review diversity than heterogeneous reviewers"
 fi
-echo "Execution mode: review-only"
+echo "Execution mode: $EXECUTION_MODE"
+[[ -z "$FIXER" ]] || echo "Fixer: $FIXER"
 
 RUN_DIR="$(mktemp -d)"
 trap 'rm -rf "$RUN_DIR"' EXIT
@@ -185,15 +248,20 @@ DRY_RESULT="$RUN_DIR/dry-run.json"
 DRY_OUTPUT="$RUN_DIR/dry-run.out"
 REAL_RESULT="$RUN_DIR/review.json"
 
+mode_option="--$EXECUTION_MODE"
+fixer_args=()
+[[ -z "$FIXER" ]] || fixer_args=(--fixer "$FIXER")
+
 set +e
-"$CLI" --dry-run --review-only --base "$BASE_REF" \
-    --slot-a "$SLOT_A" --slot-b "$SLOT_B" --target-dir "$TARGET_DIR" \
-    --result-file "$DRY_RESULT" > "$DRY_OUTPUT" 2>&1
+"$CLI" --dry-run "$mode_option" --base "$BASE_REF" \
+    --slot-a "$SLOT_A" --slot-b "$SLOT_B" "${fixer_args[@]}" \
+    --target-dir "$TARGET_DIR" --result-file "$DRY_RESULT" > "$DRY_OUTPUT" 2>&1
 dry_status=$?
 set -e
 
 require_json "$DRY_RESULT"
 require_run_contract "$DRY_RESULT" true false
+DRY_RESOLVED_BASE="$(jq -r '.scope.resolved_base_commit' "$DRY_RESULT")"
 [[ $dry_status -eq 12 ]] || fail "dry-run failed: $(jq -r '.termination.reason' "$DRY_RESULT")" "$dry_status"
 
 scope_header="$(sed -n 's/.*Files in scope (\([0-9][0-9]*\)):.*/\1/p' "$DRY_OUTPUT" | tail -1)"
@@ -227,27 +295,58 @@ done
 echo "Review Scope ($scope_header): ${scope_files[*]}"
 
 set +e
-"$CLI" --review-only --base "$BASE_REF" \
-    --slot-a "$SLOT_A" --slot-b "$SLOT_B" --target-dir "$TARGET_DIR" \
-    --result-file "$REAL_RESULT"
+"$CLI" "$mode_option" --base "$BASE_REF" \
+    --slot-a "$SLOT_A" --slot-b "$SLOT_B" "${fixer_args[@]}" \
+    --target-dir "$TARGET_DIR" --result-file "$REAL_RESULT"
 review_status=$?
 set -e
 
 require_json "$REAL_RESULT"
 require_run_contract "$REAL_RESULT" false true
+[[ "$(jq -r '.scope.resolved_base_commit' "$REAL_RESULT")" == "$DRY_RESOLVED_BASE" ]] ||
+    fail "real review resolved a different baseline commit than dry-run"
 
 category="$(jq -r '.termination.category' "$REAL_RESULT")"
 case "$category" in
     clean)
         echo "Review result: clean"
         ;;
-    review-only-findings-remain)
+    review-only-findings-remain|apply-fixes-findings-remain)
         echo "Review result: Findings remaining (in scope: $(jq -r '.counts.findings.in_scope' "$REAL_RESULT"), pre-existing: $(jq -r '.counts.findings.pre_existing' "$REAL_RESULT"))"
         ;;
     *)
         echo "Review result: stopped ($(jq -r '.termination.reason' "$REAL_RESULT"))"
         ;;
 esac
+if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
+    mapfile -t applied_files < <(jq -r '.target_changes.files[]?' "$REAL_RESULT")
+    echo "Applied fixes (${#applied_files[@]}): ${applied_files[*]:-none}"
+    mapfile -t target_diff_files < <({
+        git -C "$TARGET_DIR" diff --name-only
+        git -C "$TARGET_DIR" diff --cached --name-only
+        git -C "$TARGET_DIR" ls-files --others --exclude-standard
+    } | sed '/^$/d' | sort -u)
+    echo "Target Repo Diff (${#target_diff_files[@]}): ${target_diff_files[*]:-none}"
+fi
 echo "Synthesis: $(jq -r '.paths.final_synthesis_artifact // "not produced"' "$REAL_RESULT")"
 echo "Artifacts: $(jq -r '.paths.artifacts_dir // "not produced"' "$REAL_RESULT")"
+if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
+    if [[ -z "$VERIFICATION_EXECUTABLE" ]]; then
+        echo "Verification: no documented safe command was provided"
+    else
+        printf 'Verification command:'
+        printf ' %q' "$VERIFICATION_EXECUTABLE" "${VERIFICATION_ARGS[@]}"
+        printf '\n'
+        set +e
+        (cd "$TARGET_DIR" && "$VERIFICATION_EXECUTABLE" "${VERIFICATION_ARGS[@]}")
+        verification_status=$?
+        set -e
+        if [[ $verification_status -eq 0 ]]; then
+            echo "Verification result: passed"
+        else
+            echo "Verification result: failed (status $verification_status)"
+            [[ $review_status -ne 0 ]] || review_status=$verification_status
+        fi
+    fi
+fi
 exit "$review_status"

@@ -348,8 +348,9 @@ post-implementation or pre-PR reviews. From the trusted Target Repo, invoke
 `$adversarial-review`; its adapter identifies that workspace, gives an explicit
 baseline priority, uses `HEAD` for worktree-only changes, and uses a known local
 default branch (`init.defaultBranch`, then `main`/`master`) for committed feature work (including mixed committed and
-uncommitted changes). It selects heterogeneous `claude`/`codex` slots in
-`review-only` mode.
+uncommitted changes). It selects heterogeneous `claude`/`codex` slots and
+defaults to `review-only`. Only an explicit review-and-fix request selects
+`apply-fixes`, and that path requires an explicit Fixer.
 
 Inference stops before Agent calls for detached HEAD, shallow history, a local
 branch whose default cannot be identified, or when only a missing or potentially
@@ -377,12 +378,21 @@ valid, non-empty, plausibly sized Review Scope. Empty, malformed, or more than
 path must also occur in the selected baseline's Git delta, so an accidental
 whole-repository scope below that limit is rejected too. It accepts only result schema version 1, distinguishes a
 clean review from remaining findings, and prints the final Synthesis and
-Artifacts paths. It never commits, pushes, creates a PR, fetches, installs
-dependencies, or modifies the Target Repo.
+Artifacts paths. After apply-fixes it lists both machine-reported applied files
+and every path in the Target Repo Git diff, keeping unresolved findings
+separate. The caller passes the highest relevant safe verification command
+explicitly when repository documentation provides one. It passes the executable
+and repeated arguments as structured argv and executes them directly without a
+shell parser. Each supported tool has a fixed, bounded argument shape; trailing
+arguments that could select a runner, shell, configuration, or collected file
+are rejected before Agent calls. Otherwise the adapter reports that none was provided and never installs dependencies. Review
+authorization never expands to commits, pushes, PR creation, fetch, reset,
+clean, dependency installation, or modifying pre-existing findings.
 
 Deterministic scenarios in `tests/test_skill_scenarios.sh` exercise clean,
-findings-remaining, baseline selection, ambiguous Git states, reviewer
-selection, prerequisite failures, unsafe scopes, and default CLI-discovery behavior with
+findings-remaining, authorized and ambiguous fix intent, modified-file
+disclosure, verification present/absent, forbidden permission expansion,
+baseline selection, ambiguous Git states, reviewer selection, prerequisite failures, unsafe scopes, and default CLI-discovery behavior with
 fixture Target Repos and a fake CLI, without model calls or subscriptions.
 
 ## Research Background
