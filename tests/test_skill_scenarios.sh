@@ -618,7 +618,7 @@ test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
     local skill_file="$SCRIPT_DIR/.agents/skills/adversarial-review/SKILL.md"
     local metadata_file="$SCRIPT_DIR/.agents/skills/adversarial-review/agents/openai.yaml"
     local scenarios_file="$SCRIPT_DIR/tests/fixtures/skill-discovery-scenarios.tsv"
-    local skill_description metadata scenario expected actual scenario_name trigger_count=0 near_miss_count=0
+    local skill_description metadata scenario intent trigger_count=0 near_miss_count=0
 
     skill_description="$(sed -n 's/^description: //p' "$skill_file")"
     metadata="$(cat "$metadata_file")"
@@ -632,32 +632,26 @@ test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
         "the discovery description should name the pre-publication review goal"
     assert_contains "$skill_description" 'Do not use' \
         "the discovery description should bound near-miss requests"
+    assert_contains "$skill_description" 'ordinary code explanation' \
+        "the description should exclude ordinary explanation"
+    assert_contains "$skill_description" 'lightweight single-reviewer review' \
+        "the description should exclude lightweight review"
+    assert_contains "$skill_description" 'general debugging' \
+        "the description should exclude general debugging"
+    assert_contains "$skill_description" 'requests only to publish a PR' \
+        "the description should exclude PR-publication-only requests"
 
-    while IFS=$'\t' read -r expected scenario; do
-        [[ -n "$expected" && "${expected:0:1}" != "#" ]] || continue
-        actual="$(skill_discovery_route "$scenario")"
-        [[ "$actual" == "$expected" ]] ||
-            fail "Skill discovery routed '$scenario' as $actual; expected $expected"
-        case "$expected" in
-            trigger)
+    while IFS=$'\t' read -r intent scenario; do
+        [[ -n "$intent" && "${intent:0:1}" != "#" ]] || continue
+        case "$intent" in
+            trigger-*)
                 trigger_count=$((trigger_count + 1))
-                scenario_name="implicit-discovery-$trigger_count"
-                run_scenario "$scenario_name" clean
-                [[ $SCENARIO_STATUS -eq 0 ]] ||
-                    fail "implicitly discovered scenario should enter the Skill workflow"
-                assert_contains "$SCENARIO_OUTPUT" "Execution mode: review-only" \
-                    "implicit review intent should enter the safe review-only workflow"
-                [[ -n "$SCENARIO_COMMANDS" ]] ||
-                    fail "implicitly discovered scenario should invoke the adapter's fake CLI"
                 ;;
-            near-miss)
+            near-miss-*)
                 near_miss_count=$((near_miss_count + 1))
-                scenario_name="near-miss-$near_miss_count"
-                [[ ! -e "$TEST_ROOT/$scenario_name.commands" ]] ||
-                    fail "near-miss scenario must not enter the Skill workflow"
                 ;;
             *)
-                fail "unknown Skill discovery expectation: $expected"
+                fail "unknown Skill discovery intent: $intent"
                 ;;
         esac
         [[ -n "$scenario" ]] || fail "Skill discovery scenario prompt must not be empty"
@@ -665,23 +659,7 @@ test_implicit_discovery_routes_only_post_implementation_adversarial_review() {
 
     [[ $trigger_count -ge 3 ]] || fail "implicit discovery needs representative positive scenarios"
     [[ $near_miss_count -ge 4 ]] || fail "implicit discovery needs all required near-miss categories"
-    pass "implicit discovery is enabled with post-implementation triggers and bounded near-misses"
-}
-
-skill_discovery_route() {
-    local prompt="${1,,}"
-
-    case "$prompt" in
-        *"explain "*|*"quick single-reviewer"*|*"debug "*|"push this branch and open a pr."*)
-            printf '%s\n' near-miss
-            ;;
-        *"adversarial review"*|*"review and fix"*"completed changes"*)
-            printf '%s\n' trigger
-            ;;
-        *)
-            printf '%s\n' near-miss
-            ;;
-    esac
+    pass "implicit discovery metadata is enabled with positive and near-miss scenario coverage"
 }
 
 test_skill_uses_progressive_disclosure_for_supporting_guidance() {

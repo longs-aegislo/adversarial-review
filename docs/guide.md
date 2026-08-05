@@ -402,8 +402,13 @@ findings-remaining, authorized and ambiguous fix intent, modified-file
 disclosure, verification present/absent, forbidden permission expansion,
 baseline selection, ambiguous Git states, reviewer selection, prerequisite failures, unsafe scopes, and default CLI-discovery behavior with
 fixture Target Repos and a fake CLI, without model calls or subscriptions.
-They also use a model-independent discovery-policy oracle to dispatch representative implicit post-implementation prompts into the adapter and keep near-miss
-explanation, lightweight review, debugging, and PR-publication prompts. The
+They also preserve representative implicit post-implementation prompts and
+near-miss explanation, lightweight review, debugging, and PR-publication
+prompts, and assert that the Skill metadata describes those boundaries. Actual
+implicit selection is host/model-dependent; the deterministic suite does not
+claim to execute or verify the host's semantic router. Small authenticated
+backend evaluations may provide usability evidence but are not acceptance
+dependencies. The
 main Skill stays compact; baseline examples, result interpretation, and common
 preflight/compatibility remedies are loaded from its workflow reference only
 when needed. The Skill is a CLI Adapter: it does not reproduce the four review

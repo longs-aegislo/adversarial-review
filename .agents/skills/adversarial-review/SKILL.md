@@ -66,7 +66,7 @@ diagnosing result compatibility or a stopped workflow.
 
 Read [references/workflow-guide.md](references/workflow-guide.md) only when you
 need baseline examples, result-status guidance, or prerequisite and
-compatibility troubleshooting.
+compatibility troubleshooting, including accepted verification-command shapes.
 
 ## Safety boundaries
 

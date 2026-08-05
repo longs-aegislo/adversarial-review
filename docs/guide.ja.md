@@ -382,8 +382,11 @@ argv として渡し、Adapter は shell で再解析せず直接実行します
 開示、検証コマンドの有無、禁止された権限拡張、reviewer 選択、前提条件エラー、
 baseline 選択、曖昧な Git 状態、異常な Review Scope、デフォルト CLI 検出を
 決定的に検証します。
-さらに、モデル非依存の discovery-policy oracle で代表的な暗黙の実装後レビュー prompt を Adapter に dispatch し、コード説明、軽量レビュー、デバッグ、
-PR 公開の near-miss を固定します。主 Skill は簡潔に保ち、baseline の例、結果解釈、一般的な
+さらに、代表的な暗黙の実装後レビュー prompt と、コード説明、軽量レビュー、デバッグ、
+PR 公開の near-miss を保持し、Skill metadata がその境界を記述することを検証します。
+実際の暗黙選択は host／model に依存し、決定的 suite は host の semantic router を実行・検証したとは
+主張しません。少数の認証済み backend 評価は usability evidence にはなりますが、受け入れ条件には
+しません。主 Skill は簡潔に保ち、baseline の例、結果解釈、一般的な
 preflight／互換性対処は必要時だけ workflow reference から読み込みます。Skill は CLI Adapter
 であり、4 フェーズ、tracking 配置、機械結果契約を複製しません。
 
