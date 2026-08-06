@@ -130,6 +130,14 @@ backend を明示した場合だけ実行でき、Adapter は多様性の低い 
 インストール済みパッケージの内部には置かれません。そのためアップグレードや
 アンインストールでも失われません。
 
+メンテナーは `./scripts/validate-plugin-release.sh` で release candidate を検証します。
+gate は stable identifier、semantic version、host/platform compatibility、package 境界、
+Skill discovery、2つの実行モード、Git pin/upgrade、clean profile での削除を fake backend
+だけで確認し、有料モデルを呼び出しません。ローカル rebuild loop、互換性トラブル
+シューティング、release notes、任意の実 backend smoke test は
+[詳細ガイド](docs/guide.ja.md#plugin-release-gate)を参照してください。public universal
+Plugin directory への submission は引き続き対象外です。
+
 ### アンインストール
 
 ```bash

@@ -419,6 +419,28 @@ PR 发布 near-miss，并断言 Skill 元数据描述了这些边界。实际隐
 仅在需要时从 workflow reference 加载。Skill 是 CLI Adapter，不复制四阶段流程、tracking
 布局或机器结果契约。
 
+### Plugin 发布门禁
+
+在候选 checkout 运行 `./scripts/validate-plugin-release.sh`。它先检查 manifest 的稳定
+identifier、语义版本、Plugin 相对路径和 root containment、marketplace identity、
+`compatibility.json` 以及匹配的 `docs/releases/<version>.md`，随后要求真实 Codex Plugin
+CLI，并在一次性 `HOME`/`CODEX_HOME` 中执行 package 与 Git lifecycle acceptance。
+review-only 和 apply-fixes 都使用 fake Claude/Codex backend，因此确定性门禁无需订阅或
+付费模型。发布者可另做一次小规模真实认证 backend smoke test；它只是人工证据，不是
+acceptance 依赖。
+
+本地开发时，同时更新源码 runtime 与 bundled copy，同步递增 manifest/compatibility
+版本，并新增 `docs/releases/<version>.md`。先用 `--metadata-only` 快速检查，再跑完整门禁。
+验证实际安装形态时，移除并重新添加本地 marketplace 以刷新 cache，重装 Plugin，启动
+新的 Codex 对话让 Skill discovery 刷新，再从 fixture Target Repo 显式调用
+`$adversarial-review`。测试升级时使用 `upgrade-plugin.sh`，以同时覆盖旧 state 迁移。
+
+每份 release note 必须声明外部前置条件、支持平台、host compatibility、result-schema
+version、迁移/兼容说明和已知限制。兼容性失败通常表示 manifest、`compatibility.json`、
+release-note 文件/字段或已安装 Codex CLI 与候选版本不匹配；应修复或明确更新契约，不要
+绕过门禁。Linux 自动验证，Windows 通过 WSL 与 CRLF fixture 支持，macOS 依赖社区或人工
+smoke 证据。Plugin API 仍是 experimental；公共 universal Plugin directory 投稿不属于本发布流程。
+
 ## 研究背景
 
 这套方法基于以下研究：
