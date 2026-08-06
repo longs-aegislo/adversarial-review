@@ -354,7 +354,7 @@ Review Scope 时才开始真实审查；空、无法解析或超过 500 个文�
 终止原因、迭代次数、按 Finding Scope 区分的计数、修改文件、验证结果及
 State/Synthesis/Artifacts 路径；clean、findings、最大迭代、断路器打开、非法调用、
 Agent/backend 失败和写入策略违规都有独立且可行动的说明。apply-fixes 后，它分别列出机器结果中的
-已应用文件与 Target Repo Git diff 的每个路径，并将未解决 findings 分开报告。仓库文档存在
+修改路径与 Target Repo Git diff 的每个路径，并将未解决 findings 分开报告。仓库文档存在
 安全验证命令时，调用者显式传入最高且相关的命令，并将可执行文件与重复参数作为结构化 argv
 传递；Adapter 直接执行且不经过 shell 解析。否则 Adapter 明确报告未提供，且不安装依赖。
 每种受支持工具都使用固定且有界的参数形状；可能选择 runner、shell、配置或收集文件的尾随参数
@@ -362,10 +362,18 @@ Agent/backend 失败和写入策略违规都有独立且可行动的说明。app
 审查授权不会扩张为 commit、push、创建 PR、fetch、reset、clean、安装依赖或修改
 pre-existing findings。
 
+Plugin 安装不会配置 Bash、`jq`、GNU 兼容的 timeout 支持、Claude 或 Codex、认证、
+订阅、模型配额或网络访问；这些都是外部运行时前置条件。已安装 Adapter 会在 Agent
+启动前检查本地可观察的可用性与认证；订阅有效性、配额和网络故障仍属于 backend
+运行期条件，并报告为 Agent/backend failure。摘要保留 Findings 总数和已应用 Fixes，
+将 scoped Fix 数量与修改路径分开，并仅依据稳定终止类别把剩余 Findings 报告为
+`none`、`present`，或在审查未完成时报告 `unknown`。
+
 `tests/test_plugin_package.sh` 使用隔离的 `HOME` 与 `CODEX_HOME` 注册、列出并安装本地
 marketplace，断言只发现一个 Skill，使 marketplace source 不可访问后，再用 fake Agent
-backends 从已安装 Skill Adapter 进入 bundled runtime。即使 `PATH` 中存在冲突 runtime，
-它也不使用模型订阅或源码树 runtime，并验证稳定机器结果及 Target Repo 未发生变化。
+backends 从已安装 Skill Adapter 进入 bundled runtime。测试同时覆盖 review-only 与
+apply-fixes，包括仅 Phase 4 获得写授权、修改路径与验证结果报告、前置条件失败及显式
+same-model redundancy；即使 `PATH` 中存在冲突 runtime，也不使用模型订阅或源码树 runtime。
 如果没有 `codex`，包结构与边界断言仍会运行，CLI 集成部分报告 `SKIP`；发布或验收任务可
 设置 `REQUIRE_CODEX_PLUGIN_TESTS=true`，强制要求真实 CLI 路径。
 

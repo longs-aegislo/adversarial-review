@@ -442,10 +442,18 @@ echo "Termination: $category (status $(jq -r '.termination.exit_code' "$REAL_RES
 echo "Reason: $(jq -r '.termination.reason' "$REAL_RESULT")"
 echo "Findings: in scope $(jq -r '.counts.findings.in_scope' "$REAL_RESULT"); pre-existing $(jq -r '.counts.findings.pre_existing' "$REAL_RESULT"); scope conflicts $(jq -r '.counts.findings.scope_conflicts' "$REAL_RESULT")"
 echo "Fixes: in scope $(jq -r '.counts.fixes.in_scope' "$REAL_RESULT"); pre-existing $(jq -r '.counts.fixes.pre_existing' "$REAL_RESULT"); pre-existing flagged $(jq -r '.counts.pre_existing_flagged' "$REAL_RESULT")"
+case "$category" in
+    clean) echo "Remaining findings: none" ;;
+    review-only-findings-remain|apply-fixes-findings-remain)
+        echo "Remaining findings: present; inspect Synthesis for the unresolved Finding Scope"
+        ;;
+    *) echo "Remaining findings: unknown because the review did not complete" ;;
+esac
 mapfile -t modified_files < <(jq -r '.target_changes.files[]' "$REAL_RESULT")
 echo "Modified files (${#modified_files[@]}): ${modified_files[*]:-none}"
 if [[ "$EXECUTION_MODE" == "apply-fixes" ]]; then
-    echo "Applied fixes (${#modified_files[@]}): ${modified_files[*]:-none}"
+    echo "Applied fixes: in scope $(jq -r '.counts.fixes.in_scope' "$REAL_RESULT"); pre-existing $(jq -r '.counts.fixes.pre_existing' "$REAL_RESULT")"
+    echo "Machine-result changed paths (${#modified_files[@]}): ${modified_files[*]:-none}"
     mapfile -t target_diff_files < <({
         git -C "$TARGET_DIR" diff --name-only
         git -C "$TARGET_DIR" diff --cached --name-only

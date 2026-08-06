@@ -104,6 +104,11 @@ codex plugin add adversarial-review@adversarial-review-local
 checkout 或个人 Skill 安装。默认使用 `review-only`，只有显式 `apply-fixes` 请求才可能
 授权修改 Target Repo。
 
+Plugin 安装不会安装或配置 Bash、`jq`、timeout 支持、Agent backend、认证、订阅、
+模型配额或网络访问。这些均是外部前置条件，只在 Skill 调用时、任何审查 Agent 启动前
+检查。只有一个 backend 可用时仍可安装；仅当两个 reviewer slots 都显式选择该 backend
+时才能运行，Adapter 会将其报告为审查多样性较低的 same-model redundancy。
+
 ## 文档
 
 - [仓库级 Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md)——

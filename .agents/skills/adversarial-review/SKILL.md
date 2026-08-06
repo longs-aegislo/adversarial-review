@@ -72,7 +72,7 @@ compatibility troubleshooting, including accepted verification-command shapes.
 
 Review authorization alone does not authorize commit, push, PR creation,
 reset, clean, fetch, dependency installation, or changes to `PRE_EXISTING`
-findings. In apply-fixes mode, report every path under both `Applied fixes`
-(from the machine result) and `Target Repo Diff` (from Git), and keep remaining
-findings distinct. Do not start a real review after an empty/invalid dry-run
-scope or with an unsupported result schema.
+findings. In apply-fixes mode, report scoped fix counts, every machine-result
+changed path, and every path under `Target Repo Diff` (from Git), and keep
+remaining findings distinct. Do not start a real review after an empty or
+invalid dry-run scope or with an unsupported result schema.

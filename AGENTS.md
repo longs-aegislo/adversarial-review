@@ -146,7 +146,7 @@ concatenated into later prompts.
    and feedback.
 2. **Tests**: `tests/` has bats-style suites covering backend dispatch,
    base-scope, response-analyzer, execution modes, include-pre-existing, and
-   the CLI contract and machine-readable results (81 cases total). See
+   the CLI contract and machine-readable results (132 cases total). See
    `tests/test_*.sh`.
 3. **Codex CLI flags**: May need adjustment based on actual codex CLI behavior
 4. **Cost tracking**: Not implemented - each iteration is ~6 API calls

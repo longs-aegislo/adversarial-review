@@ -511,8 +511,12 @@ test_clean_result_reports_applied_fixes() {
     [[ $SCENARIO_STATUS -eq 0 ]] || fail "clean fixes-applied result should succeed"
     assert_contains "$SCENARIO_OUTPUT" "Review result: clean" \
         "a completed fixes-applied review should be distinguished from remaining findings"
-    assert_contains "$SCENARIO_OUTPUT" "Applied fixes (1): app.sh" \
+    assert_contains "$SCENARIO_OUTPUT" "Applied fixes: in scope 1; pre-existing 0" \
+        "a clean fixes-applied result should report scoped fix counts"
+    assert_contains "$SCENARIO_OUTPUT" "Machine-result changed paths (1): app.sh" \
         "a clean fixes-applied result should list machine-reported changes"
+    assert_contains "$SCENARIO_OUTPUT" "Remaining findings: none" \
+        "a clean result must not infer remaining findings from fix subtraction"
     assert_contains "$SCENARIO_OUTPUT" "Verification: no documented safe command was provided" \
         "the result should disclose verification status"
     pass "clean fixes-applied result reports changes and verification"
@@ -691,12 +695,16 @@ test_authorized_apply_fixes_preserves_scope_and_reports_changes() {
     assert_contains "$SCENARIO_OUTPUT" "Execution mode: apply-fixes" \
         "authorized fix requests should select apply-fixes"
     assert_contains "$SCENARIO_OUTPUT" "Fixer: codex" "the selected Fixer should be disclosed"
-    assert_contains "$SCENARIO_OUTPUT" "Applied fixes (1): app.sh" \
+    assert_contains "$SCENARIO_OUTPUT" "Applied fixes: in scope 1; pre-existing 0" \
+        "machine-result fix counts should be disclosed"
+    assert_contains "$SCENARIO_OUTPUT" "Machine-result changed paths (1): app.sh" \
         "machine-result changes should be disclosed"
     assert_contains "$SCENARIO_OUTPUT" "Target Repo Diff (1): app.sh" \
         "post-run target diff should disclose every changed file"
     assert_contains "$SCENARIO_OUTPUT" "Findings remaining (in scope: 2, pre-existing: 1)" \
         "remaining findings should stay distinct from applied fixes"
+    assert_contains "$SCENARIO_OUTPUT" "Remaining findings: present" \
+        "remaining findings should follow the stable termination category"
     local dry_command real_command
     dry_command="$(sed -n '1p' <<< "$SCENARIO_COMMANDS")"
     real_command="$(sed -n '2p' <<< "$SCENARIO_COMMANDS")"

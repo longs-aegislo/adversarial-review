@@ -33,6 +33,9 @@ errors. Do not infer success from terminal prose or internal tracking files.
 
 ## Preflight and compatibility troubleshooting
 
+- Bash, `jq`, CLI-compatible timeout support, Agent backends, authentication,
+  subscriptions, model quota, and network access are external prerequisites;
+  Plugin installation does not provision or grant them.
 - Ensure the CLI supports `--base`, `--target-dir`, reviewer slots, execution
   modes, Fixer selection, and `--result-file`.
 - Ensure selected `claude` and `codex` executables exist and their read-only

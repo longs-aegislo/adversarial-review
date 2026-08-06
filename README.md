@@ -115,6 +115,13 @@ this source checkout or a personal Skill installation. Reviews default to
 `review-only`. Only an explicit `apply-fixes` request can authorize Target Repo
 changes.
 
+Plugin installation does not install or configure Bash, `jq`, timeout support,
+Agent backends, authentication, subscriptions, model quota, or network access.
+Those remain external prerequisites and are checked when the Skill is invoked,
+before any review Agent starts. A single available backend is sufficient only
+when both reviewer slots explicitly select it; the Adapter reports this as
+lower-diversity same-model redundancy.
+
 ## Documentation
 
 - [Repository-level Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —

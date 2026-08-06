@@ -12,6 +12,20 @@ fail() {
     exit 1
 }
 
+RUNTIME_UTILITIES=(awk basename bash cat cmp cut dirname find git grep head jq
+    mkdir mktemp mv readlink rm sed shasum sort stat tail timeout tr wc)
+
+link_utilities() {
+    local destination="$1"
+    shift
+
+    mkdir -p "$destination"
+    for utility in "$@"; do
+        ln -s "$(command -v "$utility")" "$destination/$utility"
+    done
+    ln -s "$(type -P true)" "$destination/true"
+}
+
 [[ -f "$MARKETPLACE" ]] || fail "repository marketplace is missing"
 [[ -f "$MANIFEST" ]] || fail "plugin manifest is missing"
 
@@ -140,10 +154,7 @@ git -C "$TARGET_REPO" add app.sh
 git -C "$TARGET_REPO" commit -qm initial
 printf '%s\n' 'review me' >> "$TARGET_REPO/app.sh"
 
-for utility in awk basename bash cat cmp cut dirname find git grep head jq mkdir mktemp mv rm sed sort tail timeout tr wc; do
-    ln -s "$(command -v "$utility")" "$FAKE_BIN/$utility"
-done
-ln -s "$(type -P true)" "$FAKE_BIN/true"
+link_utilities "$FAKE_BIN" "${RUNTIME_UTILITIES[@]}"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/claude" "$FAKE_BIN/claude"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/codex" "$FAKE_BIN/codex"
 chmod +x "$FAKE_BIN/claude" "$FAKE_BIN/codex"
@@ -169,3 +180,174 @@ grep -q "Review result: Findings remaining" "$PROFILE_ROOT/review.out" ||
     fail "review-only Plugin run modified the Target Repo"
 
 echo "ok - installed Skill launches bundled runtime through fake backends in review-only mode"
+
+MISSING_JQ_BIN="$PROFILE_ROOT/missing-jq-bin"
+mkdir -p "$MISSING_JQ_BIN"
+ln -s "$(command -v bash)" "$MISSING_JQ_BIN/bash"
+ln -s "$(command -v dirname)" "$MISSING_JQ_BIN/dirname"
+set +e
+(
+    cd "$TARGET_REPO"
+    PATH="$MISSING_JQ_BIN" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+) > "$PROFILE_ROOT/missing-jq.out" 2>&1
+MISSING_JQ_STATUS=$?
+set -e
+[[ $MISSING_JQ_STATUS -eq 64 ]] || fail "missing jq preflight returned an unexpected status"
+grep -q "missing dependency: jq" "$PROFILE_ROOT/missing-jq.out" ||
+    fail "missing jq preflight was not actionable"
+
+MISSING_CLAUDE_BIN="$PROFILE_ROOT/missing-claude-bin"
+link_utilities "$MISSING_CLAUDE_BIN" "${RUNTIME_UTILITIES[@]}"
+cp "$REPO_ROOT/tests/fixtures/plugin-backends/codex" "$MISSING_CLAUDE_BIN/codex"
+chmod +x "$MISSING_CLAUDE_BIN/codex"
+MISSING_BACKEND_LOG="$PROFILE_ROOT/missing-backend.log"
+PREFLIGHT_PATH="$MISSING_CLAUDE_BIN:/usr/bin:/bin"
+[[ -z "$(PATH="$PREFLIGHT_PATH" command -v claude 2>/dev/null || true)" ]] ||
+    fail "test environment unexpectedly exposes Claude in the one-backend PATH"
+set +e
+(
+    cd "$TARGET_REPO"
+    PLUGIN_BACKEND_LOG="$MISSING_BACKEND_LOG" PATH="$PREFLIGHT_PATH" \
+        "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+) > "$PROFILE_ROOT/missing-claude.out" 2>&1
+MISSING_CLAUDE_STATUS=$?
+set -e
+[[ $MISSING_CLAUDE_STATUS -eq 64 ]] || fail "missing Claude preflight returned an unexpected status"
+grep -q "missing Agent backend executable: claude" "$PROFILE_ROOT/missing-claude.out" ||
+    fail "missing Claude preflight was not actionable"
+[[ ! -s "$MISSING_BACKEND_LOG" ]] ||
+    fail "a review backend started before missing-backend preflight completed"
+
+MISSING_CODEX_BIN="$PROFILE_ROOT/missing-codex-bin"
+link_utilities "$MISSING_CODEX_BIN" "${RUNTIME_UTILITIES[@]}"
+cp "$REPO_ROOT/tests/fixtures/plugin-backends/claude" "$MISSING_CODEX_BIN/claude"
+chmod +x "$MISSING_CODEX_BIN/claude"
+MISSING_CODEX_LOG="$PROFILE_ROOT/missing-codex-backends.log"
+set +e
+(
+    cd "$TARGET_REPO"
+    PLUGIN_BACKEND_LOG="$MISSING_CODEX_LOG" PATH="$MISSING_CODEX_BIN" \
+        "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+) > "$PROFILE_ROOT/missing-codex.out" 2>&1
+MISSING_CODEX_STATUS=$?
+set -e
+[[ $MISSING_CODEX_STATUS -eq 64 ]] || fail "missing Codex preflight returned an unexpected status"
+grep -q "missing Agent backend executable: codex" "$PROFILE_ROOT/missing-codex.out" ||
+    fail "missing Codex preflight was not actionable"
+[[ ! -s "$MISSING_CODEX_LOG" ]] ||
+    fail "a review backend started before missing-Codex preflight completed"
+
+MISSING_SHELL_BIN="$PROFILE_ROOT/missing-shell-bin"
+mkdir -p "$MISSING_SHELL_BIN"
+MISSING_SHELL_LOG="$PROFILE_ROOT/missing-shell-backends.log"
+set +e
+(
+    cd "$TARGET_REPO"
+    PLUGIN_BACKEND_LOG="$MISSING_SHELL_LOG" PATH="$MISSING_SHELL_BIN" \
+        "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+) > "$PROFILE_ROOT/missing-shell.out" 2>&1
+MISSING_SHELL_STATUS=$?
+set -e
+[[ $MISSING_SHELL_STATUS -eq 127 ]] || fail "missing Bash launcher returned an unexpected status"
+grep -Eq "(bash.*No such file|bash.*not found|No such file.*bash)" "$PROFILE_ROOT/missing-shell.out" ||
+    fail "missing Bash launcher failure was not actionable"
+[[ ! -s "$MISSING_SHELL_LOG" ]] ||
+    fail "a review backend started without Bash support"
+
+MISSING_TIMEOUT_BIN="$PROFILE_ROOT/missing-timeout-bin"
+mkdir -p "$MISSING_TIMEOUT_BIN"
+for utility in bash dirname git jq tr; do
+    ln -s "$(command -v "$utility")" "$MISSING_TIMEOUT_BIN/$utility"
+done
+MISSING_TIMEOUT_LOG="$PROFILE_ROOT/missing-timeout-backends.log"
+set +e
+(
+    cd "$TARGET_REPO"
+    PLUGIN_BACKEND_LOG="$MISSING_TIMEOUT_LOG" PATH="$MISSING_TIMEOUT_BIN" \
+        "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+) > "$PROFILE_ROOT/missing-timeout.out" 2>&1
+MISSING_TIMEOUT_STATUS=$?
+set -e
+[[ $MISSING_TIMEOUT_STATUS -eq 64 ]] || fail "missing timeout preflight returned an unexpected status"
+grep -q "missing timeout support" "$PROFILE_ROOT/missing-timeout.out" ||
+    fail "missing timeout preflight was not actionable"
+[[ ! -s "$MISSING_TIMEOUT_LOG" ]] ||
+    fail "a review backend started before missing-timeout preflight completed"
+
+CODEX_ONLY_TARGET="$PROFILE_ROOT/codex-only-target"
+mkdir -p "$CODEX_ONLY_TARGET"
+git -C "$CODEX_ONLY_TARGET" init -q
+git -C "$CODEX_ONLY_TARGET" config user.name "Plugin E2E"
+git -C "$CODEX_ONLY_TARGET" config user.email "plugin-e2e@example.com"
+printf '%s\n' 'committed' > "$CODEX_ONLY_TARGET/app.sh"
+git -C "$CODEX_ONLY_TARGET" add app.sh
+git -C "$CODEX_ONLY_TARGET" commit -qm initial
+printf '%s\n' 'review me' >> "$CODEX_ONLY_TARGET/app.sh"
+set +e
+(
+    cd "$CODEX_ONLY_TARGET"
+    PATH="$PREFLIGHT_PATH" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh" \
+        --slot-a codex --slot-b codex
+) > "$PROFILE_ROOT/codex-only.out" 2>&1
+CODEX_ONLY_STATUS=$?
+set -e
+[[ $CODEX_ONLY_STATUS -eq 10 ]] || {
+    cat "$PROFILE_ROOT/codex-only.out" >&2
+    fail "installed Skill could not run with one explicitly selected backend"
+}
+grep -q "same-model redundancy provides lower review diversity" "$PROFILE_ROOT/codex-only.out" ||
+    fail "same-model redundancy diversity limitation was not reported"
+
+echo "ok - installed Skill performs dependency preflight and supports explicit same-model redundancy"
+
+PLUGIN_BACKEND_LOG="$PROFILE_ROOT/apply-backends.log"
+export PLUGIN_BACKEND_LOG
+export PLUGIN_APPLY_FIXES=true
+set +e
+(
+    cd "$TARGET_REPO"
+    PATH="$FAKE_BIN:$PATH" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh" \
+        --apply-fixes --fixer claude \
+        --verification-command bash --verification-arg -n --verification-arg app.sh
+) > "$PROFILE_ROOT/apply.out" 2>&1
+APPLY_STATUS=$?
+set -e
+unset PLUGIN_APPLY_FIXES PLUGIN_BACKEND_LOG
+
+[[ $APPLY_STATUS -eq 0 ]] || {
+    cat "$PROFILE_ROOT/apply.out" >&2
+    fail "installed Skill apply-fixes invocation did not complete cleanly"
+}
+grep -q "Applied fixes: in scope 2; pre-existing 0" "$PROFILE_ROOT/apply.out" ||
+    fail "installed Skill did not report machine-result fix counts"
+grep -q "Machine-result changed paths (1): app.sh" "$PROFILE_ROOT/apply.out" ||
+    fail "installed Skill did not report machine-result changed paths"
+grep -q "Target Repo Diff (1): app.sh" "$PROFILE_ROOT/apply.out" ||
+    fail "installed Skill did not report Target Repo diff paths"
+grep -q "Remaining findings: none" "$PROFILE_ROOT/apply.out" ||
+    fail "installed Skill did not report remaining Finding Scope counts"
+grep -q "Verification result: passed" "$PROFILE_ROOT/apply.out" ||
+    fail "installed Skill did not report verification success"
+grep -q "fixed by Phase 4" "$TARGET_REPO/app.sh" ||
+    fail "the authorized Phase 4 Fixer did not modify the Target Repo"
+
+STATE_DIR="$(sed -n 's/^State: //p' "$PROFILE_ROOT/apply.out" | tail -1)"
+[[ -n "$STATE_DIR" && -d "$STATE_DIR/artifacts" ]] ||
+    fail "installed Skill did not report a usable audit artifact path"
+INVOCATION_DIR="$STATE_DIR/artifacts"
+mapfile -t WRITE_INVOCATIONS < <(
+    find "$INVOCATION_DIR" -name '*.invocation.json' -type f -exec \
+        jq -r 'select(.write_authorized == true) | [.phase, .agent] | @tsv' {} +
+)
+[[ ${#WRITE_INVOCATIONS[@]} -gt 0 ]] ||
+    fail "the Phase 4 Fixer did not receive write authorization"
+for invocation in "${WRITE_INVOCATIONS[@]}"; do
+    [[ "$invocation" == $'phase_4\tclaude' ]] ||
+        fail "write authorization was not restricted to the Phase 4 Fixer"
+done
+if find "$INVOCATION_DIR" -name '*.invocation.json' -type f -exec \
+    jq -e 'select(.phase != "phase_4" and .write_authorized != false)' {} + | grep -q .; then
+    fail "a review-phase invocation received write authorization"
+fi
+
+echo "ok - installed Skill apply-fixes limits writes to Phase 4 and reports results"

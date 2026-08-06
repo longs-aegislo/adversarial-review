@@ -10,6 +10,14 @@ phase=1
 [[ "$prompt" == *"Phase 3: Meta-Review"* ]] && phase=3
 [[ "$prompt" == *"Phase 4: Synthesis & Implementation"* ]] && phase=4
 
+if [[ -n "${PLUGIN_BACKEND_LOG:-}" ]]; then
+    printf 'claude phase=%s argv=%s\n' "$phase" "$*" >> "$PLUGIN_BACKEND_LOG"
+fi
+
+if [[ "$phase" -eq 4 && "${PLUGIN_APPLY_FIXES:-false}" == "true" ]]; then
+    printf '%s\n' '# fixed by Phase 4' >> app.sh
+fi
+
 case "$phase" in
     1) response='CLAUDE-1
 ---REVIEW_STATUS---
@@ -43,7 +51,29 @@ SCOPE_DISAGREEMENTS: 0
 ISSUE_SCOPES: CLAUDE-1=IN_SCOPE, CODEX-1=IN_SCOPE
 SUMMARY: Claude reached consensus
 ---END_META_REVIEW_STATUS---' ;;
-    4) response='## Unresolved in-scope findings
+    4)
+        if [[ "${PLUGIN_APPLY_FIXES:-false}" == "true" ]]; then
+            response='## Applied fixes
+
+- Fixed app.sh.
+
+## Remaining findings
+
+- None.
+
+---SYNTHESIS_STATUS---
+HIGH_CONFIDENCE_FIXES: 2
+MEDIUM_CONFIDENCE_FIXES: 0
+ISSUES_SKIPPED: 0
+FILES_MODIFIED: 1
+IN_SCOPE_FIXED: 2
+PRE_EXISTING_FIXED: 0
+PRE_EXISTING_FLAGGED: 0
+EXIT_SIGNAL: true
+SUMMARY: Fixed the in-scope findings in app.sh
+---END_SYNTHESIS_STATUS---'
+        else
+            response='## Unresolved in-scope findings
 
 - CLAUDE-1 and CODEX-1 remain unresolved.
 
@@ -61,7 +91,9 @@ PRE_EXISTING_FIXED: 0
 PRE_EXISTING_FLAGGED: 0
 EXIT_SIGNAL: true
 SUMMARY: Reported unresolved findings without modifying files
----END_SYNTHESIS_STATUS---' ;;
+---END_SYNTHESIS_STATUS---'
+        fi
+        ;;
 esac
 
 if [[ " $* " == *" --output-format stream-json "* ]]; then
