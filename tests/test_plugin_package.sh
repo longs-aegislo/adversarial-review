@@ -82,6 +82,10 @@ if find "$PLUGIN_ROOT" -type l -print -quit | grep -q .; then
     fail "plugin package must not depend on symlinks outside its root"
 fi
 
+if find "$PLUGIN_ROOT" -type f -exec grep -Fl -- "$REPO_ROOT" {} + 2>/dev/null | grep -q .; then
+    fail "plugin package embeds this checkout's absolute path"
+fi
+
 while IFS= read -r path; do
     [[ "$path" == ./* ]] || fail "manifest path must be plugin-relative: $path"
     [[ "$path" != *../* ]] || fail "manifest path escapes plugin root: $path"
@@ -165,7 +169,7 @@ TARGET_HASH_BEFORE="$(git -C "$TARGET_REPO" hash-object app.sh)"
 set +e
 (
     cd "$TARGET_REPO"
-    PATH="$FAKE_BIN:$PATH" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+    HOME="$PROFILE_ROOT/home" PATH="$FAKE_BIN:$PATH" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
 ) > "$PROFILE_ROOT/review.out" 2>&1
 REVIEW_STATUS=$?
 set -e
@@ -181,6 +185,70 @@ grep -q "Review result: Findings remaining" "$PROFILE_ROOT/review.out" ||
 
 echo "ok - installed Skill launches bundled runtime through fake backends in review-only mode"
 
+# Simulate a Windows-style clone (core.autocrlf=true rewrites checked-out text
+# files to CRLF) as the marketplace source, install from it, and confirm the
+# *installed* package bytes stay LF and the installed Skill still launches -
+# this is the repeatable fixture for the documented Windows/WSL execution
+# path, since no Windows/macOS runner is available in this environment.
+CRLF_CLONE="$PROFILE_ROOT/crlf-clone"
+git clone -q --local --no-hardlinks "$REPO_ROOT" "$CRLF_CLONE"
+git -C "$CRLF_CLONE" config core.autocrlf true
+git -C "$CRLF_CLONE" rm -q --cached -r . >/dev/null
+git -C "$CRLF_CLONE" checkout -f -q HEAD -- .
+
+CRLF_HOME="$PROFILE_ROOT/crlf-home"
+CRLF_CODEX_HOME="$PROFILE_ROOT/crlf-codex"
+mkdir -p "$CRLF_HOME" "$CRLF_CODEX_HOME"
+run_crlf_codex() {
+    HOME="$CRLF_HOME" CODEX_HOME="$CRLF_CODEX_HOME" codex "$@"
+}
+
+run_crlf_codex plugin marketplace add "$CRLF_CLONE" --json > "$PROFILE_ROOT/crlf-marketplace-add.json" ||
+    fail "Codex could not register a marketplace built from an autocrlf=true checkout"
+run_crlf_codex plugin add adversarial-review@adversarial-review-local --json > "$PROFILE_ROOT/crlf-plugin-add.json" ||
+    fail "Codex could not install the Plugin from an autocrlf=true checkout"
+CRLF_INSTALLED_ROOT="$(jq -r '.installedPath // empty' "$PROFILE_ROOT/crlf-plugin-add.json")"
+[[ -n "$CRLF_INSTALLED_ROOT" && -d "$CRLF_INSTALLED_ROOT" ]] ||
+    fail "installed path was not reported for the autocrlf=true source"
+
+assert_installed_lf_no_crlf() {
+    local file="$1"
+    if grep -qU $'\r' "$file"; then
+        fail "$file contains CR bytes in the installed package (packaged bytes, not just source worktree)"
+    fi
+}
+assert_installed_lf_no_crlf "$CRLF_INSTALLED_ROOT/runtime/adversarial_review.sh"
+for f in "$CRLF_INSTALLED_ROOT"/runtime/lib/*.sh; do
+    assert_installed_lf_no_crlf "$f"
+done
+assert_installed_lf_no_crlf "$CRLF_INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+
+CRLF_TARGET="$PROFILE_ROOT/crlf-target"
+mkdir -p "$CRLF_TARGET"
+git -C "$CRLF_TARGET" init -q
+git -C "$CRLF_TARGET" config user.name "Plugin E2E"
+git -C "$CRLF_TARGET" config user.email "plugin-e2e@example.com"
+printf '%s\n' 'committed' > "$CRLF_TARGET/app.sh"
+git -C "$CRLF_TARGET" add app.sh
+git -C "$CRLF_TARGET" commit -qm initial
+printf '%s\n' 'review me' >> "$CRLF_TARGET/app.sh"
+
+set +e
+(
+    cd "$CRLF_TARGET"
+    HOME="$CRLF_HOME" PATH="$FAKE_BIN:$PATH" "$CRLF_INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+) > "$PROFILE_ROOT/crlf-review.out" 2>&1
+CRLF_REVIEW_STATUS=$?
+set -e
+[[ $CRLF_REVIEW_STATUS -eq 10 ]] || {
+    cat "$PROFILE_ROOT/crlf-review.out" >&2
+    fail "installed Skill built from an autocrlf=true checkout did not run cleanly"
+}
+grep -q "Review result: Findings remaining" "$PROFILE_ROOT/crlf-review.out" ||
+    fail "installed Skill built from an autocrlf=true checkout did not parse the bundled runtime result"
+
+echo "ok - packaged bytes stay LF and the installed Skill launches cleanly from an autocrlf=true (Windows/WSL-style) checkout"
+
 MISSING_JQ_BIN="$PROFILE_ROOT/missing-jq-bin"
 mkdir -p "$MISSING_JQ_BIN"
 ln -s "$(command -v bash)" "$MISSING_JQ_BIN/bash"
@@ -188,7 +256,7 @@ ln -s "$(command -v dirname)" "$MISSING_JQ_BIN/dirname"
 set +e
 (
     cd "$TARGET_REPO"
-    PATH="$MISSING_JQ_BIN" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
+    HOME="$PROFILE_ROOT/home" PATH="$MISSING_JQ_BIN" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
 ) > "$PROFILE_ROOT/missing-jq.out" 2>&1
 MISSING_JQ_STATUS=$?
 set -e
@@ -207,7 +275,7 @@ PREFLIGHT_PATH="$MISSING_CLAUDE_BIN:/usr/bin:/bin"
 set +e
 (
     cd "$TARGET_REPO"
-    PLUGIN_BACKEND_LOG="$MISSING_BACKEND_LOG" PATH="$PREFLIGHT_PATH" \
+    HOME="$PROFILE_ROOT/home" PLUGIN_BACKEND_LOG="$MISSING_BACKEND_LOG" PATH="$PREFLIGHT_PATH" \
         "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
 ) > "$PROFILE_ROOT/missing-claude.out" 2>&1
 MISSING_CLAUDE_STATUS=$?
@@ -226,7 +294,7 @@ MISSING_CODEX_LOG="$PROFILE_ROOT/missing-codex-backends.log"
 set +e
 (
     cd "$TARGET_REPO"
-    PLUGIN_BACKEND_LOG="$MISSING_CODEX_LOG" PATH="$MISSING_CODEX_BIN" \
+    HOME="$PROFILE_ROOT/home" PLUGIN_BACKEND_LOG="$MISSING_CODEX_LOG" PATH="$MISSING_CODEX_BIN" \
         "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
 ) > "$PROFILE_ROOT/missing-codex.out" 2>&1
 MISSING_CODEX_STATUS=$?
@@ -243,7 +311,7 @@ MISSING_SHELL_LOG="$PROFILE_ROOT/missing-shell-backends.log"
 set +e
 (
     cd "$TARGET_REPO"
-    PLUGIN_BACKEND_LOG="$MISSING_SHELL_LOG" PATH="$MISSING_SHELL_BIN" \
+    HOME="$PROFILE_ROOT/home" PLUGIN_BACKEND_LOG="$MISSING_SHELL_LOG" PATH="$MISSING_SHELL_BIN" \
         "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
 ) > "$PROFILE_ROOT/missing-shell.out" 2>&1
 MISSING_SHELL_STATUS=$?
@@ -263,7 +331,7 @@ MISSING_TIMEOUT_LOG="$PROFILE_ROOT/missing-timeout-backends.log"
 set +e
 (
     cd "$TARGET_REPO"
-    PLUGIN_BACKEND_LOG="$MISSING_TIMEOUT_LOG" PATH="$MISSING_TIMEOUT_BIN" \
+    HOME="$PROFILE_ROOT/home" PLUGIN_BACKEND_LOG="$MISSING_TIMEOUT_LOG" PATH="$MISSING_TIMEOUT_BIN" \
         "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh"
 ) > "$PROFILE_ROOT/missing-timeout.out" 2>&1
 MISSING_TIMEOUT_STATUS=$?
@@ -286,7 +354,7 @@ printf '%s\n' 'review me' >> "$CODEX_ONLY_TARGET/app.sh"
 set +e
 (
     cd "$CODEX_ONLY_TARGET"
-    PATH="$PREFLIGHT_PATH" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh" \
+    HOME="$PROFILE_ROOT/home" PATH="$PREFLIGHT_PATH" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh" \
         --slot-a codex --slot-b codex
 ) > "$PROFILE_ROOT/codex-only.out" 2>&1
 CODEX_ONLY_STATUS=$?
@@ -306,7 +374,7 @@ export PLUGIN_APPLY_FIXES=true
 set +e
 (
     cd "$TARGET_REPO"
-    PATH="$FAKE_BIN:$PATH" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh" \
+    HOME="$PROFILE_ROOT/home" PATH="$FAKE_BIN:$PATH" "$INSTALLED_ROOT/skills/adversarial-review/scripts/run-review.sh" \
         --apply-fixes --fixer claude \
         --verification-command bash --verification-arg -n --verification-arg app.sh
 ) > "$PROFILE_ROOT/apply.out" 2>&1
@@ -351,3 +419,62 @@ if find "$INVOCATION_DIR" -name '*.invocation.json' -type f -exec \
 fi
 
 echo "ok - installed Skill apply-fixes limits writes to Phase 4 and reports results"
+
+build_manifest() {
+    local root="$1"
+    shift
+    find "$root" -type f "$@" -exec shasum {} + | sed "s#$root/##" | sort
+}
+
+TARGET_MANIFEST_BEFORE_REMOVE="$(build_manifest "$TARGET_REPO" -not -path "$TARGET_REPO/.git/*")"
+STATE_MANIFEST_BEFORE_REMOVE="$(build_manifest "$STATE_DIR")"
+[[ -n "$TARGET_MANIFEST_BEFORE_REMOVE" && -n "$STATE_MANIFEST_BEFORE_REMOVE" ]] ||
+    fail "expected Target Repo files and review state/Artifacts were not present before removal"
+
+# Codex reloads each configured marketplace's snapshot from its source path
+# on `plugin list`/`plugin remove`, so restore the source moved away earlier
+# (that step only proved the *installed* runtime has no live dependency on
+# it) before exercising removal.
+mv "$PROFILE_ROOT/source-unavailable" "$MARKETPLACE_SOURCE"
+
+run_codex plugin remove adversarial-review@adversarial-review-local --json > "$PROFILE_ROOT/plugin-remove.json" ||
+    fail "Codex could not remove the installed adversarial-review Plugin"
+
+AFTER_REMOVE_JSON="$(run_codex plugin list --json)" || fail "Codex could not list plugins after removal"
+jq -e '
+    any(.installed[]; .name == "adversarial-review") | not
+' <<< "$AFTER_REMOVE_JSON" >/dev/null ||
+    fail "adversarial-review is still discoverable as installed after removal"
+
+AFTER_PLUGIN_REMOVE_AVAILABLE_JSON="$(run_codex plugin list --available --json)" ||
+    fail "Codex could not list available plugins after Plugin removal"
+jq -e '
+    any(.available[]; .name == "adversarial-review" and .marketplaceName == "adversarial-review-local")
+' <<< "$AFTER_PLUGIN_REMOVE_AVAILABLE_JSON" >/dev/null ||
+    fail "removing the Plugin also removed its separate marketplace registration"
+
+[[ ! -d "$INSTALLED_ROOT" ]] ||
+    fail "the installed Plugin cache directory was not removed"
+
+TARGET_MANIFEST_AFTER_REMOVE="$(build_manifest "$TARGET_REPO" -not -path "$TARGET_REPO/.git/*")"
+[[ "$TARGET_MANIFEST_AFTER_REMOVE" == "$TARGET_MANIFEST_BEFORE_REMOVE" ]] ||
+    fail "removing the Plugin changed Target Repo file contents"
+
+[[ -d "$STATE_DIR" ]] || fail "review state did not survive Plugin removal"
+STATE_MANIFEST_AFTER_REMOVE="$(build_manifest "$STATE_DIR")"
+[[ "$STATE_MANIFEST_AFTER_REMOVE" == "$STATE_MANIFEST_BEFORE_REMOVE" ]] ||
+    fail "removing the Plugin changed review state/Artifacts contents"
+
+echo "ok - removing the installed Plugin leaves Target Repo files and review state/Artifacts untouched"
+
+run_codex plugin marketplace remove adversarial-review-local --json > "$PROFILE_ROOT/marketplace-remove.json" ||
+    fail "Codex could not remove the repository marketplace"
+
+AFTER_MARKETPLACE_REMOVE_JSON="$(run_codex plugin list --available --json)" ||
+    fail "Codex could not list available plugins after marketplace removal"
+jq -e '
+    any(.available[]; .marketplaceName == "adversarial-review-local") | not
+' <<< "$AFTER_MARKETPLACE_REMOVE_JSON" >/dev/null ||
+    fail "adversarial-review is still available after its marketplace was removed"
+
+echo "ok - removing the marketplace makes adversarial-review fully undiscoverable"

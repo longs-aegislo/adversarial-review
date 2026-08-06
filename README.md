@@ -122,6 +122,22 @@ before any review Agent starts. A single available backend is sufficient only
 when both reviewer slots explicitly select it; the Adapter reports this as
 lower-diversity same-model redundancy.
 
+Review state and Artifacts for installed Plugin runs are stored under
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review`, not inside the
+installed package, so they survive an upgrade or uninstall.
+
+### Uninstall
+
+```bash
+codex plugin remove adversarial-review@adversarial-review-local
+codex plugin marketplace remove adversarial-review-local
+```
+
+The first command removes the installed Plugin and its Skill; the second
+also deregisters the local marketplace source so it no longer appears in
+`codex plugin list --available`. Neither command touches Target Repo files
+or the review state/Artifacts described above.
+
 ## Documentation
 
 - [Repository-level Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —
