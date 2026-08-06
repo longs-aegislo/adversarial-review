@@ -454,6 +454,31 @@ PR 公開の near-miss を保持し、Skill metadata がその境界を記述す
 preflight／互換性対処は必要時だけ workflow reference から読み込みます。Skill は CLI Adapter
 であり、4 フェーズ、tracking 配置、機械結果契約を複製しません。
 
+### Plugin release gate
+
+candidate checkout で `./scripts/validate-plugin-release.sh` を実行します。manifest の stable
+identifier、semantic version、Plugin-relative path と root containment、marketplace identity、
+`compatibility.json`、対応する `docs/releases/<version>.md` を確認した後、実 Codex Plugin
+CLI を必須として disposable な `HOME`/`CODEX_HOME` で package と Git lifecycle acceptance
+を実行します。review-only と apply-fixes は fake Claude/Codex backend を使うため、決定的
+gate に subscription や有料モデルは不要です。release operator は別途、小規模な認証済み
+backend smoke test を実施できますが、これは手動 evidence であり acceptance dependency ではありません。
+
+ローカル開発では source runtime と bundled copy を一緒に更新し、manifest と compatibility
+の version を同時に上げ、`docs/releases/<version>.md` を追加します。まず
+`--metadata-only`、次に full gate を実行します。実際の installed shape を確認するには、
+local marketplace を削除・再登録して cache を refresh し、Plugin を再installして新しい
+Codex thread を開始し、fixture Target Repo から `$adversarial-review` を明示実行します。
+upgrade の検証では legacy state migration も扱う `upgrade-plugin.sh` を使います。
+
+release note には external prerequisite、supported platform、host compatibility、result-schema
+version、migration/compatibility guidance、known limitation が必須です。互換性エラーは
+manifest、`compatibility.json`、release-note file/field、または installed Codex CLI が candidate
+と一致しないことを示すため、gate を迂回せず契約を修正または明示的に更新します。Linux は
+自動検証、Windows は WSL と CRLF fixture で対応し、macOS は community/manual smoke evidence
+に依存します。Plugin API は experimental のままで、public universal Plugin directory への
+submission はこの release process の対象外です。
+
 ## 研究背景
 
 このアプローチは以下の研究に基づいています：

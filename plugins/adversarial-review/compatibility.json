@@ -1,5 +1,11 @@
 {
   "plugin_version": "0.3.0",
+  "host_compatibility": {
+    "product": "Codex",
+    "minimum_cli_version": "0.146.0",
+    "plugin_api": "experimental",
+    "platforms": ["Linux", "macOS", "Windows via WSL"]
+  },
   "cli_result_schema": 1,
   "skill_workflow": "1",
   "installation_layout": "1"

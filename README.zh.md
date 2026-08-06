@@ -121,6 +121,12 @@ Plugin 安装不会安装或配置 Bash、`jq`、timeout 支持、Agent backend�
 `${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review`，而非安装包内部，
 因此升级或卸载都不会丢失。
 
+维护者使用 `./scripts/validate-plugin-release.sh` 验证候选版本。门禁检查稳定
+identifier、语义版本、host/platform compatibility、包边界、Skill discovery、两种执行
+模式、Git 固定/升级和 clean profile 卸载；全程只使用 fake backend，不调用付费模型。
+本地 rebuild 循环、兼容性排错、release notes 和可选真实 backend smoke test 见
+[详细指南](docs/guide.zh.md#plugin-发布门禁)。公共 universal Plugin directory 投稿仍不在范围内。
+
 ### 卸载
 
 ```bash

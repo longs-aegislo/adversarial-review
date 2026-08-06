@@ -136,6 +136,15 @@ Review state and Artifacts for installed Plugin runs are stored under
 `${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review`, not inside the
 installed package, so they survive an upgrade or uninstall.
 
+Maintainers validate a release candidate with
+`./scripts/validate-plugin-release.sh`. The gate checks stable identity,
+semantic versioning, host/platform compatibility, package containment, Skill
+discovery, both execution modes, Git pin/upgrade, and removal in clean profiles
+using fake backends only. It makes no paid model calls. See the
+[detailed guide](docs/guide.md#plugin-release-gate) for the local rebuild loop,
+compatibility troubleshooting, release notes, and the optional authenticated
+smoke test. Public universal Plugin directory submission remains out of scope.
+
 ### Uninstall
 
 ```bash

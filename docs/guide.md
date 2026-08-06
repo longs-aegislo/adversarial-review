@@ -486,6 +486,37 @@ preflight/compatibility remedies are loaded from its workflow reference only
 when needed. The Skill is a CLI Adapter: it does not reproduce the four review
 phases, tracking layout, or machine-result contract.
 
+### Plugin release gate
+
+Run `./scripts/validate-plugin-release.sh` from a candidate checkout. It first
+validates the manifest identifier, semantic version, Plugin-relative paths,
+root containment, marketplace identity, `compatibility.json`, and the matching
+`docs/releases/<version>.md`. It then requires the real Codex Plugin CLI and
+runs package plus Git lifecycle acceptance in disposable `HOME`/`CODEX_HOME`
+profiles. Fake Claude/Codex backends exercise review-only and apply-fixes, so
+the deterministic gate needs no subscriptions or paid model calls. A release
+operator may separately run one small authenticated review-only/apply-fixes
+smoke test; that is manual evidence, not an acceptance dependency.
+
+For local development, rebuild by updating the source runtime and its bundled
+copy together, bump the manifest and compatibility versions together, and add
+`docs/releases/<version>.md`. Run `--metadata-only` for a fast check, then the
+full gate. To test the actual installed shape, remove and re-add the local
+marketplace (refreshing its cache), reinstall the Plugin, start a new Codex
+thread for Skill discovery, and invoke `$adversarial-review` from a fixture
+Target Repo. Use `upgrade-plugin.sh` instead when testing an upgrade because it
+also covers legacy state migration.
+
+Every release note must state external prerequisites, supported platforms,
+host compatibility, result-schema version, migration/compatibility guidance,
+and known limitations. A compatibility failure means the manifest version,
+`compatibility.json`, release-note filename/fields, or installed Codex CLI does
+not match the candidate; repair or deliberately update the contract rather
+than bypassing the gate. Linux is automated, Windows is supported through WSL
+and CRLF fixtures, and macOS depends on community/manual smoke evidence. The
+Plugin API remains experimental, and public universal Plugin directory
+submission is not part of this release process.
+
 ## Research Background
 
 This approach is based on:
