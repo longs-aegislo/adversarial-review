@@ -41,6 +41,12 @@ semver_core_at_least() {
     local actual_major actual_minor actual_patch minimum_major minimum_minor minimum_patch
     IFS=. read -r actual_major actual_minor actual_patch <<< "$actual"
     IFS=. read -r minimum_major minimum_minor minimum_patch <<< "$minimum"
+    actual_major=$((10#$actual_major))
+    actual_minor=$((10#$actual_minor))
+    actual_patch=$((10#$actual_patch))
+    minimum_major=$((10#$minimum_major))
+    minimum_minor=$((10#$minimum_minor))
+    minimum_patch=$((10#$minimum_patch))
     (( actual_major > minimum_major )) ||
         (( actual_major == minimum_major && actual_minor > minimum_minor )) ||
         (( actual_major == minimum_major && actual_minor == minimum_minor && actual_patch >= minimum_patch ))
@@ -83,11 +89,20 @@ jq -e '
 ' "$MARKETPLACE" >/dev/null || fail "marketplace does not expose the stable Plugin identifier"
 
 while IFS= read -r path; do
-    [[ "$path" == ./* ]] || fail "manifest path must be relative to the Plugin root: $path"
     case "$path" in
         ../*|*/../*|*/..) fail "manifest path escapes the Plugin root: $path" ;;
     esac
-done < <(jq -r '[.skills, .apps, .mcpServers, .hooks] | .[]? | strings' "$MANIFEST")
+    [[ "$path" == ./* ]] || fail "manifest path must be relative to the Plugin root: $path"
+done < <(jq -r '
+    [
+        (.skills | .. | strings),
+        ([.apps, .mcpServers, .hooks] | .[]? | .. | strings |
+            select(
+                startswith(".") or startswith("/") or
+                test("^[A-Za-z]:[\\\\/]") or test("(^|/)\\.\\.(/|$)")
+            ))
+    ] | .[]
+' "$MANIFEST")
 
 RELEASE_NOTES="$REPO_ROOT/docs/releases/$VERSION.md"
 [[ -f "$RELEASE_NOTES" ]] || fail "release notes are missing for Plugin $VERSION"
@@ -120,7 +135,7 @@ fi
 CODEX_COMMAND="${PLUGIN_RELEASE_CODEX:-codex}"
 command -v "$CODEX_COMMAND" >/dev/null 2>&1 || fail "Codex CLI is required for full release acceptance"
 CODEX_VERSION_OUTPUT="$("$CODEX_COMMAND" --version 2>/dev/null)" || fail "Codex CLI version could not be read"
-CODEX_VERSION="$(sed -nE 's/.*[^0-9]([0-9]+\.[0-9]+\.[0-9]+)([^0-9].*)?$/\1/p' <<< "$CODEX_VERSION_OUTPUT")"
+CODEX_VERSION="$(sed -nE 's/^[^0-9]*([0-9]+\.[0-9]+\.[0-9]+)([^0-9].*)?$/\1/p' <<< "$CODEX_VERSION_OUTPUT")"
 [[ "$CODEX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
     fail "Codex CLI returned an unrecognized version: $CODEX_VERSION_OUTPUT"
 MINIMUM_CODEX_VERSION="$(jq -r '.host_compatibility.minimum_cli_version' "$COMPATIBILITY")"

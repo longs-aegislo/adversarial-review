@@ -90,6 +90,15 @@ expect_metadata_failure "escapes the Plugin root" "$TEST_ROOT/escape.out"
 
 cp "$REPO_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
+jq '.apps = [{"path":"./apps/safe"}, {"path":"../evil"}]' \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
+    > "$TEST_ROOT/nested-escaping-manifest.json"
+mv "$TEST_ROOT/nested-escaping-manifest.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
+expect_metadata_failure "escapes the Plugin root" "$TEST_ROOT/nested-escape.out"
+
+cp "$REPO_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
 jq 'del(.host_compatibility)' "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json" \
     > "$TEST_ROOT/no-host.json"
 mv "$TEST_ROOT/no-host.json" "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json"
@@ -116,6 +125,19 @@ set -e
 grep -q "requires Codex CLI 0.146.0 or later" "$TEST_ROOT/old-host.out" || {
     cat "$TEST_ROOT/old-host.out" >&2
     fail "incompatible Codex host failure was not actionable"
+}
+
+BARE_CODEX="$TEST_ROOT/bare-codex"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "0.09.0"' > "$BARE_CODEX"
+chmod +x "$BARE_CODEX"
+set +e
+PLUGIN_RELEASE_CODEX="$BARE_CODEX" "$GATE" > "$TEST_ROOT/bare-host.out" 2>&1
+BARE_HOST_STATUS=$?
+set -e
+[[ $BARE_HOST_STATUS -ne 0 ]] || fail "incompatible bare Codex version unexpectedly passed"
+grep -q "requires Codex CLI 0.146.0 or later (found 0.09.0)" "$TEST_ROOT/bare-host.out" || {
+    cat "$TEST_ROOT/bare-host.out" >&2
+    fail "bare Codex version or decimal comparison was not handled cleanly"
 }
 
 echo "ok - release gate validates candidate identity, compatibility, and release-note contract"
