@@ -194,17 +194,15 @@ adversarial-review/
 │   ├── cross_review.md      # 阶段二：交叉审查 prompt
 │   ├── meta_review.md       # 阶段三：元审查 prompt
 │   └── synthesis.md         # 阶段四：综合 prompt
-└── state/                   # 按目标目录隔离的状态（已加入 .gitignore）
-    └── <项目 slug>-<hash>/
-        ├── artifacts/        # 每轮迭代的智能体输出
-        ├── logs/             # 执行日志
-        ├── tracking.json     # 状态追踪
-        └── .circuit_breaker.json
 ```
 
 ## 状态目录
 
-每个被审查过的目标目录都会在 `state/` 下拥有自己独立的状态文件夹，命名规则是"目录名 + 完整路径的短 hash"（这样两个不同位置但同名的目录也不会撞在一起）。这意味着：
+每个被审查过的目标目录都会在
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review/`（或显式设置的
+`AR_STATE_ROOT`）下拥有独立状态文件夹，命名规则是“目录名 + 完整路径的短 hash”（这样
+两个不同位置但同名的目录也不会撞在一起）。该稳定 root 不依赖源码 checkout 或版本化
+Plugin 安装，因此 Plugin 升级后仍能访问同一份 state 与 Artifacts。这意味着：
 
 - 审查完项目 A 再审查项目 B，两者的 `tracking.json` 历史、产出文件、断路器计数都不会混在一起。
 - 项目 A 留下的 OPEN 断路器（或者一次遗留的 `--dry-run`）不会拦下或污染项目 B 的运行。

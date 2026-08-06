@@ -68,6 +68,10 @@ jq '.plugin_version = "0.2.0"' \
     "$SOURCE_WORK/plugins/$PLUGIN_NAME/compatibility.json" > "$TEST_ROOT/old-compatibility.json"
 mv "$TEST_ROOT/old-compatibility.json" "$SOURCE_WORK/plugins/$PLUGIN_NAME/compatibility.json"
 printf '%s\n' 'old package residue' > "$SOURCE_WORK/plugins/$PLUGIN_NAME/removed-in-0.3.txt"
+printf '%s\n' '# fixture-old-skill' >> \
+    "$SOURCE_WORK/plugins/$PLUGIN_NAME/skills/adversarial-review/SKILL.md"
+printf '%s\n' '# fixture-old-runtime' >> \
+    "$SOURCE_WORK/plugins/$PLUGIN_NAME/runtime/adversarial_review.sh"
 
 git init -q --bare "$SOURCE_BARE"
 git -C "$SOURCE_WORK" init -q
@@ -105,11 +109,21 @@ run_codex "$UPGRADE_PROFILE" plugin marketplace add "$GIT_SOURCE" --ref candidat
     > "$TEST_ROOT/upgrade-marketplace.json" || fail "Codex could not add the upgrade Git marketplace"
 OLD_INSTALLED_ROOT="$(install_plugin "$UPGRADE_PROFILE" "$TEST_ROOT/old-install.json")"
 assert_listed_version "$UPGRADE_PROFILE" "0.2.0" true
+grep -q 'fixture-old-skill' "$OLD_INSTALLED_ROOT/skills/adversarial-review/SKILL.md" ||
+    fail "old fixture Skill marker is missing"
+grep -q 'fixture-old-runtime' "$OLD_INSTALLED_ROOT/runtime/adversarial_review.sh" ||
+    fail "old fixture runtime marker is missing"
 
 TARGET_REPO="$TEST_ROOT/target-repo"
-STATE_ROOT="$TARGET_REPO/review-state"
+mkdir -p "$TARGET_REPO"
+OLD_STATUS="$(HOME="$UPGRADE_PROFILE/home" \
+    "$OLD_INSTALLED_ROOT/runtime/adversarial_review.sh" claude codex "$TARGET_REPO" --status)"
+STATE_ROOT="$(sed -n 's/.*State dir: //p' <<< "$OLD_STATUS" | tail -1)"
+[[ -n "$STATE_ROOT" && "$STATE_ROOT" != "$OLD_INSTALLED_ROOT"/* ]] ||
+    fail "old runtime did not resolve stable state outside the versioned Plugin"
 mkdir -p "$STATE_ROOT/artifacts"
-printf '%s\n' '{"iteration":2,"status":"in_progress"}' > "$STATE_ROOT/tracking.json"
+printf '%s\n' '{"target_dir":"fixture","history":[],"iteration":2,"status":"in_progress"}' \
+    > "$STATE_ROOT/tracking.json"
 printf '%s\n' 'review artifact before Plugin upgrade' > "$STATE_ROOT/artifacts/iter2_1_codex_review.md"
 STATE_HASH_BEFORE="$(find "$STATE_ROOT" -type f -exec shasum {} + | sort | shasum | cut -d ' ' -f 1)"
 
@@ -126,6 +140,10 @@ assert_listed_version "$UPGRADE_PROFILE" "0.3.0" true
 
 [[ "$NEW_INSTALLED_ROOT" != "$OLD_INSTALLED_ROOT" ]] || fail "upgrade reused the old version directory"
 [[ ! -e "$NEW_INSTALLED_ROOT/removed-in-0.3.txt" ]] || fail "upgrade mixed a stale file into the candidate package"
+grep -q 'fixture-old-skill' "$NEW_INSTALLED_ROOT/skills/adversarial-review/SKILL.md" &&
+    fail "upgrade retained the old Skill"
+grep -q 'fixture-old-runtime' "$NEW_INSTALLED_ROOT/runtime/adversarial_review.sh" &&
+    fail "upgrade retained the old runtime"
 cmp "$REPO_ROOT/plugins/$PLUGIN_NAME/skills/adversarial-review/SKILL.md" \
     "$NEW_INSTALLED_ROOT/skills/adversarial-review/SKILL.md" >/dev/null ||
     fail "upgraded Skill does not match the candidate package"
@@ -142,5 +160,11 @@ STATE_HASH_AFTER="$(find "$STATE_ROOT" -type f -exec shasum {} + | sort | shasum
 [[ "$STATE_HASH_AFTER" == "$STATE_HASH_BEFORE" ]] || fail "Plugin upgrade changed Target Repo review state or Artifacts"
 [[ -f "$STATE_ROOT/tracking.json" && -f "$STATE_ROOT/artifacts/iter2_1_codex_review.md" ]] ||
     fail "Target Repo review state or Artifacts became inaccessible after upgrade"
+NEW_STATUS="$(HOME="$UPGRADE_PROFILE/home" \
+    "$NEW_INSTALLED_ROOT/runtime/adversarial_review.sh" claude codex "$TARGET_REPO" --status)"
+NEW_STATE_ROOT="$(sed -n 's/.*State dir: //p' <<< "$NEW_STATUS" | tail -1)"
+[[ "$NEW_STATE_ROOT" == "$STATE_ROOT" ]] || fail "upgraded runtime cannot resolve the old state directory"
+grep -q 'iter2_1_codex_review.md' <<< "$NEW_STATUS" ||
+    fail "upgraded runtime cannot list the pre-upgrade Artifact"
 
 echo "ok - local and Git marketplace lifecycle preserves version pairing and Target Repo state"

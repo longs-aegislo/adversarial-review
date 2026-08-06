@@ -89,9 +89,9 @@ Example (paths, commit IDs, and counts are illustrative):
   },
   "target_changes": { "modified": false, "files": [] },
   "paths": {
-    "state_dir": "/work/adversarial-review/state/shop-a1b2c3d4",
-    "artifacts_dir": "/work/adversarial-review/state/shop-a1b2c3d4/artifacts",
-    "final_synthesis_artifact": "/work/adversarial-review/state/shop-a1b2c3d4/artifacts/iter1_4_synthesis.md"
+    "state_dir": "/home/user/.local/state/adversarial-review/shop-a1b2c3d4",
+    "artifacts_dir": "/home/user/.local/state/adversarial-review/shop-a1b2c3d4/artifacts",
+    "final_synthesis_artifact": "/home/user/.local/state/adversarial-review/shop-a1b2c3d4/artifacts/iter1_4_synthesis.md"
   }
 }
 ```

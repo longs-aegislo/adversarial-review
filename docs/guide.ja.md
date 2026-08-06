@@ -207,17 +207,16 @@ adversarial-review/
 │   ├── cross_review.md      # フェーズ2：クロスレビュー prompt
 │   ├── meta_review.md       # フェーズ3：メタレビュー prompt
 │   └── synthesis.md         # フェーズ4：統合 prompt
-└── state/                   # ターゲットディレクトリごとの状態（.gitignore済み）
-    └── <プロジェクトslug>-<hash>/
-        ├── artifacts/        # 各イテレーションのエージェント出力
-        ├── logs/             # 実行ログ
-        ├── tracking.json     # 状態管理ファイル
-        └── .circuit_breaker.json
 ```
 
 ## 状態ディレクトリ
 
-実行対象にした各ターゲットディレクトリは、`state/` 以下に専用の状態フォルダを持ちます。フォルダ名はディレクトリ名とフルパスの短いハッシュを組み合わせたもの（同名だが場所が異なるディレクトリ同士が衝突しないように）です。これにより：
+実行対象にした各ターゲットディレクトリは、
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review/`（または明示した
+`AR_STATE_ROOT`）以下に専用の状態 folder を持ちます。folder 名はディレクトリ名と full
+path の短い hash を組み合わせたものです。この安定した root は source checkout や
+versioned Plugin install に依存しないため、Plugin upgrade 後も同じ state と Artifacts に
+アクセスできます。これにより：
 
 - プロジェクトAをレビューした後にプロジェクトBをレビューしても、`tracking.json` の履歴・成果物・サーキットブレーカーのカウンターが混ざりません。
 - プロジェクトAで「OPEN」になったサーキットブレーカー（や実行し忘れた `--dry-run` の残骸）が、別プロジェクトBの実行をブロックしたり汚染したりしません。

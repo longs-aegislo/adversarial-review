@@ -208,19 +208,16 @@ adversarial-review/
 │   ├── cross_review.md      # Phase 2: Cross-review prompt
 │   ├── meta_review.md       # Phase 3: Meta-review prompt
 │   └── synthesis.md         # Phase 4: Synthesis prompt
-└── state/                   # Per-target-directory state (gitignored)
-    └── <project-slug>-<hash>/
-        ├── artifacts/        # Agent outputs per iteration
-        ├── logs/             # Execution logs
-        ├── tracking.json     # State tracking
-        └── .circuit_breaker.json
 ```
 
 ## State Directory
 
 Each target directory you run against gets its own state folder under
-`state/`, named from its basename plus a short hash of its full path (so
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review/` (or
+`AR_STATE_ROOT` when explicitly set), named from its basename plus a short hash of its full path (so
 two differently-located folders that happen to share a name don't collide).
+This stable root is independent of a source checkout or versioned Plugin install,
+so Plugin upgrades preserve the same state and Artifacts.
 This means:
 
 - Reviewing project A and then project B never mixes their `tracking.json`
