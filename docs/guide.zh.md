@@ -423,9 +423,9 @@ PR 发布 near-miss，并断言 Skill 元数据描述了这些边界。实际隐
 
 在候选 checkout 运行 `./scripts/validate-plugin-release.sh`。它先检查 manifest 的稳定
 identifier、语义版本、Plugin 相对路径和 root containment、marketplace identity、
-`compatibility.json` 以及匹配的 `docs/releases/<version>.md`。门禁还要求 `logo` 与
-`composerIcon` 使用 Plugin-relative 路径指向方形 PNG，随后要求真实 Codex Plugin CLI，
-并在一次性 `HOME`/`CODEX_HOME` 中执行 package 与 Git lifecycle acceptance。
+`compatibility.json`、匹配的 `docs/releases/<version>.md`，以及通过 Plugin-relative 路径
+引用的方形 PNG `logo` 与 `composerIcon`。随后使用真实 Codex Plugin CLI，在一次性
+`HOME`/`CODEX_HOME` 中执行 package 与 Git lifecycle acceptance。
 review-only 和 apply-fixes 都使用 fake Claude/Codex backend，因此确定性门禁无需订阅或
 付费模型。发布者可另做一次小规模真实认证 backend smoke test；它只是人工证据，不是
 acceptance 依赖。
