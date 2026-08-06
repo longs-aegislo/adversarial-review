@@ -357,14 +357,15 @@ its HTTPS/SSH URL) with `--ref <tag-or-commit>` to pin a known release. The
 marketplace entry remains ordered in `plugins[]`, points at the packaged Plugin
 root, and carries installation, authentication, product, and category policy.
 Use `codex plugin list --available --json` to confirm the version and enabled
-state. A branch-tracking installation is upgraded in two explicit steps:
+state. Upgrade a branch-tracking installation from this checkout with:
 
 ```bash
-codex plugin marketplace upgrade adversarial-review-local
-codex plugin add adversarial-review@adversarial-review-local
+./scripts/upgrade-plugin.sh
 ```
 
-The refreshed snapshot and versioned install cache replace Skill, Adapter,
+The command first migrates pre-0.3 state from the installed version cache to
+the stable user state root, refusing to overwrite a conflicting destination.
+It then refreshes the snapshot and versioned install cache, replacing Skill, Adapter,
 runtime, libraries, prompts, and compatibility metadata as one package; files
 removed from the newer package are not overlaid from the old version. Target
 Repo state and Artifacts live outside that installed package and remain intact.

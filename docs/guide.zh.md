@@ -325,14 +325,14 @@ Git-backed 安装可用 `--ref <tag-or-commit>` 注册
 `longs-aegislo/adversarial-review`（或其 HTTPS／SSH URL），固定到已知发布版本。
 marketplace entry 保持在 `plugins[]` 中的顺序，指向 packaged Plugin root，并包含安装、
 认证、product 与 category policy。使用 `codex plugin list --available --json` 确认版本及
-enabled 状态。跟踪分支的安装通过两个显式步骤升级：
+enabled 状态。跟踪分支的安装在此 checkout 中通过以下命令升级：
 
 ```bash
-codex plugin marketplace upgrade adversarial-review-local
-codex plugin add adversarial-review@adversarial-review-local
+./scripts/upgrade-plugin.sh
 ```
 
-刷新后的 snapshot 与版本化安装 cache 会把 Skill、Adapter、runtime、库、Prompt 和兼容性
+该命令先把 pre-0.3 state 从已安装版本 cache 迁移到稳定用户 state root；如目标已存在则
+拒绝覆盖。随后刷新 snapshot 与版本化安装 cache，把 Skill、Adapter、runtime、库、Prompt 和兼容性
 metadata 作为一个 package 整体替换；新版本已删除的文件不会从旧版本叠加进来。Target Repo
 state 和 Artifacts 位于安装 package 之外，因而保持完整。package 的
 `compatibility.json` 将 manifest 版本绑定到 CLI result schema 1、Skill workflow 1 与

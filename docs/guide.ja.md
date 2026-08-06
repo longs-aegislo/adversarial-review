@@ -347,14 +347,14 @@ Git-backed インストールでは、`longs-aegislo/adversarial-review`（ま�
 `plugins[]` 内の順序を維持し、packaged Plugin root を指し、installation、authentication、
 product、category policy を含みます。version と enabled state は
 `codex plugin list --available --json` で確認します。branch を追跡するインストールは、
-次の2段階で明示的に更新します。
+この checkout で次の command を使って更新します。
 
 ```bash
-codex plugin marketplace upgrade adversarial-review-local
-codex plugin add adversarial-review@adversarial-review-local
+./scripts/upgrade-plugin.sh
 ```
 
-更新済み snapshot と versioned install cache は Skill、Adapter、runtime、library、Prompt、
+この command は pre-0.3 state を installed version cache から安定 user state root へ先に
+移行し、移行先が既にあれば上書きを拒否します。その後、更新済み snapshot と versioned install cache は Skill、Adapter、runtime、library、Prompt、
 compatibility metadata を1つの package として置き換えます。新 package で削除された file が
 旧 version から重なることはありません。Target Repo の state と Artifacts は install package
 外にあるため保持されます。package の `compatibility.json` は manifest version を CLI result

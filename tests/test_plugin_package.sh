@@ -67,6 +67,7 @@ for required in \
     skills/adversarial-review/SKILL.md \
     skills/adversarial-review/agents/openai.yaml \
     skills/adversarial-review/scripts/run-review.sh \
+    scripts/upgrade-plugin.sh \
     compatibility.json \
     runtime/adversarial_review.sh \
     runtime/lib/circuit_breaker.sh \
@@ -78,6 +79,9 @@ for required in \
     runtime/prompts/synthesis.md; do
     [[ -f "$PLUGIN_ROOT/$required" ]] || fail "plugin is missing $required"
 done
+
+cmp "$REPO_ROOT/scripts/upgrade-plugin.sh" "$PLUGIN_ROOT/scripts/upgrade-plugin.sh" >/dev/null ||
+    fail "bundled upgrade command has drifted from the repository command"
 
 cmp "$REPO_ROOT/adversarial_review.sh" "$PLUGIN_ROOT/runtime/adversarial_review.sh" >/dev/null ||
     fail "bundled CLI runtime has drifted from the repository CLI"
