@@ -9,3 +9,11 @@ docs/evaluations/tool-bakeoff/results/*.patch whitespace=-blank-at-eol,-blank-at
 adversarial_review.sh text eol=lf
 lib/*.sh text eol=lf
 tests/test_*.sh text eol=lf
+
+# The packaged Plugin runtime and its launch Adapter ship the same shell
+# scripts inside the installed package; they must stay LF too, or an
+# autocrlf=true checkout would corrupt the installed/packaged bytes even
+# though the source-tree copies above are protected.
+plugins/adversarial-review/runtime/adversarial_review.sh text eol=lf
+plugins/adversarial-review/runtime/lib/*.sh text eol=lf
+plugins/adversarial-review/skills/adversarial-review/scripts/run-review.sh text eol=lf

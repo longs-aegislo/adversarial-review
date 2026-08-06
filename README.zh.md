@@ -109,6 +109,21 @@ Plugin 安装不会安装或配置 Bash、`jq`、timeout 支持、Agent backend�
 检查。只有一个 backend 可用时仍可安装；仅当两个 reviewer slots 都显式选择该 backend
 时才能运行，Adapter 会将其报告为审查多样性较低的 same-model redundancy。
 
+已安装 Plugin 运行的 review state 和 Artifacts 保存在
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review`，而非安装包内部，
+因此升级或卸载都不会丢失。
+
+### 卸载
+
+```bash
+codex plugin remove adversarial-review@adversarial-review-local
+codex plugin marketplace remove adversarial-review-local
+```
+
+第一条命令移除已安装的 Plugin 及其 Skill；第二条命令还会移除本地 marketplace
+source 的注册，使其不再出现在 `codex plugin list --available` 中。两条命令
+均不会影响 Target Repo 文件或上述 review state/Artifacts。
+
 ## 文档
 
 - [仓库级 Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md)——

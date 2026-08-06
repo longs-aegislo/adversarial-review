@@ -207,6 +207,12 @@ if [[ -x "$BUNDLED_CLI" ]]; then
     [[ -z "$CLI_OVERRIDE" ]] ||
         fail "the installed Plugin runtime cannot be overridden with ADVERSARIAL_REVIEW_BIN or --cli"
     CLI="$BUNDLED_CLI"
+    # Review state/Artifacts must survive Plugin upgrade/uninstall, so they
+    # cannot default to living next to this bundled runtime (which is deleted
+    # with the installed Plugin's cache). Point them at a stable per-user
+    # location unless the caller already chose one.
+    : "${AR_STATE_ROOT:="${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review"}"
+    export AR_STATE_ROOT
 else
     CLI="$CLI_OVERRIDE"
 fi
