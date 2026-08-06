@@ -425,6 +425,12 @@ mapfile -t INVOCATIONS_BEFORE_REMOVE < <(find "$INVOCATION_DIR" -name '*.invocat
 [[ ${#INVOCATIONS_BEFORE_REMOVE[@]} -gt 0 ]] ||
     fail "expected audit invocations were not present before removal"
 
+# Codex reloads each configured marketplace's snapshot from its source path
+# on `plugin list`/`plugin remove`, so restore the source moved away earlier
+# (that step only proved the *installed* runtime has no live dependency on
+# it) before exercising removal.
+mv "$PROFILE_ROOT/source-unavailable" "$MARKETPLACE_SOURCE"
+
 run_codex plugin remove adversarial-review@adversarial-review-local --json > "$PROFILE_ROOT/plugin-remove.json" ||
     fail "Codex could not remove the installed adversarial-review Plugin"
 
