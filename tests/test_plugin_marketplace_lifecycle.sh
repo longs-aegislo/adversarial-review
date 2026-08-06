@@ -129,6 +129,9 @@ printf '%s\n' '{"target_dir":"fixture","history":[],"iteration":2,"status":"in_p
 printf '%s\n' 'review artifact before Plugin upgrade' > "$LEGACY_STATE_ROOT/artifacts/iter2_1_codex_review.md"
 TRACKING_HASH_BEFORE="$(shasum "$LEGACY_STATE_ROOT/tracking.json" | cut -d ' ' -f 1)"
 ARTIFACT_HASH_BEFORE="$(shasum "$LEGACY_STATE_ROOT/artifacts/iter2_1_codex_review.md" | cut -d ' ' -f 1)"
+LEGACY_STATE_PARENT="${LEGACY_STATE_ROOT%/*}"
+mkdir -p "$LEGACY_STATE_PARENT/z-conflict/artifacts"
+printf '%s\n' 'second legacy state' > "$LEGACY_STATE_PARENT/z-conflict/tracking.json"
 
 rm -rf "$SOURCE_WORK/plugins"
 cp -R "$REPO_ROOT/plugins" "$SOURCE_WORK/plugins"
@@ -136,7 +139,23 @@ git -C "$SOURCE_WORK" add -A
 git -C "$SOURCE_WORK" commit -qm "fixture: Plugin 0.3.0 candidate"
 git -C "$SOURCE_WORK" push -q origin candidate
 
+MIGRATED_STATE_ROOT="$TARGET_REPO/stable-review-state"
+mkdir -p "$MIGRATED_STATE_ROOT/z-conflict"
+set +e
+HOME="$UPGRADE_PROFILE/home" CODEX_HOME="$UPGRADE_PROFILE/codex" \
+    AR_STATE_ROOT="$MIGRATED_STATE_ROOT" \
+    "$REPO_ROOT/scripts/upgrade-plugin.sh" "$MARKETPLACE_NAME" "$PLUGIN_NAME" \
+    > "$TEST_ROOT/conflict-upgrade.out" 2>&1
+CONFLICT_STATUS=$?
+set -e
+[[ $CONFLICT_STATUS -eq 73 ]] || fail "state migration conflict did not stop the upgrade"
+[[ ! -e "$MIGRATED_STATE_ROOT/${LEGACY_STATE_ROOT##*/}" ]] ||
+    fail "state migration copied some targets before detecting all conflicts"
+assert_listed_version "$UPGRADE_PROFILE" "0.2.0" true
+rm -rf "$MIGRATED_STATE_ROOT/z-conflict"
+
 NEW_INSTALLED_ROOT="$(HOME="$UPGRADE_PROFILE/home" CODEX_HOME="$UPGRADE_PROFILE/codex" \
+    AR_STATE_ROOT="$MIGRATED_STATE_ROOT" \
     "$REPO_ROOT/scripts/upgrade-plugin.sh" "$MARKETPLACE_NAME" "$PLUGIN_NAME")" ||
     fail "Plugin lifecycle upgrade command failed"
 assert_listed_version "$UPGRADE_PROFILE" "0.3.0" true
@@ -159,11 +178,13 @@ jq -e --arg version "0.3.0" '
 ' "$NEW_INSTALLED_ROOT/compatibility.json" >/dev/null ||
     fail "upgraded package does not expose the candidate compatibility contract"
 
-NEW_STATUS="$(HOME="$UPGRADE_PROFILE/home" \
+NEW_STATUS="$(HOME="$UPGRADE_PROFILE/home" AR_STATE_ROOT="$MIGRATED_STATE_ROOT" \
     "$NEW_INSTALLED_ROOT/runtime/adversarial_review.sh" claude codex "$TARGET_REPO" --status)"
 NEW_STATE_ROOT="$(sed -n 's/.*State dir: //p' <<< "$NEW_STATUS" | tail -1)"
 [[ "$NEW_STATE_ROOT" != "$LEGACY_STATE_ROOT" && "$NEW_STATE_ROOT" != "$NEW_INSTALLED_ROOT"/* ]] ||
     fail "upgraded runtime did not resolve a stable state directory"
+[[ "$NEW_STATE_ROOT" == "$MIGRATED_STATE_ROOT"/* ]] ||
+    fail "upgrade did not honor the explicit AR_STATE_ROOT"
 [[ "$(shasum "$NEW_STATE_ROOT/tracking.json" | cut -d ' ' -f 1)" == "$TRACKING_HASH_BEFORE" ]] ||
     fail "Plugin upgrade changed Target Repo review state"
 [[ "$(shasum "$NEW_STATE_ROOT/artifacts/iter2_1_codex_review.md" | cut -d ' ' -f 1)" == "$ARTIFACT_HASH_BEFORE" ]] ||

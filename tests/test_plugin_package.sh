@@ -114,6 +114,7 @@ fi
 
 PROFILE_ROOT="$(mktemp -d)"
 trap 'rm -rf "$PROFILE_ROOT"' EXIT
+export AR_STATE_ROOT="$PROFILE_ROOT/state"
 MARKETPLACE_SOURCE="$PROFILE_ROOT/marketplace-source"
 mkdir -p "$PROFILE_ROOT/home" "$PROFILE_ROOT/codex" "$MARKETPLACE_SOURCE/.agents/plugins"
 cp "$MARKETPLACE" "$MARKETPLACE_SOURCE/.agents/plugins/marketplace.json"

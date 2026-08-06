@@ -5,7 +5,7 @@ set -euo pipefail
 MARKETPLACE_NAME="${1:-adversarial-review-local}"
 PLUGIN_NAME="${2:-adversarial-review}"
 CODEX_DATA_ROOT="${CODEX_HOME:-$HOME/.codex}"
-STABLE_STATE_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review"
+STABLE_STATE_ROOT="${AR_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review}"
 
 command -v codex >/dev/null 2>&1 || {
     echo "missing dependency: codex" >&2
@@ -29,15 +29,22 @@ installed_version="$(jq -er --arg plugin "$PLUGIN_NAME" --arg marketplace "$MARK
 legacy_state_root="$CODEX_DATA_ROOT/plugins/cache/$MARKETPLACE_NAME/$PLUGIN_NAME/$installed_version/runtime/state"
 if [[ -d "$legacy_state_root" ]]; then
     mkdir -p "$STABLE_STATE_ROOT"
-    while IFS= read -r legacy_state; do
+    mapfile -t legacy_states < <(
+        find "$legacy_state_root" -mindepth 1 -maxdepth 1 -type d -print | sort
+    )
+    for legacy_state in "${legacy_states[@]}"; do
         state_name="${legacy_state##*/}"
         destination="$STABLE_STATE_ROOT/$state_name"
         if [[ -e "$destination" ]]; then
             echo "state migration conflict: $destination already exists" >&2
             exit 73
         fi
+    done
+    for legacy_state in "${legacy_states[@]}"; do
+        state_name="${legacy_state##*/}"
+        destination="$STABLE_STATE_ROOT/$state_name"
         cp -R "$legacy_state" "$destination"
-    done < <(find "$legacy_state_root" -mindepth 1 -maxdepth 1 -type d -print)
+    done
 fi
 
 codex plugin marketplace upgrade "$MARKETPLACE_NAME" --json >/dev/null
