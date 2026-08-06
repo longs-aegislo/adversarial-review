@@ -6,6 +6,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MARKETPLACE="$REPO_ROOT/.agents/plugins/marketplace.json"
 PLUGIN_ROOT="$REPO_ROOT/plugins/adversarial-review"
 MANIFEST="$PLUGIN_ROOT/.codex-plugin/plugin.json"
+COMPATIBILITY="$PLUGIN_ROOT/compatibility.json"
 
 fail() {
     echo "not ok - $1" >&2
@@ -28,6 +29,7 @@ link_utilities() {
 
 [[ -f "$MARKETPLACE" ]] || fail "repository marketplace is missing"
 [[ -f "$MANIFEST" ]] || fail "plugin manifest is missing"
+[[ -f "$COMPATIBILITY" ]] || fail "plugin compatibility metadata is missing"
 
 jq -e '
     .name == "adversarial-review" and
@@ -43,6 +45,13 @@ jq -e '
     (has("hooks") | not)
 ' "$MANIFEST" >/dev/null || fail "plugin manifest does not satisfy the package contract"
 
+jq -e --arg version "$(jq -r '.version' "$MANIFEST")" '
+    .plugin_version == $version and
+    .cli_result_schema == 1 and
+    .skill_workflow == "1" and
+    .installation_layout == "1"
+' "$COMPATIBILITY" >/dev/null || fail "plugin compatibility metadata does not identify the tested contract set"
+
 jq -e '
     .name == "adversarial-review-local" and
     (.plugins | length == 1) and
@@ -50,13 +59,16 @@ jq -e '
     .plugins[0].source == {"source":"local","path":"./plugins/adversarial-review"} and
     .plugins[0].policy.installation == "AVAILABLE" and
     .plugins[0].policy.authentication == "ON_USE" and
-    .plugins[0].policy.products == ["CODEX"]
+    .plugins[0].policy.products == ["CODEX"] and
+    .plugins[0].category == "Developer Tools"
 ' "$MARKETPLACE" >/dev/null || fail "marketplace entry does not satisfy the local install contract"
 
 for required in \
     skills/adversarial-review/SKILL.md \
     skills/adversarial-review/agents/openai.yaml \
     skills/adversarial-review/scripts/run-review.sh \
+    scripts/upgrade-plugin.sh \
+    compatibility.json \
     runtime/adversarial_review.sh \
     runtime/lib/circuit_breaker.sh \
     runtime/lib/date_utils.sh \
@@ -67,6 +79,9 @@ for required in \
     runtime/prompts/synthesis.md; do
     [[ -f "$PLUGIN_ROOT/$required" ]] || fail "plugin is missing $required"
 done
+
+cmp "$REPO_ROOT/scripts/upgrade-plugin.sh" "$PLUGIN_ROOT/scripts/upgrade-plugin.sh" >/dev/null ||
+    fail "bundled upgrade command has drifted from the repository command"
 
 cmp "$REPO_ROOT/adversarial_review.sh" "$PLUGIN_ROOT/runtime/adversarial_review.sh" >/dev/null ||
     fail "bundled CLI runtime has drifted from the repository CLI"
@@ -103,6 +118,7 @@ fi
 
 PROFILE_ROOT="$(mktemp -d)"
 trap 'rm -rf "$PROFILE_ROOT"' EXIT
+export AR_STATE_ROOT="$PROFILE_ROOT/state"
 MARKETPLACE_SOURCE="$PROFILE_ROOT/marketplace-source"
 mkdir -p "$PROFILE_ROOT/home" "$PROFILE_ROOT/codex" "$MARKETPLACE_SOURCE/.agents/plugins"
 cp "$MARKETPLACE" "$MARKETPLACE_SOURCE/.agents/plugins/marketplace.json"

@@ -103,11 +103,20 @@ codex plugin list --marketplace adversarial-review-local --available
 codex plugin add adversarial-review@adversarial-review-local
 ```
 
+再現可能な Git-backed インストールでは、ローカル path を
+`longs-aegislo/adversarial-review` に置き換え、`--ref <tag-or-commit>` で固定します。
+選択された version は `codex plugin list --available --json` で確認できます。branch を
+追跡する場合は、この checkout で `./scripts/upgrade-plugin.sh` を実行します。pre-0.3 state
+を旧 versioned install から先に移行し、marketplace の refresh と package 全体の再installを
+行い、Target Repo の review state と Artifacts を維持します。pre-0.3 install からの upgrade
+では、この command を直接の `plugin add` で置き換えないでください。
+
 インストール後は新しい Codex スレッドを開始し、Target Repo から
 `$adversarial-review` を呼び出します。インストール単位には Skill が1つだけあり、同じ
 バージョンの CLI runtime、ライブラリ、Prompt、参照資料を同梱します。元の source
 checkout や個人 Skill のインストールには依存しません。既定は `review-only` で、明示的な
-`apply-fixes` 要求だけが Target Repo の変更を許可できます。
+`apply-fixes` 要求だけが Target Repo の変更を許可できます。`compatibility.json` は Plugin
+version を、共同検証済みの CLI result schema、Skill workflow、installation layout に結び付けます。
 
 Plugin のインストールは Bash、`jq`、timeout サポート、Agent backend、認証、
 subscription、モデル quota、network access をインストールまたは設定しません。

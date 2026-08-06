@@ -207,17 +207,16 @@ adversarial-review/
 │   ├── cross_review.md      # フェーズ2：クロスレビュー prompt
 │   ├── meta_review.md       # フェーズ3：メタレビュー prompt
 │   └── synthesis.md         # フェーズ4：統合 prompt
-└── state/                   # ターゲットディレクトリごとの状態（.gitignore済み）
-    └── <プロジェクトslug>-<hash>/
-        ├── artifacts/        # 各イテレーションのエージェント出力
-        ├── logs/             # 実行ログ
-        ├── tracking.json     # 状態管理ファイル
-        └── .circuit_breaker.json
 ```
 
 ## 状態ディレクトリ
 
-実行対象にした各ターゲットディレクトリは、`state/` 以下に専用の状態フォルダを持ちます。フォルダ名はディレクトリ名とフルパスの短いハッシュを組み合わせたもの（同名だが場所が異なるディレクトリ同士が衝突しないように）です。これにより：
+実行対象にした各ターゲットディレクトリは、
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review/`（または明示した
+`AR_STATE_ROOT`）以下に専用の状態 folder を持ちます。folder 名はディレクトリ名と full
+path の短い hash を組み合わせたものです。この安定した root は source checkout や
+versioned Plugin install に依存しないため、Plugin upgrade 後も同じ state と Artifacts に
+アクセスできます。これにより：
 
 - プロジェクトAをレビューした後にプロジェクトBをレビューしても、`tracking.json` の履歴・成果物・サーキットブレーカーのカウンターが混ざりません。
 - プロジェクトAで「OPEN」になったサーキットブレーカー（や実行し忘れた `--dry-run` の残骸）が、別プロジェクトBの実行をブロックしたり汚染したりしません。
@@ -343,6 +342,24 @@ server、connector、hook、automation、GitHub integration はなく、Skill、
 参照資料、安定した launch Adapter、同じバージョンの CLI runtime、ライブラリ、Prompt
 だけを含みます。
 
+Git-backed インストールでは、`longs-aegislo/adversarial-review`（または HTTPS／SSH URL）を
+`--ref <tag-or-commit>` 付きで登録し、既知の release に固定します。marketplace entry は
+`plugins[]` 内の順序を維持し、packaged Plugin root を指し、installation、authentication、
+product、category policy を含みます。version と enabled state は
+`codex plugin list --available --json` で確認します。branch を追跡するインストールは、
+この checkout で次の command を使って更新します。
+
+```bash
+./scripts/upgrade-plugin.sh
+```
+
+この command は pre-0.3 state を installed version cache から安定 user state root へ先に
+移行し、移行先が既にあれば上書きを拒否します。その後、更新済み snapshot と versioned install cache は Skill、Adapter、runtime、library、Prompt、
+compatibility metadata を1つの package として置き換えます。新 package で削除された file が
+旧 version から重なることはありません。Target Repo の state と Artifacts は install package
+外にあるため保持されます。package の `compatibility.json` は manifest version を CLI result
+schema 1、Skill workflow 1、installation layout 1 に結び付けます。
+
 実装後または commit/PR 前の敵対的レビュー用として
 `.agents/skills/adversarial-review` を同梱しています。`$adversarial-review` を明示的に
 呼び出すか、その目的を明確に述べると暗黙に検出されます。通常のコード説明、軽量な
@@ -416,6 +433,10 @@ checkout した marketplace source からインストールし、インストー
 バイトが LF のままで Skill が正常に起動することを確認したうえで、Plugin と
 marketplace を削除して両方が発見不能になり、Target Repo と review state/Artifacts
 が変更されないことも検証します。
+`tests/test_plugin_marketplace_lifecycle.sh` は offline SSH-backed Git fixture を使い、固定 tag
+と 0.2.0 から 0.3.0 への branch upgrade を検証します。listed/enabled version、Skill/runtime
+の完全な置換、旧版だけの file の除去、compatibility pairing、Target Repo の review state と
+Artifacts の保持を確認します。
 `codex` が利用できない場合も package と境界の assertion は実行し、CLI integration 部分は
 `SKIP` と報告します。release または acceptance job は
 `REQUIRE_CODEX_PLUGIN_TESTS=true` を設定して実 CLI 経路を必須にできます。

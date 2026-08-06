@@ -194,17 +194,15 @@ adversarial-review/
 │   ├── cross_review.md      # 阶段二：交叉审查 prompt
 │   ├── meta_review.md       # 阶段三：元审查 prompt
 │   └── synthesis.md         # 阶段四：综合 prompt
-└── state/                   # 按目标目录隔离的状态（已加入 .gitignore）
-    └── <项目 slug>-<hash>/
-        ├── artifacts/        # 每轮迭代的智能体输出
-        ├── logs/             # 执行日志
-        ├── tracking.json     # 状态追踪
-        └── .circuit_breaker.json
 ```
 
 ## 状态目录
 
-每个被审查过的目标目录都会在 `state/` 下拥有自己独立的状态文件夹，命名规则是"目录名 + 完整路径的短 hash"（这样两个不同位置但同名的目录也不会撞在一起）。这意味着：
+每个被审查过的目标目录都会在
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review/`（或显式设置的
+`AR_STATE_ROOT`）下拥有独立状态文件夹，命名规则是“目录名 + 完整路径的短 hash”（这样
+两个不同位置但同名的目录也不会撞在一起）。该稳定 root 不依赖源码 checkout 或版本化
+Plugin 安装，因此 Plugin 升级后仍能访问同一份 state 与 Artifacts。这意味着：
 
 - 审查完项目 A 再审查项目 B，两者的 `tracking.json` 历史、产出文件、断路器计数都不会混在一起。
 - 项目 A 留下的 OPEN 断路器（或者一次遗留的 `--dry-run`）不会拦下或污染项目 B 的运行。
@@ -323,6 +321,23 @@ SUMMARY: Found critical type mixing bug
 Skill。包内不含 MCP server、connector、hook、automation 或 GitHub integration；只包含
 Skill、展示 metadata、参考资料、稳定 launch Adapter，以及匹配的 CLI runtime、库和 Prompt。
 
+Git-backed 安装可用 `--ref <tag-or-commit>` 注册
+`longs-aegislo/adversarial-review`（或其 HTTPS／SSH URL），固定到已知发布版本。
+marketplace entry 保持在 `plugins[]` 中的顺序，指向 packaged Plugin root，并包含安装、
+认证、product 与 category policy。使用 `codex plugin list --available --json` 确认版本及
+enabled 状态。跟踪分支的安装在此 checkout 中通过以下命令升级：
+
+```bash
+./scripts/upgrade-plugin.sh
+```
+
+该命令先把 pre-0.3 state 从已安装版本 cache 迁移到稳定用户 state root；如目标已存在则
+拒绝覆盖。随后刷新 snapshot 与版本化安装 cache，把 Skill、Adapter、runtime、库、Prompt 和兼容性
+metadata 作为一个 package 整体替换；新版本已删除的文件不会从旧版本叠加进来。Target Repo
+state 和 Artifacts 位于安装 package 之外，因而保持完整。package 的
+`compatibility.json` 将 manifest 版本绑定到 CLI result schema 1、Skill workflow 1 与
+installation layout 1。
+
 仓库提供 `.agents/skills/adversarial-review`，用于实现后或 commit/PR 前对抗式审查。
 既可显式调用 `$adversarial-review`，也可通过明确描述该目标来隐式发现。普通代码解释、
 轻量单 reviewer 审查、一般调试和仅发布 PR 的请求不在触发范围内。在受信任的 Target Repo 中，其 Adapter 会识别当前工作区，
@@ -383,6 +398,9 @@ marketplace，断言只发现一个 Skill，使 marketplace source 不可访问�
 backends 从已安装 Skill Adapter 进入 bundled runtime。测试同时覆盖 review-only 与
 apply-fixes，包括仅 Phase 4 获得写授权、修改路径与验证结果报告、前置条件失败及显式
 same-model redundancy；即使 `PATH` 中存在冲突 runtime，也不使用模型订阅或源码树 runtime。
+`tests/test_plugin_marketplace_lifecycle.sh` 使用离线 SSH-backed Git fixture，验证固定 tag
+以及从 0.2.0 到 0.3.0 的分支升级，并检查列出／启用版本、Skill/runtime 完整替换、旧版
+专属文件清除、兼容性配对，以及 Target Repo review state 和 Artifacts 保持完整。
 测试还会从模拟 `core.autocrlf=true`（等同 Windows/WSL）checkout 构建的 marketplace
 source 安装，确认安装包字节保持 LF 且 Skill 能正常启动，随后移除 Plugin 与
 marketplace，确认二者均变为不可发现，同时 Target Repo 与 review state/Artifacts

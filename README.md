@@ -108,12 +108,22 @@ codex plugin list --marketplace adversarial-review-local --available
 codex plugin add adversarial-review@adversarial-review-local
 ```
 
+For a Git-backed, reproducible install, replace the local path with
+`longs-aegislo/adversarial-review` and pin it with `--ref <tag-or-commit>`.
+Confirm the selected version with `codex plugin list --available --json`. To
+follow a branch, run `./scripts/upgrade-plugin.sh` from this checkout. It first
+migrates any pre-0.3 state out of the old versioned install, then refreshes the
+marketplace and reinstalls the complete package without changing Target Repo
+review state or Artifacts. Do not replace this command with a direct
+`plugin add` when upgrading a pre-0.3 installation.
+
 Start a new Codex thread after installation and invoke `$adversarial-review`
 from the Target Repo. The installed Plugin contains exactly one Skill plus its
 matching CLI runtime, libraries, prompts, and references; it does not depend on
 this source checkout or a personal Skill installation. Reviews default to
 `review-only`. Only an explicit `apply-fixes` request can authorize Target Repo
-changes.
+changes. `compatibility.json` binds the Plugin version to the jointly tested
+CLI result schema, Skill workflow, and installation layout.
 
 Plugin installation does not install or configure Bash, `jq`, timeout support,
 Agent backends, authentication, subscriptions, model quota, or network access.

@@ -35,7 +35,7 @@
 #   --dry-run               Show what would be done without executing
 #
 # State (tracking.json, circuit breaker, artifacts/) is scoped per target
-# directory under state/<slug>/ - see resolve_state_dir() below.
+# directory under a stable user state root - see resolve_state_dir() below.
 
 set -euo pipefail
 
@@ -43,7 +43,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SCRIPT_DIR/lib"
 PROMPTS_DIR="$SCRIPT_DIR/prompts"
-STATE_ROOT="${AR_STATE_ROOT:-$SCRIPT_DIR/state}"
+STATE_ROOT="${AR_STATE_ROOT:-${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review}"
 
 # Tracking/circuit-breaker/artifacts state is scoped per target directory so
 # that running against one project can't leave stale history or an OPEN
@@ -2161,7 +2161,7 @@ EXIT STATUSES:
 
 STATE:
     All state (tracking.json, circuit breaker, artifacts/) is scoped per
-    target directory under state/<slug>/, so reviewing one project can't
+    target directory under the stable user state root, so reviewing one project can't
     pollute or trip a circuit breaker for another. Pass the same target
     slot assignments and target directory to --status/--reset/etc. to scope
     to that project.

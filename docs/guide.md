@@ -208,19 +208,16 @@ adversarial-review/
 │   ├── cross_review.md      # Phase 2: Cross-review prompt
 │   ├── meta_review.md       # Phase 3: Meta-review prompt
 │   └── synthesis.md         # Phase 4: Synthesis prompt
-└── state/                   # Per-target-directory state (gitignored)
-    └── <project-slug>-<hash>/
-        ├── artifacts/        # Agent outputs per iteration
-        ├── logs/             # Execution logs
-        ├── tracking.json     # State tracking
-        └── .circuit_breaker.json
 ```
 
 ## State Directory
 
 Each target directory you run against gets its own state folder under
-`state/`, named from its basename plus a short hash of its full path (so
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review/` (or
+`AR_STATE_ROOT` when explicitly set), named from its basename plus a short hash of its full path (so
 two differently-located folders that happen to share a name don't collide).
+This stable root is independent of a source checkout or versioned Plugin install,
+so Plugin upgrades preserve the same state and Artifacts.
 This means:
 
 - Reviewing project A and then project B never mixes their `tracking.json`
@@ -355,6 +352,26 @@ automation, or GitHub integration; it contains only the Skill, its display
 metadata, references, stable launch Adapter, and matching CLI runtime with its
 libraries and prompts.
 
+For a Git-backed installation, register `longs-aegislo/adversarial-review` (or
+its HTTPS/SSH URL) with `--ref <tag-or-commit>` to pin a known release. The
+marketplace entry remains ordered in `plugins[]`, points at the packaged Plugin
+root, and carries installation, authentication, product, and category policy.
+Use `codex plugin list --available --json` to confirm the version and enabled
+state. Upgrade a branch-tracking installation from this checkout with:
+
+```bash
+./scripts/upgrade-plugin.sh
+```
+
+The command first migrates pre-0.3 state from the installed version cache to
+the stable user state root, refusing to overwrite a conflicting destination.
+It then refreshes the snapshot and versioned install cache, replacing Skill, Adapter,
+runtime, libraries, prompts, and compatibility metadata as one package; files
+removed from the newer package are not overlaid from the old version. Target
+Repo state and Artifacts live outside that installed package and remain intact.
+The package's `compatibility.json` binds its manifest version to CLI result
+schema 1, Skill workflow 1, and installation layout 1.
+
 The repository ships `.agents/skills/adversarial-review` for post-implementation
 or pre-commit/PR adversarial reviews. Invoke `$adversarial-review` explicitly,
 or describe that goal clearly to use implicit discovery. Ordinary code
@@ -443,6 +460,11 @@ style) checkout and confirms the installed package bytes stay LF and the
 installed Skill still launches, then removes the Plugin and its marketplace
 and confirms both become undiscoverable while the Target Repo and review
 state/Artifacts remain intact.
+`tests/test_plugin_marketplace_lifecycle.sh` uses an offline SSH-backed Git
+fixture to verify a pinned tag and a branch upgrade from 0.2.0 to 0.3.0. It
+checks the listed/enabled version, complete Skill/runtime replacement, removal
+of an old-only file, compatibility pairing, and preservation of Target Repo
+review state and Artifacts.
 When `codex` is unavailable, the package and containment assertions still run
 and the CLI integration portion reports `SKIP`; release or acceptance jobs can
 set `REQUIRE_CODEX_PLUGIN_TESTS=true` to require the real CLI path.

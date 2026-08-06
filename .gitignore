@@ -1,4 +1,4 @@
-# Per-target-directory state (regenerated on run, scoped under state/<slug>/)
+# Legacy or explicitly repo-local state; the default now uses the user state root
 state/
 
 # Legacy unscoped state files (pre-isolation; regenerated on run)
