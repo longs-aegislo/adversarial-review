@@ -343,6 +343,24 @@ server、connector、hook、automation、GitHub integration はなく、Skill、
 参照資料、安定した launch Adapter、同じバージョンの CLI runtime、ライブラリ、Prompt
 だけを含みます。
 
+Git-backed インストールでは、`longs-aegislo/adversarial-review`（または HTTPS／SSH URL）を
+`--ref <tag-or-commit>` 付きで登録し、既知の release に固定します。marketplace entry は
+`plugins[]` 内の順序を維持し、packaged Plugin root を指し、installation、authentication、
+product、category policy を含みます。version と enabled state は
+`codex plugin list --available --json` で確認します。branch を追跡するインストールは、
+次の2段階で明示的に更新します。
+
+```bash
+codex plugin marketplace upgrade adversarial-review-local
+codex plugin add adversarial-review@adversarial-review-local
+```
+
+更新済み snapshot と versioned install cache は Skill、Adapter、runtime、library、Prompt、
+compatibility metadata を1つの package として置き換えます。新 package で削除された file が
+旧 version から重なることはありません。Target Repo の state と Artifacts は install package
+外にあるため保持されます。package の `compatibility.json` は manifest version を CLI result
+schema 1、Skill workflow 1、installation layout 1 に結び付けます。
+
 実装後または commit/PR 前の敵対的レビュー用として
 `.agents/skills/adversarial-review` を同梱しています。`$adversarial-review` を明示的に
 呼び出すか、その目的を明確に述べると暗黙に検出されます。通常のコード説明、軽量な
@@ -403,6 +421,10 @@ Adapter から bundled runtime へ入ります。review-only と apply-fixes の
 Phase 4 のみの書き込み許可、変更 path と検証結果、前提条件 failure、明示的
 same-model redundancy を確認し、`PATH` に競合 runtime があってもモデル subscription や
 source-tree runtime を使いません。
+`tests/test_plugin_marketplace_lifecycle.sh` は offline SSH-backed Git fixture を使い、固定 tag
+と 0.2.0 から 0.3.0 への branch upgrade を検証します。listed/enabled version、Skill/runtime
+の完全な置換、旧版だけの file の除去、compatibility pairing、Target Repo の review state と
+Artifacts の保持を確認します。
 `codex` が利用できない場合も package と境界の assertion は実行し、CLI integration 部分は
 `SKIP` と報告します。release または acceptance job は
 `REQUIRE_CODEX_PLUGIN_TESTS=true` を設定して実 CLI 経路を必須にできます。

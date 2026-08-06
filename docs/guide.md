@@ -355,6 +355,25 @@ automation, or GitHub integration; it contains only the Skill, its display
 metadata, references, stable launch Adapter, and matching CLI runtime with its
 libraries and prompts.
 
+For a Git-backed installation, register `longs-aegislo/adversarial-review` (or
+its HTTPS/SSH URL) with `--ref <tag-or-commit>` to pin a known release. The
+marketplace entry remains ordered in `plugins[]`, points at the packaged Plugin
+root, and carries installation, authentication, product, and category policy.
+Use `codex plugin list --available --json` to confirm the version and enabled
+state. A branch-tracking installation is upgraded in two explicit steps:
+
+```bash
+codex plugin marketplace upgrade adversarial-review-local
+codex plugin add adversarial-review@adversarial-review-local
+```
+
+The refreshed snapshot and versioned install cache replace Skill, Adapter,
+runtime, libraries, prompts, and compatibility metadata as one package; files
+removed from the newer package are not overlaid from the old version. Target
+Repo state and Artifacts live outside that installed package and remain intact.
+The package's `compatibility.json` binds its manifest version to CLI result
+schema 1, Skill workflow 1, and installation layout 1.
+
 The repository ships `.agents/skills/adversarial-review` for post-implementation
 or pre-commit/PR adversarial reviews. Invoke `$adversarial-review` explicitly,
 or describe that goal clearly to use implicit discovery. Ordinary code
@@ -428,6 +447,11 @@ verifies review-only and apply-fixes, including Phase 4-only write
 authorization, changed-path and verification reporting, prerequisite failures,
 and explicit same-model redundancy, without using model subscriptions, a
 source-tree runtime, or a conflicting runtime on PATH.
+`tests/test_plugin_marketplace_lifecycle.sh` uses an offline SSH-backed Git
+fixture to verify a pinned tag and a branch upgrade from 0.2.0 to 0.3.0. It
+checks the listed/enabled version, complete Skill/runtime replacement, removal
+of an old-only file, compatibility pairing, and preservation of Target Repo
+review state and Artifacts.
 When `codex` is unavailable, the package and containment assertions still run
 and the CLI integration portion reports `SKIP`; release or acceptance jobs can
 set `REQUIRE_CODEX_PLUGIN_TESTS=true` to require the real CLI path.

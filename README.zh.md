@@ -99,10 +99,18 @@ codex plugin list --marketplace adversarial-review-local --available
 codex plugin add adversarial-review@adversarial-review-local
 ```
 
+如需可复现的 Git-backed 安装，将本地路径替换为
+`longs-aegislo/adversarial-review`，并用 `--ref <tag-or-commit>` 固定版本。
+通过 `codex plugin list --available --json` 确认所选版本。若跟踪某个分支，先运行
+`codex plugin marketplace upgrade adversarial-review-local`，再重复执行
+`codex plugin add adversarial-review@adversarial-review-local`；重装会整体替换版本化
+package，不会触及任何 Target Repo 的 review state 或 Artifacts。
+
 安装后启动新的 Codex 对话，并在 Target Repo 中调用 `$adversarial-review`。安装单元只
 包含一个 Skill，以及匹配版本的 CLI runtime、库、Prompt 和参考资料；不依赖本源码
 checkout 或个人 Skill 安装。默认使用 `review-only`，只有显式 `apply-fixes` 请求才可能
-授权修改 Target Repo。
+授权修改 Target Repo。`compatibility.json` 将 Plugin 版本绑定到共同测试过的 CLI result
+schema、Skill workflow 和安装 layout。
 
 Plugin 安装不会安装或配置 Bash、`jq`、timeout 支持、Agent backend、认证、订阅、
 模型配额或网络访问。这些均是外部前置条件，只在 Skill 调用时、任何审查 Agent 启动前

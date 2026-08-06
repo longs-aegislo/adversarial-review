@@ -323,6 +323,23 @@ SUMMARY: Found critical type mixing bug
 Skill。包内不含 MCP server、connector、hook、automation 或 GitHub integration；只包含
 Skill、展示 metadata、参考资料、稳定 launch Adapter，以及匹配的 CLI runtime、库和 Prompt。
 
+Git-backed 安装可用 `--ref <tag-or-commit>` 注册
+`longs-aegislo/adversarial-review`（或其 HTTPS／SSH URL），固定到已知发布版本。
+marketplace entry 保持在 `plugins[]` 中的顺序，指向 packaged Plugin root，并包含安装、
+认证、product 与 category policy。使用 `codex plugin list --available --json` 确认版本及
+enabled 状态。跟踪分支的安装通过两个显式步骤升级：
+
+```bash
+codex plugin marketplace upgrade adversarial-review-local
+codex plugin add adversarial-review@adversarial-review-local
+```
+
+刷新后的 snapshot 与版本化安装 cache 会把 Skill、Adapter、runtime、库、Prompt 和兼容性
+metadata 作为一个 package 整体替换；新版本已删除的文件不会从旧版本叠加进来。Target Repo
+state 和 Artifacts 位于安装 package 之外，因而保持完整。package 的
+`compatibility.json` 将 manifest 版本绑定到 CLI result schema 1、Skill workflow 1 与
+installation layout 1。
+
 仓库提供 `.agents/skills/adversarial-review`，用于实现后或 commit/PR 前对抗式审查。
 既可显式调用 `$adversarial-review`，也可通过明确描述该目标来隐式发现。普通代码解释、
 轻量单 reviewer 审查、一般调试和仅发布 PR 的请求不在触发范围内。在受信任的 Target Repo 中，其 Adapter 会识别当前工作区，
@@ -374,6 +391,9 @@ marketplace，断言只发现一个 Skill，使 marketplace source 不可访问�
 backends 从已安装 Skill Adapter 进入 bundled runtime。测试同时覆盖 review-only 与
 apply-fixes，包括仅 Phase 4 获得写授权、修改路径与验证结果报告、前置条件失败及显式
 same-model redundancy；即使 `PATH` 中存在冲突 runtime，也不使用模型订阅或源码树 runtime。
+`tests/test_plugin_marketplace_lifecycle.sh` 使用离线 SSH-backed Git fixture，验证固定 tag
+以及从 0.2.0 到 0.3.0 的分支升级，并检查列出／启用版本、Skill/runtime 完整替换、旧版
+专属文件清除、兼容性配对，以及 Target Repo review state 和 Artifacts 保持完整。
 如果没有 `codex`，包结构与边界断言仍会运行，CLI 集成部分报告 `SKIP`；发布或验收任务可
 设置 `REQUIRE_CODEX_PLUGIN_TESTS=true`，强制要求真实 CLI 路径。
 
