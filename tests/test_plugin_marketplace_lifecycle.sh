@@ -87,7 +87,10 @@ git -C "$SOURCE_WORK" remote add origin "$SOURCE_BARE"
 git -C "$SOURCE_WORK" push -q -u origin candidate
 git -C "$SOURCE_WORK" push -q origin v0.2.0
 
-printf '%s\n' '#!/usr/bin/env bash' 'exec git-upload-pack "$FIXTURE_GIT_REMOTE"' > "$FAKE_SSH"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    '[[ "${FIXTURE_GIT_FETCH_FAIL:-false}" == "true" ]] && exit 86' \
+    'exec git-upload-pack "$FIXTURE_GIT_REMOTE"' > "$FAKE_SSH"
 chmod +x "$FAKE_SSH"
 export FIXTURE_GIT_REMOTE="$SOURCE_BARE"
 export GIT_SSH_COMMAND="$FAKE_SSH"
@@ -153,6 +156,19 @@ set -e
     fail "state migration copied some targets before detecting all conflicts"
 assert_listed_version "$UPGRADE_PROFILE" "0.2.0" true
 rm -rf "$MIGRATED_STATE_ROOT/z-conflict"
+
+set +e
+HOME="$UPGRADE_PROFILE/home" CODEX_HOME="$UPGRADE_PROFILE/codex" \
+    AR_STATE_ROOT="$MIGRATED_STATE_ROOT" FIXTURE_GIT_FETCH_FAIL=true \
+    "$REPO_ROOT/scripts/upgrade-plugin.sh" "$MARKETPLACE_NAME" "$PLUGIN_NAME" \
+    > "$TEST_ROOT/fetch-failure.out" 2>&1
+FETCH_FAILURE_STATUS=$?
+set -e
+[[ $FETCH_FAILURE_STATUS -ne 0 && $FETCH_FAILURE_STATUS -ne 73 ]] ||
+    fail "simulated marketplace refresh failure returned an unexpected status"
+[[ -f "$MIGRATED_STATE_ROOT/${LEGACY_STATE_ROOT##*/}/tracking.json" ]] ||
+    fail "state was not migrated before the simulated marketplace failure"
+assert_listed_version "$UPGRADE_PROFILE" "0.2.0" true
 
 NEW_INSTALLED_ROOT="$(HOME="$UPGRADE_PROFILE/home" CODEX_HOME="$UPGRADE_PROFILE/codex" \
     AR_STATE_ROOT="$MIGRATED_STATE_ROOT" \

@@ -15,6 +15,10 @@ command -v jq >/dev/null 2>&1 || {
     echo "missing dependency: jq" >&2
     exit 64
 }
+command -v git >/dev/null 2>&1 || {
+    echo "missing dependency: git" >&2
+    exit 64
+}
 
 installed_json="$(codex plugin list --json)"
 installed_version="$(jq -er --arg plugin "$PLUGIN_NAME" --arg marketplace "$MARKETPLACE_NAME" '
@@ -36,6 +40,9 @@ if [[ -d "$legacy_state_root" ]]; then
         state_name="${legacy_state##*/}"
         destination="$STABLE_STATE_ROOT/$state_name"
         if [[ -e "$destination" ]]; then
+            if git diff --no-index --quiet -- "$legacy_state" "$destination"; then
+                continue
+            fi
             echo "state migration conflict: $destination already exists" >&2
             exit 73
         fi
@@ -43,6 +50,7 @@ if [[ -d "$legacy_state_root" ]]; then
     for legacy_state in "${legacy_states[@]}"; do
         state_name="${legacy_state##*/}"
         destination="$STABLE_STATE_ROOT/$state_name"
+        [[ -e "$destination" ]] && continue
         cp -R "$legacy_state" "$destination"
     done
 fi
