@@ -420,10 +420,16 @@ fi
 
 echo "ok - installed Skill apply-fixes limits writes to Phase 4 and reports results"
 
-TARGET_HASH_BEFORE_REMOVE="$(git -C "$TARGET_REPO" hash-object app.sh)"
-mapfile -t INVOCATIONS_BEFORE_REMOVE < <(find "$INVOCATION_DIR" -name '*.invocation.json' -type f | sort)
-[[ ${#INVOCATIONS_BEFORE_REMOVE[@]} -gt 0 ]] ||
-    fail "expected audit invocations were not present before removal"
+build_manifest() {
+    local root="$1"
+    shift
+    find "$root" -type f "$@" -exec shasum {} + | sed "s#$root/##" | sort
+}
+
+TARGET_MANIFEST_BEFORE_REMOVE="$(build_manifest "$TARGET_REPO" -not -path "$TARGET_REPO/.git/*")"
+STATE_MANIFEST_BEFORE_REMOVE="$(build_manifest "$STATE_DIR")"
+[[ -n "$TARGET_MANIFEST_BEFORE_REMOVE" && -n "$STATE_MANIFEST_BEFORE_REMOVE" ]] ||
+    fail "expected Target Repo files and review state/Artifacts were not present before removal"
 
 # Codex reloads each configured marketplace's snapshot from its source path
 # on `plugin list`/`plugin remove`, so restore the source moved away earlier
@@ -440,21 +446,24 @@ jq -e '
 ' <<< "$AFTER_REMOVE_JSON" >/dev/null ||
     fail "adversarial-review is still discoverable as installed after removal"
 
+AFTER_PLUGIN_REMOVE_AVAILABLE_JSON="$(run_codex plugin list --available --json)" ||
+    fail "Codex could not list available plugins after Plugin removal"
+jq -e '
+    any(.available[]; .name == "adversarial-review" and .marketplaceName == "adversarial-review-local")
+' <<< "$AFTER_PLUGIN_REMOVE_AVAILABLE_JSON" >/dev/null ||
+    fail "removing the Plugin also removed its separate marketplace registration"
+
 [[ ! -d "$INSTALLED_ROOT" ]] ||
     fail "the installed Plugin cache directory was not removed"
 
-[[ "$(git -C "$TARGET_REPO" hash-object app.sh)" == "$TARGET_HASH_BEFORE_REMOVE" ]] ||
-    fail "removing the Plugin modified a Target Repo file"
+TARGET_MANIFEST_AFTER_REMOVE="$(build_manifest "$TARGET_REPO" -not -path "$TARGET_REPO/.git/*")"
+[[ "$TARGET_MANIFEST_AFTER_REMOVE" == "$TARGET_MANIFEST_BEFORE_REMOVE" ]] ||
+    fail "removing the Plugin changed Target Repo file contents"
 
-[[ -d "$STATE_DIR" && -d "$INVOCATION_DIR" ]] ||
-    fail "review state/Artifacts did not survive Plugin removal"
-mapfile -t INVOCATIONS_AFTER_REMOVE < <(find "$INVOCATION_DIR" -name '*.invocation.json' -type f | sort)
-[[ "${#INVOCATIONS_AFTER_REMOVE[@]}" -eq "${#INVOCATIONS_BEFORE_REMOVE[@]}" ]] ||
-    fail "review Artifacts were deleted or changed by Plugin removal"
-for i in "${!INVOCATIONS_BEFORE_REMOVE[@]}"; do
-    [[ "${INVOCATIONS_BEFORE_REMOVE[$i]}" == "${INVOCATIONS_AFTER_REMOVE[$i]}" ]] ||
-        fail "review Artifacts changed identity after Plugin removal"
-done
+[[ -d "$STATE_DIR" ]] || fail "review state did not survive Plugin removal"
+STATE_MANIFEST_AFTER_REMOVE="$(build_manifest "$STATE_DIR")"
+[[ "$STATE_MANIFEST_AFTER_REMOVE" == "$STATE_MANIFEST_BEFORE_REMOVE" ]] ||
+    fail "removing the Plugin changed review state/Artifacts contents"
 
 echo "ok - removing the installed Plugin leaves Target Repo files and review state/Artifacts untouched"
 
