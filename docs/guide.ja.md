@@ -413,13 +413,26 @@ subscription、モデル quota、network access を設定しません。これ�
 scoped Fix 数と変更 path を分離します。remaining Findings は安定した終了 category
 だけから `none`、`present`、または review 未完了時の `unknown` として報告します。
 
+インストール済み Plugin の Adapter は review state と Artifacts も bundled
+runtime の隣ではなく `${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review`
+に既定で保存するため、Plugin のキャッシュと一緒に削除されません。
+アンインストールは `codex plugin remove adversarial-review@adversarial-review-local`
+（インストール済み Plugin とその Skill を削除）と、別途
+`codex plugin marketplace remove adversarial-review-local`（marketplace
+登録を解除し `codex plugin list --available` から消える）を使います。どちらも
+Target Repo や review state/Artifacts を変更しません。
+
 `tests/test_plugin_package.sh` は分離した `HOME` と `CODEX_HOME` でローカル marketplace
 を登録・一覧・インストールし、Skill が1つだけ検出されることを確認します。その後、fake
 Agent backends を使い、marketplace source を利用不能にした後で、インストール済み Skill
 Adapter から bundled runtime へ入ります。review-only と apply-fixes の両方について、
 Phase 4 のみの書き込み許可、変更 path と検証結果、前提条件 failure、明示的
 same-model redundancy を確認し、`PATH` に競合 runtime があってもモデル subscription や
-source-tree runtime を使いません。
+source-tree runtime を使いません。さらに、`core.autocrlf=true`（Windows/WSL 相当）で
+checkout した marketplace source からインストールし、インストール済みパッケージの
+バイトが LF のままで Skill が正常に起動することを確認したうえで、Plugin と
+marketplace を削除して両方が発見不能になり、Target Repo と review state/Artifacts
+が変更されないことも検証します。
 `tests/test_plugin_marketplace_lifecycle.sh` は offline SSH-backed Git fixture を使い、固定 tag
 と 0.2.0 から 0.3.0 への branch upgrade を検証します。listed/enabled version、Skill/runtime
 の完全な置換、旧版だけの file の除去、compatibility pairing、Target Repo の review state と

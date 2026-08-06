@@ -125,6 +125,23 @@ subscription、モデル quota、network access をインストールまたは�
 backend を明示した場合だけ実行でき、Adapter は多様性の低い same-model redundancy
 として報告します。
 
+インストール済み Plugin の実行における review state と Artifacts は
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review` に保存され、
+インストール済みパッケージの内部には置かれません。そのためアップグレードや
+アンインストールでも失われません。
+
+### アンインストール
+
+```bash
+codex plugin remove adversarial-review@adversarial-review-local
+codex plugin marketplace remove adversarial-review-local
+```
+
+最初のコマンドはインストール済み Plugin とその Skill を削除します。2番目の
+コマンドはローカル marketplace source の登録も解除し、
+`codex plugin list --available` に表示されなくなります。どちらのコマンドも
+Target Repo のファイルや、上記の review state/Artifacts には影響しません。
+
 ## ドキュメント
 
 - [リポジトリ単位の Adversarial Review Skill](.agents/skills/adversarial-review/SKILL.md) —

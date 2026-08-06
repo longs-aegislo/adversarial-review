@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
 # Verifies that .gitattributes forces LF line endings for the shell entry
-# point, lib/*.sh, and tests/test_*.sh regardless of the checkout side's
-# core.autocrlf setting (e.g. Windows defaults to core.autocrlf=true),
-# so WSL / Git Bash environments can execute these scripts unmodified.
+# point, lib/*.sh, tests/test_*.sh, and the packaged Plugin runtime/Adapter
+# regardless of the checkout side's core.autocrlf setting (e.g. Windows
+# defaults to core.autocrlf=true), so WSL / Git Bash environments can
+# execute these scripts unmodified.
 
 set -euo pipefail
 
@@ -48,7 +49,13 @@ test_lf_enforced_under_autocrlf_true_checkout() {
         assert_lf_no_crlf "$f"
     done
 
-    pass "shell entry point, lib, and test scripts stay LF under core.autocrlf=true"
+    assert_lf_no_crlf "$clone_dir/plugins/adversarial-review/runtime/adversarial_review.sh"
+    for f in "$clone_dir"/plugins/adversarial-review/runtime/lib/*.sh; do
+        assert_lf_no_crlf "$f"
+    done
+    assert_lf_no_crlf "$clone_dir/plugins/adversarial-review/skills/adversarial-review/scripts/run-review.sh"
+
+    pass "shell entry point, lib, test, and packaged Plugin scripts stay LF under core.autocrlf=true"
 }
 
 test_scripts_execute_after_autocrlf_true_checkout() {

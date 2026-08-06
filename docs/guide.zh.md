@@ -384,6 +384,15 @@ Plugin 安装不会配置 Bash、`jq`、GNU 兼容的 timeout 支持、Claude �
 将 scoped Fix 数量与修改路径分开，并仅依据稳定终止类别把剩余 Findings 报告为
 `none`、`present`，或在审查未完成时报告 `unknown`。
 
+已安装 Plugin 的 Adapter 还会默认把 review state 和 Artifacts 保存到
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review`，而非 bundled
+runtime 旁边，因此不会随 Plugin 缓存一起被删除。卸载使用
+`codex plugin remove adversarial-review@adversarial-review-local`（移除已安装
+Plugin 及其 Skill），并单独使用
+`codex plugin marketplace remove adversarial-review-local`（移除 marketplace
+注册，使其不再出现在 `codex plugin list --available` 中）；两者均不会修改
+Target Repo 或其 review state/Artifacts。
+
 `tests/test_plugin_package.sh` 使用隔离的 `HOME` 与 `CODEX_HOME` 注册、列出并安装本地
 marketplace，断言只发现一个 Skill，使 marketplace source 不可访问后，再用 fake Agent
 backends 从已安装 Skill Adapter 进入 bundled runtime。测试同时覆盖 review-only 与
@@ -392,6 +401,10 @@ same-model redundancy；即使 `PATH` 中存在冲突 runtime，也不使用模�
 `tests/test_plugin_marketplace_lifecycle.sh` 使用离线 SSH-backed Git fixture，验证固定 tag
 以及从 0.2.0 到 0.3.0 的分支升级，并检查列出／启用版本、Skill/runtime 完整替换、旧版
 专属文件清除、兼容性配对，以及 Target Repo review state 和 Artifacts 保持完整。
+测试还会从模拟 `core.autocrlf=true`（等同 Windows/WSL）checkout 构建的 marketplace
+source 安装，确认安装包字节保持 LF 且 Skill 能正常启动，随后移除 Plugin 与
+marketplace，确认二者均变为不可发现，同时 Target Repo 与 review state/Artifacts
+保持不变。
 如果没有 `codex`，包结构与边界断言仍会运行，CLI 集成部分报告 `SKIP`；发布或验收任务可
 设置 `REQUIRE_CODEX_PLUGIN_TESTS=true`，强制要求真实 CLI 路径。
 

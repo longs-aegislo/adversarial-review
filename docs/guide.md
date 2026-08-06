@@ -437,6 +437,16 @@ keeps total Findings, scoped applied-Fix counts, and changed paths distinct.
 It reports remaining Findings only from the stable termination category:
 `none`, `present`, or `unknown` when the review did not complete.
 
+An installed Plugin Adapter also defaults review state and Artifacts to
+`${XDG_STATE_HOME:-$HOME/.local/state}/adversarial-review` instead of next to
+the bundled runtime, so they are not deleted along with the Plugin's cache.
+Uninstalling uses `codex plugin remove adversarial-review@adversarial-review-local`
+(drops the installed Plugin and its Skill) and, separately,
+`codex plugin marketplace remove adversarial-review-local` (drops the
+marketplace registration so it no longer appears in
+`codex plugin list --available`); neither command modifies a Target Repo or
+its review state/Artifacts.
+
 `tests/test_plugin_package.sh` uses an isolated `HOME` and `CODEX_HOME` to
 register, list, and install the local marketplace, assert discovery of exactly
 one Skill, then run that installed Skill Adapter through the bundled runtime
@@ -444,7 +454,12 @@ with fake Agent backends after making the marketplace source unavailable. It
 verifies review-only and apply-fixes, including Phase 4-only write
 authorization, changed-path and verification reporting, prerequisite failures,
 and explicit same-model redundancy, without using model subscriptions, a
-source-tree runtime, or a conflicting runtime on PATH.
+source-tree runtime, or a conflicting runtime on PATH. It also installs from a
+marketplace source built under a simulated `core.autocrlf=true` (Windows/WSL
+style) checkout and confirms the installed package bytes stay LF and the
+installed Skill still launches, then removes the Plugin and its marketplace
+and confirms both become undiscoverable while the Target Repo and review
+state/Artifacts remain intact.
 `tests/test_plugin_marketplace_lifecycle.sh` uses an offline SSH-backed Git
 fixture to verify a pinned tag and a branch upgrade from 0.2.0 to 0.3.0. It
 checks the listed/enabled version, complete Skill/runtime replacement, removal
