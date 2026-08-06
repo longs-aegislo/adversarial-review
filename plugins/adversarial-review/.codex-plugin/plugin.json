@@ -19,6 +19,8 @@
     "category": "Developer Tools",
     "capabilities": ["Interactive"],
     "websiteURL": "https://github.com/longs-aegislo/adversarial-review",
+    "composerIcon": "./assets/composer-icon.png",
+    "logo": "./assets/logo.png",
     "defaultPrompt": [
       "Run a multi-agent adversarial review; use review-only unless I explicitly request apply-fixes."
     ]

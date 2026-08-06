@@ -491,7 +491,8 @@ phases, tracking layout, or machine-result contract.
 Run `./scripts/validate-plugin-release.sh` from a candidate checkout. It first
 validates the manifest identifier, semantic version, Plugin-relative paths,
 root containment, marketplace identity, `compatibility.json`, and the matching
-`docs/releases/<version>.md`. It then requires the real Codex Plugin CLI and
+`docs/releases/<version>.md`. It also requires square PNG `logo` and
+`composerIcon` assets at Plugin-relative paths. It then requires the real Codex Plugin CLI and
 runs package plus Git lifecycle acceptance in disposable `HOME`/`CODEX_HOME`
 profiles. Fake Claude/Codex backends exercise review-only and apply-fixes, so
 the deterministic gate needs no subscriptions or paid model calls. A release

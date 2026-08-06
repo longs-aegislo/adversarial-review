@@ -111,6 +111,8 @@ marketplace 并重装完整 package，同时保持 Target Repo review state 与 
 checkout 或个人 Skill 安装。默认使用 `review-only`，只有显式 `apply-fixes` 请求才可能
 授权修改 Target Repo。`compatibility.json` 将 Plugin 版本绑定到共同测试过的 CLI result
 schema、Skill workflow 和安装 layout。
+方形 logo 与 composer icon 随 Plugin 一起打包，并通过相对 Plugin root 的 manifest 路径
+声明，以保证 directory 展示一致。
 
 Plugin 安装不会安装或配置 Bash、`jq`、timeout 支持、Agent backend、认证、订阅、
 模型配额或网络访问。这些均是外部前置条件，只在 Skill 调用时、任何审查 Agent 启动前

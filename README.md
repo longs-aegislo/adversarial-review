@@ -124,6 +124,8 @@ this source checkout or a personal Skill installation. Reviews default to
 `review-only`. Only an explicit `apply-fixes` request can authorize Target Repo
 changes. `compatibility.json` binds the Plugin version to the jointly tested
 CLI result schema, Skill workflow, and installation layout.
+Its square logo and composer icon are bundled under the Plugin root and use
+Plugin-relative manifest paths for consistent directory presentation.
 
 Plugin installation does not install or configure Bash, `jq`, timeout support,
 Agent backends, authentication, subscriptions, model quota, or network access.

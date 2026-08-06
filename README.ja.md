@@ -117,6 +117,8 @@ codex plugin add adversarial-review@adversarial-review-local
 checkout や個人 Skill のインストールには依存しません。既定は `review-only` で、明示的な
 `apply-fixes` 要求だけが Target Repo の変更を許可できます。`compatibility.json` は Plugin
 version を、共同検証済みの CLI result schema、Skill workflow、installation layout に結び付けます。
+正方形の logo と composer icon は Plugin に同梱され、Plugin root からの相対 manifest
+path で宣言されるため、directory 上で一貫して表示されます。
 
 Plugin のインストールは Bash、`jq`、timeout サポート、Agent backend、認証、
 subscription、モデル quota、network access をインストールまたは設定しません。

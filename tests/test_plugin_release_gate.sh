@@ -23,11 +23,16 @@ grep -q "release metadata is valid" "$TEST_ROOT/valid.out" ||
 
 FIXTURE_ROOT="$TEST_ROOT/repository"
 mkdir -p "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets" \
     "$FIXTURE_ROOT/.agents/plugins" "$FIXTURE_ROOT/docs/releases"
 cp "$REPO_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
 cp "$REPO_ROOT/plugins/adversarial-review/compatibility.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json"
+cp "$REPO_ROOT/plugins/adversarial-review/assets/composer-icon.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/composer-icon.png"
+cp "$REPO_ROOT/plugins/adversarial-review/assets/logo.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png"
 cp "$REPO_ROOT/.agents/plugins/marketplace.json" \
     "$FIXTURE_ROOT/.agents/plugins/marketplace.json"
 CANDIDATE_VERSION="$(jq -r '.version' \
@@ -48,6 +53,12 @@ expect_metadata_failure() {
         fail "invalid release metadata did not explain: $expected"
     }
 }
+
+mv "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png" \
+    "$TEST_ROOT/missing-logo.png"
+expect_metadata_failure "logo asset is missing" "$TEST_ROOT/missing-logo.out"
+mv "$TEST_ROOT/missing-logo.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png"
 
 jq '.version = "0.3.0-rc.1+fixture"' \
     "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
