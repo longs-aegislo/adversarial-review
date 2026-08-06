@@ -61,6 +61,7 @@ esac
 [[ $# -le 1 ]] || fail "too many arguments"
 
 command -v jq >/dev/null 2>&1 || fail "jq is required"
+command -v file >/dev/null 2>&1 || fail "file is required to validate Plugin image assets"
 [[ -f "$MANIFEST" ]] || fail "Plugin manifest is missing"
 [[ -f "$COMPATIBILITY" ]] || fail "compatibility metadata is missing"
 [[ -f "$MARKETPLACE" ]] || fail "marketplace metadata is missing"
@@ -69,6 +70,10 @@ VERSION="$(jq -er '.version' "$MANIFEST")" || fail "manifest version is missing"
 [[ "$VERSION" =~ $SEMVER_PATTERN ]] || fail "manifest version must be a semantic version"
 [[ "$(jq -r '.name' "$MANIFEST")" == "adversarial-review" ]] ||
     fail "stable Plugin identifier must remain adversarial-review"
+jq -e '
+    .interface.composerIcon == "./assets/composer-icon.png" and
+    .interface.logo == "./assets/logo.png"
+' "$MANIFEST" >/dev/null || fail "Plugin icon metadata is missing or unstable"
 
 jq -e --arg version "$VERSION" '
     .plugin_version == $version and
@@ -96,13 +101,25 @@ while IFS= read -r path; do
 done < <(jq -r '
     [
         (.skills | .. | strings),
-        ([.apps, .mcpServers, .hooks] | .[]? | .. | strings |
+        ([.apps, .mcpServers, .hooks, .interface.composerIcon,
+          .interface.logo, .interface.screenshots] | .[]? | .. | strings |
             select(
                 startswith(".") or startswith("/") or
                 test("^[A-Za-z]:[\\\\/]") or test("(^|/)\\.\\.(/|$)")
             ))
     ] | .[]
 ' "$MANIFEST")
+
+for image_field in composerIcon logo; do
+    image_path="$(jq -r --arg field "$image_field" '.interface[$field]' "$MANIFEST")"
+    image_file="$PLUGIN_ROOT/${image_path#./}"
+    [[ -f "$image_file" ]] || fail "Plugin $image_field asset is missing: $image_path"
+    image_description="$(file -b "$image_file")"
+    [[ "$image_description" =~ PNG\ image\ data,\ ([0-9]+)\ x\ ([0-9]+), ]] ||
+        fail "Plugin $image_field must be a PNG image: $image_path"
+    [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]] ||
+        fail "Plugin $image_field must be square: $image_path"
+done
 
 RELEASE_NOTES="$REPO_ROOT/docs/releases/$VERSION.md"
 [[ -f "$RELEASE_NOTES" ]] || fail "release notes are missing for Plugin $VERSION"

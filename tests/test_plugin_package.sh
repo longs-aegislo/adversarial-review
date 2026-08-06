@@ -40,6 +40,8 @@ jq -e '
     (.interface.shortDescription | type == "string" and length > 0) and
     (.interface.longDescription | contains("multi-agent adversarial review")) and
     (.interface.defaultPrompt | all(contains("multi-agent") and contains("apply-fixes"))) and
+    .interface.composerIcon == "./assets/composer-icon.png" and
+    .interface.logo == "./assets/logo.png" and
     (has("mcpServers") | not) and
     (has("apps") | not) and
     (has("hooks") | not)
@@ -66,6 +68,8 @@ jq -e '
 for required in \
     skills/adversarial-review/SKILL.md \
     skills/adversarial-review/agents/openai.yaml \
+    assets/composer-icon.png \
+    assets/logo.png \
     skills/adversarial-review/scripts/run-review.sh \
     scripts/upgrade-plugin.sh \
     compatibility.json \

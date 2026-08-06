@@ -23,11 +23,16 @@ grep -q "release metadata is valid" "$TEST_ROOT/valid.out" ||
 
 FIXTURE_ROOT="$TEST_ROOT/repository"
 mkdir -p "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets" \
     "$FIXTURE_ROOT/.agents/plugins" "$FIXTURE_ROOT/docs/releases"
 cp "$REPO_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
 cp "$REPO_ROOT/plugins/adversarial-review/compatibility.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json"
+cp "$REPO_ROOT/plugins/adversarial-review/assets/composer-icon.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/composer-icon.png"
+cp "$REPO_ROOT/plugins/adversarial-review/assets/logo.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png"
 cp "$REPO_ROOT/.agents/plugins/marketplace.json" \
     "$FIXTURE_ROOT/.agents/plugins/marketplace.json"
 CANDIDATE_VERSION="$(jq -r '.version' \
@@ -48,6 +53,40 @@ expect_metadata_failure() {
         fail "invalid release metadata did not explain: $expected"
     }
 }
+
+mv "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png" \
+    "$TEST_ROOT/missing-logo.png"
+expect_metadata_failure "logo asset is missing" "$TEST_ROOT/missing-logo.out"
+mv "$TEST_ROOT/missing-logo.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png"
+
+mv "$FIXTURE_ROOT/plugins/adversarial-review/assets/composer-icon.png" \
+    "$TEST_ROOT/missing-composer-icon.png"
+expect_metadata_failure "composerIcon asset is missing" "$TEST_ROOT/missing-composer.out"
+mv "$TEST_ROOT/missing-composer-icon.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/composer-icon.png"
+
+mv "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png" \
+    "$TEST_ROOT/valid-logo.png"
+cp "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png"
+expect_metadata_failure "logo must be a PNG image" "$TEST_ROOT/non-png-logo.out"
+mv "$TEST_ROOT/valid-logo.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/logo.png"
+
+mv "$FIXTURE_ROOT/plugins/adversarial-review/assets/composer-icon.png" \
+    "$TEST_ROOT/valid-composer-icon.png"
+cp "$TEST_ROOT/valid-composer-icon.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/composer-icon.png"
+# PNG IHDR height occupies bytes 20-23. Change it to 1; `file` reads the
+# dimensions without requiring a valid image-data CRC, which keeps this
+# negative fixture dependency-free and portable.
+printf '\x00\x00\x00\x01' | dd \
+    of="$FIXTURE_ROOT/plugins/adversarial-review/assets/composer-icon.png" \
+    bs=1 seek=20 conv=notrunc 2>/dev/null
+expect_metadata_failure "composerIcon must be square" "$TEST_ROOT/non-square-composer.out"
+mv "$TEST_ROOT/valid-composer-icon.png" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/assets/composer-icon.png"
 
 jq '.version = "0.3.0-rc.1+fixture"' \
     "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \

@@ -458,8 +458,9 @@ preflight／互換性対処は必要時だけ workflow reference から読み込
 
 candidate checkout で `./scripts/validate-plugin-release.sh` を実行します。manifest の stable
 identifier、semantic version、Plugin-relative path と root containment、marketplace identity、
-`compatibility.json`、対応する `docs/releases/<version>.md` を確認した後、実 Codex Plugin
-CLI を必須として disposable な `HOME`/`CODEX_HOME` で package と Git lifecycle acceptance
+`compatibility.json`、対応する `docs/releases/<version>.md`、Plugin-relative path の正方形
+PNG `logo` と `composerIcon` を確認します。その後、実 Codex Plugin CLI を使い、disposable
+な `HOME`/`CODEX_HOME` で package と Git lifecycle acceptance
 を実行します。review-only と apply-fixes は fake Claude/Codex backend を使うため、決定的
 gate に subscription や有料モデルは不要です。release operator は別途、小規模な認証済み
 backend smoke test を実施できますが、これは手動 evidence であり acceptance dependency ではありません。
