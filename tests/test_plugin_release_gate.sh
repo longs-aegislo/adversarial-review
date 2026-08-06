@@ -30,7 +30,10 @@ cp "$REPO_ROOT/plugins/adversarial-review/compatibility.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json"
 cp "$REPO_ROOT/.agents/plugins/marketplace.json" \
     "$FIXTURE_ROOT/.agents/plugins/marketplace.json"
-cp "$REPO_ROOT/docs/releases/0.3.0.md" "$FIXTURE_ROOT/docs/releases/0.3.0.md"
+CANDIDATE_VERSION="$(jq -r '.version' \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json")"
+RELEASE_NOTES="docs/releases/$CANDIDATE_VERSION.md"
+cp "$REPO_ROOT/$RELEASE_NOTES" "$FIXTURE_ROOT/$RELEASE_NOTES"
 
 expect_metadata_failure() {
     local expected="$1"
@@ -46,12 +49,44 @@ expect_metadata_failure() {
     }
 }
 
+jq '.version = "0.3.0-rc.1+fixture"' \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
+    > "$TEST_ROOT/prerelease-manifest.json"
+mv "$TEST_ROOT/prerelease-manifest.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
+jq '.plugin_version = "0.3.0-rc.1+fixture"' \
+    "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json" \
+    > "$TEST_ROOT/prerelease-compatibility.json"
+mv "$TEST_ROOT/prerelease-compatibility.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json"
+sed 's/^Plugin version: .*/Plugin version: 0.3.0-rc.1+fixture/' \
+    "$FIXTURE_ROOT/$RELEASE_NOTES" > \
+    "$FIXTURE_ROOT/docs/releases/0.3.0-rc.1+fixture.md"
+PLUGIN_RELEASE_ROOT="$FIXTURE_ROOT" "$GATE" --metadata-only > "$TEST_ROOT/prerelease.out" || {
+    cat "$TEST_ROOT/prerelease.out" >&2
+    fail "valid SemVer prerelease/build candidate did not pass"
+}
+rm "$FIXTURE_ROOT/docs/releases/0.3.0-rc.1+fixture.md"
+cp "$REPO_ROOT/plugins/adversarial-review/compatibility.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json"
+cp "$REPO_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
+
 jq '.version = "release-candidate"' \
     "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
     > "$TEST_ROOT/invalid-manifest.json"
 mv "$TEST_ROOT/invalid-manifest.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
 expect_metadata_failure "semantic version" "$TEST_ROOT/semver.out"
+
+cp "$REPO_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
+jq '.skills = "./.."' \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
+    > "$TEST_ROOT/escaping-manifest.json"
+mv "$TEST_ROOT/escaping-manifest.json" \
+    "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
+expect_metadata_failure "escapes the Plugin root" "$TEST_ROOT/escape.out"
 
 cp "$REPO_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/.codex-plugin/plugin.json"
@@ -62,7 +97,25 @@ expect_metadata_failure "host compatibility" "$TEST_ROOT/host.out"
 
 cp "$REPO_ROOT/plugins/adversarial-review/compatibility.json" \
     "$FIXTURE_ROOT/plugins/adversarial-review/compatibility.json"
-sed -i '/^Result schema:/d' "$FIXTURE_ROOT/docs/releases/0.3.0.md"
+sed -i '/^Result schema:/d' "$FIXTURE_ROOT/$RELEASE_NOTES"
 expect_metadata_failure "Result schema" "$TEST_ROOT/release-notes.out"
+
+cp "$REPO_ROOT/$RELEASE_NOTES" "$FIXTURE_ROOT/$RELEASE_NOTES"
+sed -i '/^## Known limitations$/,/^## /{/^## Known limitations$/!{/^## /!d;}}' \
+    "$FIXTURE_ROOT/$RELEASE_NOTES"
+expect_metadata_failure "section is empty: ## Known limitations" "$TEST_ROOT/empty-section.out"
+
+OLD_CODEX="$TEST_ROOT/old-codex"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "codex-cli 0.145.0"' > "$OLD_CODEX"
+chmod +x "$OLD_CODEX"
+set +e
+PLUGIN_RELEASE_CODEX="$OLD_CODEX" "$GATE" > "$TEST_ROOT/old-host.out" 2>&1
+OLD_HOST_STATUS=$?
+set -e
+[[ $OLD_HOST_STATUS -ne 0 ]] || fail "incompatible Codex host unexpectedly passed"
+grep -q "requires Codex CLI 0.146.0 or later" "$TEST_ROOT/old-host.out" || {
+    cat "$TEST_ROOT/old-host.out" >&2
+    fail "incompatible Codex host failure was not actionable"
+}
 
 echo "ok - release gate validates candidate identity, compatibility, and release-note contract"
