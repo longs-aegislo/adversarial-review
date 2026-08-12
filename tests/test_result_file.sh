@@ -312,6 +312,52 @@ test_clean_synthesis_result_and_target_changes() {
     pass "clean synthesis result records parsed counts and actual target changes"
 }
 
+test_scratch_workspace_lifecycle_provisions_and_removes_per_invocation_roots() {
+    local target="$TEST_ROOT/scratch-lifecycle-target"
+    local result_file="$TEST_ROOT/scratch-lifecycle.json"
+    local status state_dir invocation_metadata scratch_roots
+    local scratch_root_count scratch_root_unique_count
+    make_target "$target"
+
+    set +e
+    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --apply-fixes --max-iters 1 --fixer codex \
+        --result-file "$result_file" claude codex "$target" >/dev/null 2>&1
+    status=$?
+    set -e
+
+    [[ $status -eq 0 ]] || fail "scratch lifecycle run must exit 0"
+
+    state_dir="$(jq -r '.paths.state_dir' "$result_file")"
+    invocation_metadata="$(find "$state_dir" -name '*.invocation.json' \
+        -exec jq -c . {} \; | jq -sc '.')"
+
+    [[ "$(jq '[.[] | select(.phase == "phase_1")] | length' <<< "$invocation_metadata")" -eq 2 ]] ||
+        fail "expected an invocation record for each Phase 1 reviewer"
+    [[ "$(jq '[.[] | select(.phase | test("^phase_[123]$")) | select(.scratch.mode == "provisioned-unexposed" and (.scratch.root | length) > 0)] | length' <<< "$invocation_metadata")" -eq 6 ]] ||
+        fail "every read-only Phase 1-3 invocation must record a provisioned scratch root"
+    [[ "$(jq --arg target "$target" '[.[] | select(.phase == "phase_1" and .target_repo_path == $target)] | length' <<< "$invocation_metadata")" -eq 2 ]] ||
+        fail "invocation metadata must disclose the effective Target Repo path"
+    [[ "$(jq '[.[] | select(.phase == "phase_4" and .scratch.mode == "none" and .scratch.root == null)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
+        fail "the apply-fixes Phase 4 (workspace-write) invocation must not be provisioned a scratch root"
+
+    scratch_roots="$(jq -r '.[] | select(.scratch.mode == "provisioned-unexposed") | .scratch.root' <<< "$invocation_metadata")"
+    scratch_root_count="$(wc -l <<< "$scratch_roots")"
+    scratch_root_unique_count="$(sort -u <<< "$scratch_roots" | wc -l)"
+    [[ "$scratch_root_count" -eq 6 ]] ||
+        fail "expected six provisioned scratch roots across the Phase 1-3 invocations"
+    [[ "$scratch_root_unique_count" -eq "$scratch_root_count" ]] ||
+        fail "no two invocations - not even two phases in the same iteration - may share a scratch root"
+
+    while IFS= read -r scratch_root; do
+        [[ -n "$scratch_root" ]] || continue
+        [[ ! -e "$scratch_root" ]] ||
+            fail "scratch root $scratch_root must be removed once its invocation's artifacts are persisted"
+    done <<< "$scratch_roots"
+
+    pass "scratch workspace lifecycle provisions per-invocation roots, discloses diagnostics, and always removes them"
+}
+
 test_apply_fixes_findings_result() {
     local target="$TEST_ROOT/apply-findings-target"
     local result_file="$TEST_ROOT/apply-findings.json"
@@ -385,6 +431,16 @@ test_review_only_tty_uses_default_synthesis_agent_without_input() {
         -exec jq -c . {} \; | jq -sc '.')"
     [[ "$(jq '[.[] | select(.phase == "phase_4" and .agent == "codex" and .execution_mode == "review-only" and .write_authorized == false)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
         fail "Phase 4 invocation metadata must record the default read-only Synthesis Agent"
+    [[ "$(jq -r '.[] | select(.phase == "phase_4") | .target_repo_path' <<< "$invocation_metadata")" == "$target" ]] ||
+        fail "review-only Phase 4 metadata must disclose the effective Target Repo path"
+    [[ "$(jq -r '.[] | select(.phase == "phase_4") | .scratch.mode' <<< "$invocation_metadata")" == "provisioned-unexposed" ]] ||
+        fail "review-only Phase 4 Synthesis is a read-only invocation and must be provisioned a scratch root"
+    local phase_4_scratch_root
+    phase_4_scratch_root="$(jq -r '.[] | select(.phase == "phase_4") | .scratch.root' <<< "$invocation_metadata")"
+    [[ -n "$phase_4_scratch_root" && "$phase_4_scratch_root" != "null" ]] ||
+        fail "review-only Phase 4 Synthesis scratch root must be recorded in invocation metadata"
+    [[ ! -e "$phase_4_scratch_root" ]] ||
+        fail "review-only Phase 4 Synthesis scratch root must be removed once its invocation completes"
     pass "review-only under a TTY defaults to Codex synthesis without reading stdin"
 }
 
@@ -417,6 +473,14 @@ test_review_only_tty_honors_explicit_synthesis_agent_without_input() {
         -exec jq -c . {} \; | jq -sc '.')"
     [[ "$(jq '[.[] | select(.phase == "phase_4" and .agent == "claude" and .execution_mode == "review-only" and .write_authorized == false)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
         fail "Phase 4 metadata must record the explicit read-only Synthesis Agent"
+    [[ "$(jq -r '.[] | select(.phase == "phase_4") | .scratch.mode' <<< "$invocation_metadata")" == "provisioned-unexposed" ]] ||
+        fail "an explicit review-only Phase 4 Synthesis call is still read-only and must be provisioned a scratch root"
+    local phase_4_scratch_root
+    phase_4_scratch_root="$(jq -r '.[] | select(.phase == "phase_4") | .scratch.root' <<< "$invocation_metadata")"
+    [[ -n "$phase_4_scratch_root" && "$phase_4_scratch_root" != "null" ]] ||
+        fail "explicit review-only Phase 4 Synthesis scratch root must be recorded in invocation metadata"
+    [[ ! -e "$phase_4_scratch_root" ]] ||
+        fail "explicit review-only Phase 4 Synthesis scratch root must be removed once its invocation completes"
     pass "review-only under a TTY honors an explicit Synthesis Agent without prompting"
 }
 
@@ -804,6 +868,7 @@ test_result_remote_url_redacts_credentials() {
 test_dry_run_result_cannot_be_mistaken_for_completed_review
 test_clean_phase_1_result
 test_clean_synthesis_result_and_target_changes
+test_scratch_workspace_lifecycle_provisions_and_removes_per_invocation_roots
 test_apply_fixes_findings_result
 test_review_only_findings_result
 test_review_only_tty_uses_default_synthesis_agent_without_input

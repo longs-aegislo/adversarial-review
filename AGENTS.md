@@ -120,8 +120,18 @@ Examples:
 ```
 
 Every agent reply has a companion `*.invocation.json` that records its phase,
-effective execution mode, native permission/sandbox mode, and whether write
-access was actually authorized.
+effective execution mode, native permission/sandbox mode, whether write
+access was actually authorized, the effective Target Repo path, and the
+scratch access mode/root for that call. Read-only invocations (Independent
+Review, Cross-Review, Meta-Review, and review-only Synthesis) each get a
+fresh, disposable scratch root - provisioned by `run_backend()` before
+dispatch and removed once the reply, raw transcript, and invocation metadata
+are persisted - so no two invocations, not even two phases in the same
+iteration, ever share one. The scratch root is currently unexposed to the
+backend's write sandbox; it only establishes the lifecycle for a later
+ticket to turn on scratch writes safely. A scratch provisioning failure
+(e.g. `mktemp` failure, disk full) is reported as an agent/backend failure,
+never as `PHASE_WRITE_BOUNDARY_VIOLATION`.
 Review-phase Claude and Codex calls also retain structured `*.raw.log` events
 for denied-write auditing. All four phases invoke agents through
 `run_backend()`, which dispatches to the backend-specific runner and requires
@@ -146,7 +156,7 @@ concatenated into later prompts.
    and feedback.
 2. **Tests**: `tests/` has bats-style suites covering backend dispatch,
    base-scope, response-analyzer, execution modes, include-pre-existing, and
-   the CLI contract and machine-readable results (136 cases total). See
+   the CLI contract and machine-readable results (139 cases total). See
    `tests/test_*.sh`.
 3. **Codex CLI flags**: May need adjustment based on actual codex CLI behavior
 4. **Cost tracking**: Not implemented - each iteration is ~6 API calls
