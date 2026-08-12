@@ -506,6 +506,9 @@ write_invocation_metadata() {
     local enforcement="$5"
     local available_tools="${6:-}"
     local allowed_tools="${7:-}"
+    local target_repo_path="${8:-}"
+    local scratch_mode="${9:-none}"
+    local scratch_root="${10:-}"
     local metadata_file="${output_file%.md}.invocation.json"
 
     jq -n \
@@ -516,6 +519,9 @@ write_invocation_metadata() {
         --arg enforcement "$enforcement" \
         --arg available_tools "$available_tools" \
         --arg allowed_tools "$allowed_tools" \
+        --arg target_repo_path "$target_repo_path" \
+        --arg scratch_mode "$scratch_mode" \
+        --arg scratch_root "$scratch_root" \
         '{
             agent: $agent,
             phase: $phase,
@@ -523,7 +529,9 @@ write_invocation_metadata() {
             write_authorized: $write_authorized,
             enforcement: $enforcement,
             available_tools: $available_tools,
-            allowed_tools: $allowed_tools
+            allowed_tools: $allowed_tools,
+            target_repo_path: $target_repo_path,
+            scratch: {mode: $scratch_mode, root: ($scratch_root | if . == "" then null else . end)}
         }' > "$metadata_file"
 }
 
@@ -980,9 +988,11 @@ run_claude() {
     local available_tools="${5:-}"
     local allowed_tools="${6:-}"
     local phase="${7:-unknown}"
+    local scratch_root="${8:-}"
     local write_authorized=false
     local enforcement="restricted-tools+dontAsk"
     local structured_review=false
+    local scratch_mode="none"
 
     if [[ "$with_permissions" == "true" ]]; then
         write_authorized=true
@@ -990,8 +1000,10 @@ run_claude() {
     elif [[ -n "$available_tools" ]]; then
         structured_review=true
     fi
+    [[ -n "$scratch_root" ]] && scratch_mode="provisioned-unexposed"
     write_invocation_metadata "$output_file" "claude" "$phase" \
-        "$write_authorized" "$enforcement" "$available_tools" "$allowed_tools"
+        "$write_authorized" "$enforcement" "$available_tools" "$allowed_tools" \
+        "$working_dir" "$scratch_mode" "$scratch_root"
 
     if [[ "$DRY_RUN" == "1" ]]; then
         log_claude "[DRY RUN] Would run Claude (${#prompt} chars) -> $output_file"
@@ -1056,12 +1068,19 @@ run_codex() {
     local working_dir="${3:-$PWD}"
     local sandbox_mode="${4:-read-only}"
     local phase="${5:-unknown}"
+    local scratch_root="${6:-}"
     local write_authorized=false
     local structured_review=false
+    local scratch_mode="none"
     [[ "$sandbox_mode" == "workspace-write" ]] && write_authorized=true
     [[ "$sandbox_mode" == "read-only" ]] && structured_review=true
+    [[ -n "$scratch_root" ]] && scratch_mode="provisioned-unexposed"
+    # The "" "" pair fills write_invocation_metadata's Claude-only
+    # available_tools/allowed_tools positions so target_repo_path and the
+    # scratch fields land in their correct slots.
     write_invocation_metadata "$output_file" "codex" "$phase" \
-        "$write_authorized" "sandbox:$sandbox_mode"
+        "$write_authorized" "sandbox:$sandbox_mode" "" "" \
+        "$working_dir" "$scratch_mode" "$scratch_root"
 
     if [[ "$DRY_RUN" == "1" ]]; then
         log_codex "[DRY RUN] Would run Codex (${#prompt} chars, sandbox=$sandbox_mode) -> $output_file"
@@ -1122,11 +1141,26 @@ run_backend() {
     local exit_code=0
     local raw_log="${output_file%.md}.raw.log"
     local backend_label
+    local scratch_root=""
+
+    # Every read-only invocation gets its own disposable scratch root so a
+    # later ticket can hand it to the backend's write sandbox without two
+    # invocations - even two phases in the same iteration - ever sharing one.
+    # A provisioning failure here (e.g. disk full) is a backend/execution
+    # problem, not a Target Repo write-boundary violation, so it must not
+    # produce PHASE_WRITE_BOUNDARY_VIOLATION.
+    if [[ "$mode" == "read-only" ]]; then
+        if ! scratch_root="$(mktemp -d 2>/dev/null)" || [[ -z "$scratch_root" ]]; then
+            log_warning "Failed to provision a scratch workspace for $backend_name $phase"
+            return "$EXIT_AGENT_BACKEND_FAILURE"
+        fi
+    fi
 
     case "$backend_name:$mode" in
         claude:read-only)
             run_claude "$prompt" "$output_file" "$working_dir" "false" \
-                "$REVIEW_AVAILABLE_TOOLS" "$REVIEW_ALLOWED_TOOLS" "$phase" ||
+                "$REVIEW_AVAILABLE_TOOLS" "$REVIEW_ALLOWED_TOOLS" "$phase" \
+                "$scratch_root" ||
                 exit_code=$?
             if [[ $exit_code -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
                 exit_code=$PHASE_AGENT_RESPONSE_FAILURE
@@ -1140,14 +1174,15 @@ run_backend() {
             ;;
         claude:workspace-write)
             run_claude "$prompt" "$output_file" "$working_dir" "true" "" "" \
-                "$phase" ||
+                "$phase" "$scratch_root" ||
                 exit_code=$?
             if [[ $exit_code -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
                 exit_code=$PHASE_AGENT_RESPONSE_FAILURE
             fi
             ;;
         codex:read-only|codex:workspace-write)
-            run_codex "$prompt" "$output_file" "$working_dir" "$mode" "$phase" ||
+            run_codex "$prompt" "$output_file" "$working_dir" "$mode" "$phase" \
+                "$scratch_root" ||
                 exit_code=$?
             if [[ $exit_code -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
                 exit_code=$PHASE_AGENT_RESPONSE_FAILURE
@@ -1162,9 +1197,15 @@ run_backend() {
             ;;
         *)
             log_warning "Unsupported backend/mode combination: $backend_name:$mode"
+            [[ -n "$scratch_root" ]] && rm -rf "$scratch_root"
             return "$EXIT_INVALID_INVOCATION"
             ;;
     esac
+
+    # The invocation's final reply, raw transcript, and invocation metadata
+    # are all persisted by run_claude/run_codex before returning here, so the
+    # scratch root can be safely torn down as soon as they return.
+    [[ -n "$scratch_root" ]] && rm -rf "$scratch_root"
 
     [[ "$DRY_RUN" == "1" ]] && return "$exit_code"
 
