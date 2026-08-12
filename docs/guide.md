@@ -69,8 +69,7 @@ The slots may use different backends or the same backend. This adversarial proce
 # Clone or copy to your workspace
 cd adversarial-review
 
-# Run on a target project (prompts interactively for which agent
-# implements Phase 4 fixes, if stdin is a TTY)
+# Run on a target project (implicit apply-fixes prompts for the Fixer on a TTY)
 ./adversarial_review.sh claude codex ../my-project
 
 # With options
@@ -102,9 +101,11 @@ OPTIONS:
     -p, --prompt FILE       Additional Phase 1 criteria for this run
     -v, --verbose           Verbose output
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
-    -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
-                            (if omitted, prompts interactively on a TTY;
-                            defaults to codex when non-interactive)
+    -f, --fixer AGENT       Phase 4 agent: claude | codex. In review-only,
+                            this is the Synthesis Agent and defaults to codex
+                            without prompting. In apply-fixes, this is the
+                            Fixer; if omitted, prompts on a TTY and defaults
+                            to codex when non-interactive.
     --slot-a AGENT          Backend for reviewer slot A: claude | codex
     --slot-b AGENT          Backend for reviewer slot B: claude | codex
     --target-dir PATH       Project directory to review
@@ -163,7 +164,11 @@ are mutually exclusive, and specifying both fails before any dependency check
 or agent call. Review-only still executes all four phases, routes Phase 4
 through the same read-only backend contract as Phases 1-3, and reports
 unresolved `IN_SCOPE` and `PRE_EXISTING` findings in separate sections without
-claiming they were fixed. Omitting both flags keeps today's implicit
+claiming they were fixed. In review-only, an explicit `--fixer` selects the
+Synthesis Agent; otherwise Codex is selected without reading stdin or
+prompting, regardless of TTY allocation. Apply-fixes prompts for a Fixer only
+when no explicit choice was supplied and stdin is a TTY; non-interactive calls
+fall back to Codex. Omitting both flags keeps today's implicit
 apply-fixes behavior but prints a migration notice, so new automation, skills,
 and plugins should pass one explicitly. This compatibility default may be
 removed in a future version.
@@ -275,7 +280,7 @@ MAX_ITERATIONS=5      # Override max iterations
 TIMEOUT_MINUTES=15    # Timeout per agent call
 VERBOSE=1             # Enable verbose output
 DRY_RUN=1             # Show what would happen
-FIXER=codex           # Who implements Phase 4 fixes: claude | codex
+FIXER=codex           # Phase 4 Agent: Synthesis Agent or Fixer by mode
 ```
 
 ## How It Works
@@ -412,7 +417,7 @@ path must also occur in the selected baseline's Git delta, so an accidental
 whole-repository scope below that limit is rejected too. It accepts only result
 schema version 1 and validates every required field, cross-field invariant, and
 process/result exit status without falling back to terminal prose or tracking
-state. It reports mode, scope/base, reviewer/Fixer assignments, termination
+state. It reports mode, scope/base, reviewer/Phase 4 Agent assignments, termination
 reason, iterations, scoped counts, modified files, verification, and
 State/Synthesis/Artifacts paths. Clean, findings remaining, maximum iterations,
 circuit open, invalid invocation, Agent/backend failure, and write-policy

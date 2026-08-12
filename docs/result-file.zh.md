@@ -27,7 +27,8 @@ URL 用户信息，避免把远程地址中嵌入的凭据写入结果产物。
   可空的运行起始 `head_commit`。
 - `reviewers`（对象）：可空的已解析 `slot_a`、`slot_b` Backend。
 - `synthesis`（对象）：可空 `requested_fixer` 与可空 `executed_by`；后者表示实际
-  执行阶段四的 Agent。
+  执行阶段四的 Agent。schema version 1 在 review-only 下保留兼容 Fixer 的字段名，
+  此时字段表示 Synthesis Agent；省略显式选择时确定性解析为 Codex。
 - `scope`（对象）：`kind`（`whole-directory` 或 `base`）、可空
   `requested_base_ref` 与可空 `resolved_base_commit`。
 - `execution`（对象）：`mode`（`review-only` 或 `apply-fixes`）、布尔值

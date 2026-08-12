@@ -529,7 +529,7 @@ test_result_summary_reports_complete_supported_contract() {
         "summary should include execution mode and target"
     assert_contains "$SCENARIO_OUTPUT" "Scope: base HEAD (resolved: abc)" \
         "summary should include requested and resolved scope"
-    assert_contains "$SCENARIO_OUTPUT" "Reviewers: slot A claude; slot B codex; Fixer: none" \
+    assert_contains "$SCENARIO_OUTPUT" "Reviewers: slot A claude; slot B codex; Synthesis Agent: none" \
         "summary should include reviewer assignments"
     assert_contains "$SCENARIO_OUTPUT" "Termination: review-only-findings-remain (status 10)" \
         "summary should include stable termination and status"

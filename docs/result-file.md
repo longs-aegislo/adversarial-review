@@ -31,7 +31,9 @@ Every field in the public schema is listed below. A nullable string is JSON
   `head_commit`.
 - `reviewers` (object): nullable resolved `slot_a` and `slot_b` backends.
 - `synthesis` (object): nullable `requested_fixer` and nullable `executed_by`;
-  the latter is the Agent that actually ran Phase 4.
+  the latter is the Agent that actually ran Phase 4. Schema version 1 retains
+  the Fixer-compatible field names in review-only, where they identify the
+  Synthesis Agent; an omitted selection resolves deterministically to Codex.
 - `scope` (object): `kind` (`whole-directory` or `base`), nullable
   `requested_base_ref`, and nullable `resolved_base_commit`.
 - `execution` (object): `mode` (`review-only` or `apply-fixes`), boolean

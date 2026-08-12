@@ -17,7 +17,7 @@
 #   -p, --prompt FILE       Additional Phase 1 review criteria file
 #   -v, --verbose           Verbose output
 #   -t, --timeout MIN       Timeout per agent call in minutes (default: 10)
-#   -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
+#   -f, --fixer AGENT       Phase 4 agent: claude | codex
 #   --slot-a AGENT          Backend for reviewer slot A: claude | codex
 #   --slot-b AGENT          Backend for reviewer slot B: claude | codex
 #   --target-dir PATH       Project to review
@@ -130,7 +130,8 @@ MAX_ITERATIONS="${MAX_ITERATIONS:-3}"
 VERBOSE="${VERBOSE:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-10}"
-FIXER="${FIXER:-}"
+# FIXER remains the public environment-variable name for compatibility.
+PHASE_4_AGENT="${FIXER:-}"
 SLOT_A=""
 SLOT_B=""
 BASE_REF=""
@@ -403,7 +404,7 @@ write_result_file() {
         printf '  "reviewers": {"slot_a": %s, "slot_b": %s},\n' \
             "$(json_string_or_null "$SLOT_A")" "$(json_string_or_null "$SLOT_B")"
         printf '  "synthesis": {"requested_fixer": %s, "executed_by": %s},\n' \
-            "$(json_string_or_null "$FIXER")" \
+            "$(json_string_or_null "$PHASE_4_AGENT")" \
             "$(json_string_or_null "$RESULT_SYNTHESIS_EXECUTED_BY")"
         printf '  "scope": {"kind": %s, "requested_base_ref": %s, "resolved_base_commit": %s},\n' \
             "$(json_quote "$scope_kind")" "$(json_string_or_null "$requested_base")" \
@@ -725,12 +726,12 @@ get_timeout_cmd() {
 check_dependencies() {
     local missing=()
 
-    if [[ "$SLOT_A" == "claude" || "$SLOT_B" == "claude" || "$FIXER" == "claude" ]] &&
+    if [[ "$SLOT_A" == "claude" || "$SLOT_B" == "claude" || "$PHASE_4_AGENT" == "claude" ]] &&
        ! command -v claude &> /dev/null; then
         missing+=("claude CLI (npm install -g @anthropic-ai/claude-code)")
     fi
 
-    if [[ "$SLOT_A" == "codex" || "$SLOT_B" == "codex" || "$FIXER" == "codex" ]] &&
+    if [[ "$SLOT_A" == "codex" || "$SLOT_B" == "codex" || "$PHASE_4_AGENT" == "codex" ]] &&
        ! command -v codex &> /dev/null; then
         missing+=("codex CLI (npm install -g @openai/codex)")
     fi
@@ -1781,36 +1782,36 @@ Working directory: $target_dir
     local output_file="$ARTIFACTS_DIR/iter${iteration}_4_synthesis.md"
     RESULT_FINAL_SYNTHESIS_ARTIFACT="$output_file"
 
-    local fixer_agent="claude"
+    local phase_4_agent="claude"
     local backend_mode="workspace-write"
     [[ "$EXECUTION_MODE" == "review-only" ]] && backend_mode="read-only"
-    local fixer_rc=0
+    local phase_4_rc=0
     local target_before=""
     [[ "$backend_mode" == "read-only" ]] && \
         target_before="$(target_tree_fingerprint "$target_dir")"
-    if [[ "$FIXER" == "codex" ]]; then
-        fixer_agent="codex"
-        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$fixer_agent"
+    if [[ "$PHASE_4_AGENT" == "codex" ]]; then
+        phase_4_agent="codex"
+        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$phase_4_agent"
         log_info "Running Phase 4 synthesis with Codex ($backend_mode)"
         run_backend "codex" "$context" "$output_file" "$target_dir" \
             "$backend_mode" "phase_4" ||
-            fixer_rc=$?
+            phase_4_rc=$?
     else
-        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$fixer_agent"
+        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$phase_4_agent"
         log_info "Running Phase 4 synthesis with Claude ($backend_mode)"
         run_backend "claude" "$context" "$output_file" "$target_dir" \
             "$backend_mode" "phase_4" ||
-            fixer_rc=$?
+            phase_4_rc=$?
     fi
     if [[ "$backend_mode" == "read-only" ]] &&
        ! verify_review_target_unchanged "$iteration" "phase_4" "Phase 4" \
             "$target_dir" "$target_before"; then
         return "$PHASE_WRITE_BOUNDARY_VIOLATION"
     fi
-    if [[ $fixer_rc -ne 0 ]]; then
-        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
-            "agent exited with code $fixer_rc" "$output_file"
-        if [[ $fixer_rc -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+    if [[ $phase_4_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$phase_4_agent" \
+            "agent exited with code $phase_4_rc" "$output_file"
+        if [[ $phase_4_rc -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
             return "$PHASE_WRITE_BOUNDARY_VIOLATION"
         fi
         return "$PHASE_4_FAILED"
@@ -1821,7 +1822,7 @@ Working directory: $target_dir
     local status
     if ! status="$(parse_status_block "$output_file" "SYNTHESIS_STATUS")"; then
         RESULT_TERMINATION_REASON="malformed-agent-response"
-        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$phase_4_agent" \
             "missing or malformed SYNTHESIS_STATUS block" "$output_file"
         return "$PHASE_4_FAILED"
     fi
@@ -1847,13 +1848,13 @@ Working directory: $target_dir
     if [[ "$EXECUTION_MODE" == "review-only" ]] &&
        ! validate_review_only_synthesis "$output_file" "$status" \
             "$required_issue_ids"; then
-        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$phase_4_agent" \
             "review-only synthesis is missing required scope sections or claims fixes" \
             "$output_file"
         return "$PHASE_4_FAILED"
     fi
 
-    add_to_history "$iteration" "phase_4" "$fixer_agent" "$status"
+    add_to_history "$iteration" "phase_4" "$phase_4_agent" "$status"
     update_tracking "in_scope_fixed" "$in_scope_fixed"
     update_tracking "pre_existing_fixed" "$pre_existing_fixed"
     update_tracking "pre_existing_flagged" "$pre_existing_flagged"
@@ -1862,7 +1863,7 @@ Working directory: $target_dir
     RESULT_PRE_EXISTING_FLAGGED="$pre_existing_flagged"
 
     local synthesis_summary=$(echo "$status" | jq -r '.summary // "(no summary)"')
-    log_info "Synthesis ($fixer_agent): $synthesis_summary"
+    log_info "Synthesis ($phase_4_agent): $synthesis_summary"
     log_info "Synthesis scope counts: $in_scope_fixed in-scope fixed, $pre_existing_fixed pre-existing fixed, $pre_existing_flagged pre-existing flagged"
 
     # Record for circuit breaker
@@ -2115,9 +2116,11 @@ OPTIONS:
                             preserves the mandatory built-in output protocol
     -v, --verbose           Verbose output
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
-    -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
-                            (if omitted, prompts interactively on a TTY;
-                            defaults to codex when non-interactive)
+    -f, --fixer AGENT       Phase 4 agent: claude | codex. In review-only,
+                            this is the Synthesis Agent and defaults to codex
+                            without prompting. In apply-fixes, this is the
+                            Fixer; if omitted, prompts on a TTY and defaults
+                            to codex when non-interactive.
     --slot-a AGENT          Backend for reviewer slot A: claude | codex
     --slot-b AGENT          Backend for reviewer slot B: claude | codex
     --target-dir PATH       Project directory to review
@@ -2232,7 +2235,7 @@ main() {
                 ;;
             -f|--fixer)
                 [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit "$EXIT_INVALID_INVOCATION"; }
-                FIXER="$2"
+                PHASE_4_AGENT="$2"
                 shift 2
                 ;;
             --slot-a)
@@ -2433,21 +2436,21 @@ main() {
         log_info "Using additional review criteria: $custom_prompt"
     fi
 
-    if [[ -z "$FIXER" ]]; then
-        if [[ "$DRY_RUN" == "1" || ! -t 0 ]]; then
-            FIXER="codex"
+    if [[ -z "$PHASE_4_AGENT" ]]; then
+        if [[ "$EXECUTION_MODE" == "review-only" || "$DRY_RUN" == "1" || ! -t 0 ]]; then
+            PHASE_4_AGENT="codex"
         else
             local choice
             read -r -p "$(echo -e "${BLUE}[INFO]${NC} Which agent should implement fixes in Phase 4? [c]laude / [x]codex (default: codex): ")" choice
             case "$choice" in
-                c|C|claude) FIXER="claude" ;;
-                *) FIXER="codex" ;;
+                c|C|claude) PHASE_4_AGENT="claude" ;;
+                *) PHASE_4_AGENT="codex" ;;
             esac
         fi
     fi
 
-    if [[ "$FIXER" != "claude" && "$FIXER" != "codex" ]]; then
-        log_error "Invalid --fixer value: $FIXER (must be 'claude' or 'codex')"
+    if [[ "$PHASE_4_AGENT" != "claude" && "$PHASE_4_AGENT" != "codex" ]]; then
+        log_error "Invalid --fixer value: $PHASE_4_AGENT (must be 'claude' or 'codex')"
         exit "$EXIT_INVALID_INVOCATION"
     fi
 
@@ -2459,9 +2462,9 @@ main() {
     fi
 
     if [[ "$EXECUTION_MODE" == "review-only" ]]; then
-        log_info "Phase 4 synthesis will run read-only with: $FIXER"
+        log_info "Phase 4 Synthesis Agent (read-only): $PHASE_4_AGENT"
     else
-        log_info "Phase 4 fixes will be implemented by: $FIXER"
+        log_info "Phase 4 fixes will be implemented by: $PHASE_4_AGENT"
     fi
 
     run_review_loop "$target_dir"

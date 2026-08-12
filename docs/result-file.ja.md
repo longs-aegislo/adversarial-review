@@ -31,7 +31,9 @@ Git ワークツリーでは、`target_changes.files` は追跡済みファイ�
   `head_commit`。
 - `reviewers`（オブジェクト）：解決済み Backend の nullable な `slot_a` と `slot_b`。
 - `synthesis`（オブジェクト）：nullable な `requested_fixer` と `executed_by`。
-  後者は実際にフェーズ4を実行した Agent です。
+  後者は実際にフェーズ4を実行した Agent です。schema version 1 は review-only
+  でも Fixer 互換のフィールド名を維持し、この場合は Synthesis Agent を表します。
+  明示的な選択を省略すると Codex に決定的に解決されます。
 - `scope`（オブジェクト）：`kind`（`whole-directory` または `base`）、nullable な
   `requested_base_ref` と `resolved_base_commit`。
 - `execution`（オブジェクト）：`mode`（`review-only` または `apply-fixes`）、真偽値の

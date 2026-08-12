@@ -12,8 +12,9 @@ Based on patterns from
 ## Concept
 
 Claude and Codex independently review a target project, challenge each
-other's findings, reconcile disagreements, and let a selected fixer implement
-the agreed changes.
+other's findings, and reconcile disagreements. A selected Phase 4 Agent then
+reports the synthesis read-only or, in apply-fixes mode, implements permitted
+changes.
 
 The loop has four phases:
 
@@ -38,7 +39,11 @@ In review-only mode, all four phases run, Phase 4 uses the same read-only
 backend boundary as Phases 1-3, and its report separates unresolved
 `IN_SCOPE` and `PRE_EXISTING` findings without modifying the target. The two
 flags are mutually exclusive and are validated before any dependency check or
-agent call. Omitting both keeps today's implicit apply-fixes behavior and
+agent call. In review-only, an explicit `--fixer` selects the Phase 4
+Synthesis Agent; when omitted, Codex is selected deterministically without
+reading stdin or prompting, even on a TTY. Apply-fixes retains the interactive
+Fixer prompt on a TTY and the Codex fallback when non-interactive. Omitting
+both mode flags keeps today's implicit apply-fixes behavior and
 prints a migration notice. New automation, skills, and plugins should pass one
 of these flags explicitly.
 
@@ -58,7 +63,7 @@ cd adversarial-review
 # Review only changes since a Git ref
 ./adversarial_review.sh --base main claude codex ../my-project
 
-# Choose the Phase 4 fixer
+# Choose the Phase 4 Agent (Synthesis Agent in review-only; Fixer in apply-fixes)
 ./adversarial_review.sh --fixer codex claude codex ../my-project
 
 # Add review criteria for this run

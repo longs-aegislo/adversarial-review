@@ -200,6 +200,11 @@ set -e
 }
 grep -q "Review result: Findings remaining" "$PROFILE_ROOT/review.out" ||
     fail "installed Skill adapter did not parse the bundled runtime result"
+grep -q "Synthesis Agent: codex" "$PROFILE_ROOT/review.out" ||
+    fail "installed review-only Skill adapter did not report the Phase 4 backend as the Synthesis Agent"
+if grep -q "Fixer: codex" "$PROFILE_ROOT/review.out"; then
+    fail "installed review-only Skill adapter reported the Phase 4 backend as a Fixer"
+fi
 [[ "$(git -C "$TARGET_REPO" hash-object app.sh)" == "$TARGET_HASH_BEFORE" ]] ||
     fail "review-only Plugin run modified the Target Repo"
 
