@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# Local pre-push gate: this repository has no GitHub Actions CI, so nothing
+# runs the tests/ suite automatically on push or on a PR. Installing this
+# hook (see scripts/install-git-hooks.sh) makes `git push` run the same
+# tests/test_*.sh suite locally first, refusing the push on any failure.
+#
+# This only protects the machine it is installed on; it is not a substitute
+# for a real CI gate on shared/collaborator pushes. See "Local test gate"
+# in README.md for details and how to skip it when intentional
+# (git push --no-verify).
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+failures=0
+for test_script in tests/test_*.sh; do
+    echo "==> $test_script"
+    if ! bash "$test_script"; then
+        failures=$((failures + 1))
+    fi
+done
+
+if [[ "$failures" -gt 0 ]]; then
+    echo "pre-push: $failures test script(s) failed; push aborted (use --no-verify to skip)" >&2
+    exit 1
+fi
+
+exit 0

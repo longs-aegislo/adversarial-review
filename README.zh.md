@@ -160,6 +160,21 @@ source 的注册，使其不再出现在 `codex plugin list --available` 中。�
 这是一个实验性原型。可继续改进的方向包括增加审查智能体、基于准确率的投票、
 成本控制，以及更好的产出文件可视化。
 
+### 本地测试门禁（可选）
+
+本仓库没有 GitHub Actions CI：`tests/test_*.sh` 只有在有人手动执行时才会跑。
+`git clone` 不会自动安装 git hooks，所以如果想让 `git push` 在真正推送前先在
+本地跑一遍完整的 `tests/test_*.sh` 套件（任意测试失败就中止推送），每个 clone
+需要手动安装一次仓库自带的 hook：
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+这会把 `scripts/git-hooks/pre-push` 复制到本次 checkout 的 `.git/hooks/pre-push`，
+只作用于当前这台机器，不会随仓库共享，也不会拦截其他协作者的推送。
+如果确认要跳过检查，使用 `git push --no-verify`。
+
 ## 许可证
 
 MIT
