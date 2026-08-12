@@ -69,8 +69,7 @@ Claude または Codex を割り当てられる2つのレビュースロット�
 # ワークスペースにクローンまたはコピー
 cd adversarial-review
 
-# 対象プロジェクトに対して実行（標準入力がTTYの場合、フェーズ4の
-# 修正実装をどちらのエージェントに任せるか対話的に尋ねられます）
+# 対象プロジェクトに対して実行（暗黙の apply-fixes は TTY で Fixer を尋ねます）
 ./adversarial_review.sh claude codex ../my-project
 
 # オプション付き
@@ -102,9 +101,10 @@ cd adversarial-review
     -p, --prompt FILE       今回のフェーズ1レビュー基準を追加
     -v, --verbose           詳細出力
     -t, --timeout MIN       エージェント呼び出しごとのタイムアウト（分、デフォルト：10）
-    -f, --fixer AGENT       フェーズ4の修正実装担当：claude | codex
-                            （省略時、TTYであれば対話的に尋ねる。
-                            非対話環境では codex がデフォルト）
+    -f, --fixer AGENT       フェーズ4 Agent：claude | codex。review-only では
+                            Synthesis Agent となり、省略時はプロンプトなしで
+                            codex がデフォルト。apply-fixes では Fixer となり、
+                            省略時は TTY で尋ね、非対話環境では codex がデフォルト。
     --slot-a AGENT          レビュースロット A のバックエンド：claude | codex
     --slot-b AGENT          レビュースロット B のバックエンド：claude | codex
     --target-dir PATH       レビュー対象のプロジェクトディレクトリ
@@ -165,7 +165,10 @@ ref が無効、対象が Git ワークツリーではない、または解決�
 チェックやエージェント呼び出しの前にエラーになります。review-only でも
 4フェーズすべてを実行し、フェーズ4はフェーズ1〜3と同じ読み取り専用 Backend
 契約を使用します。未解決の `IN_SCOPE` と `PRE_EXISTING` の指摘を分けて報告し、
-修正済みとは表現しません。両方省略した場合は、現在の暗黙的な apply-fixes の
+修正済みとは表現しません。review-only では、明示した `--fixer` が Synthesis Agent
+を選択します。省略時は TTY の有無にかかわらず stdin を読まず、プロンプトも表示せず
+Codex を選択します。apply-fixes は明示的な選択がなく stdin が TTY の場合だけ Fixer
+を尋ね、非対話呼び出しでは Codex にフォールバックします。両方省略した場合は、現在の暗黙的な apply-fixes の
 挙動を維持して移行警告を表示します。新しい自動化・Skill・Plugin はいずれかを
 明示的に指定してください。この互換デフォルトは将来削除される可能性があります。
 

@@ -11,7 +11,8 @@ Claude と GPT Codex による敵対的ディベートループを用いた
 ## コンセプト
 
 Claude と Codex が対象プロジェクトを個別にレビューし、互いの指摘を検証し、
-不一致を調整した上で、選択された修正エージェントが合意済みの変更を実装します。
+不一致を調整します。選択されたフェーズ4 Agent が読み取り専用で統合結果を報告するか、
+apply-fixes モードでは許可された変更を実装します。
 
 ループは次の4フェーズで構成されます：
 
@@ -34,7 +35,11 @@ Issue・Scope・Status プロトコルを置き換えません。
 review-only モードでも4フェーズすべてを実行し、フェーズ4はフェーズ1〜3と同じ
 読み取り専用 Backend 境界を使います。Target Repo を変更せず、未解決の
 `IN_SCOPE` と `PRE_EXISTING` の指摘を分けて報告します。両者は互いに排他的で、
-依存関係チェックやエージェント呼び出しの前に検証されます。両方とも省略した
+依存関係チェックやエージェント呼び出しの前に検証されます。review-only では、
+明示した `--fixer` がフェーズ4の Synthesis Agent を選択します。省略時は stdin が
+TTY でも入力を読まず、プロンプトも表示せず、Codex を決定的に選択します。
+apply-fixes は TTY での Fixer 選択を維持し、非対話環境では Codex にフォールバック
+します。両方のモード flag とも省略した
 場合は、現在の暗黙的な apply-fixes の挙動を維持し、移行警告を表示します。
 新しく追加する自動化・Skill・Plugin は、いずれかを明示的に指定してください。
 
@@ -54,7 +59,7 @@ cd adversarial-review
 # 指定した Git ref 以降の変更だけをレビュー
 ./adversarial_review.sh --base main claude codex ../my-project
 
-# フェーズ4の修正エージェントを選択
+# フェーズ4 Agent を選択（review-only は Synthesis Agent、apply-fixes は Fixer）
 ./adversarial_review.sh --fixer codex claude codex ../my-project
 
 # 今回の実行にレビュー基準を追加

@@ -10,7 +10,7 @@
 ## 核心理念
 
 Claude 和 Codex 各自独立审查目标项目，互相质疑对方的发现，调解分歧，
-最后由选定的修复智能体实施双方认可的修改。
+最后由选定的阶段四 Agent 只读报告综合结论，或在 apply-fixes 模式下实施获准修改。
 
 整个循环分为四个阶段：
 
@@ -31,7 +31,10 @@ Issue、Scope 或 Status 协议。
 执行只读综合，还是获得写权限并应用修复。在 review-only 模式下，四个阶段
 仍会完整运行；阶段四复用阶段一至三的只读 Backend 边界，并分别列出尚未解决的
 `IN_SCOPE` 与 `PRE_EXISTING` findings，不修改 Target Repo。两者互斥，且会在
-任何依赖检查或 Agent 调用之前完成校验。两者都省略时，行为仍与当前隐式的
+任何依赖检查或 Agent 调用之前完成校验。在 review-only 下，显式 `--fixer`
+选择阶段四的 Synthesis Agent；省略时，即使 stdin 是 TTY，也不会读取输入或提示，
+而是确定性选择 Codex。apply-fixes 在 TTY 下仍保留 Fixer 交互提示，非交互时仍
+回退到 Codex。两个模式 flag 都省略时，行为仍与当前隐式的
 apply-fixes 一致，并打印迁移提示。新增的自动化、Skill、Plugin 应当显式传入
 其中一个 flag。
 
@@ -50,7 +53,7 @@ cd adversarial-review
 # 只审查相对某个 Git ref 的变更
 ./adversarial_review.sh --base main claude codex ../my-project
 
-# 选择阶段四的修复智能体
+# 选择阶段四 Agent（review-only 为 Synthesis Agent，apply-fixes 为 Fixer）
 ./adversarial_review.sh --fixer codex claude codex ../my-project
 
 # 为本次运行追加审查标准

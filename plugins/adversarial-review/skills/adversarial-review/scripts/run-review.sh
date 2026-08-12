@@ -443,7 +443,9 @@ case "$category" in
 esac
 echo "Execution: $(jq -r '.execution.mode' "$REAL_RESULT"); Target Repo: $(jq -r '.target_repo.path' "$REAL_RESULT")"
 echo "Scope: $(jq -r '.scope.kind' "$REAL_RESULT") $(jq -r '.scope.requested_base_ref' "$REAL_RESULT") (resolved: $(jq -r '.scope.resolved_base_commit' "$REAL_RESULT"))"
-echo "Reviewers: slot A $(jq -r '.reviewers.slot_a' "$REAL_RESULT"); slot B $(jq -r '.reviewers.slot_b' "$REAL_RESULT"); Fixer: $(jq -r 'if .synthesis.requested_fixer == null or .synthesis.requested_fixer == "" then "none" else .synthesis.requested_fixer end' "$REAL_RESULT")"
+phase_4_label="Fixer"
+[[ "$EXECUTION_MODE" == "review-only" ]] && phase_4_label="Synthesis Agent"
+echo "Reviewers: slot A $(jq -r '.reviewers.slot_a' "$REAL_RESULT"); slot B $(jq -r '.reviewers.slot_b' "$REAL_RESULT"); $phase_4_label: $(jq -r 'if .synthesis.requested_fixer == null or .synthesis.requested_fixer == "" then "none" else .synthesis.requested_fixer end' "$REAL_RESULT")"
 echo "Termination: $category (status $(jq -r '.termination.exit_code' "$REAL_RESULT")); iterations: $(jq -r '.iterations' "$REAL_RESULT")"
 echo "Reason: $(jq -r '.termination.reason' "$REAL_RESULT")"
 echo "Findings: in scope $(jq -r '.counts.findings.in_scope' "$REAL_RESULT"); pre-existing $(jq -r '.counts.findings.pre_existing' "$REAL_RESULT"); scope conflicts $(jq -r '.counts.findings.scope_conflicts' "$REAL_RESULT")"

@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_UNDER_TEST="$SCRIPT_DIR/adversarial_review.sh"
+SKILL_RUNNER="$SCRIPT_DIR/.agents/skills/adversarial-review/scripts/run-review.sh"
 TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 
@@ -39,6 +40,9 @@ cat > "$FAKE_BIN/result-agent" <<'EOF'
 set -euo pipefail
 
 agent="$(basename "$0")"
+if [[ " $* " == *" auth status " || " $* " == *" login status " ]]; then
+    exit 0
+fi
 prompt="$(cat)"
 phase=1
 [[ "$prompt" == *"Phase 2: Cross-Review"* ]] && phase=2
@@ -101,13 +105,15 @@ SUMMARY: consensus reached
     4)
         sandbox=""
         output_file=""
+        read_only=false
         previous=""
         for argument in "$@"; do
             [[ "$previous" == "-s" ]] && sandbox="$argument"
             [[ "$previous" == "-o" ]] && output_file="$argument"
+            [[ "$previous" == "--permission-mode" && "$argument" == "dontAsk" ]] && read_only=true
             previous="$argument"
         done
-        if [[ "$sandbox" == "read-only" ]]; then
+        if [[ "$sandbox" == "read-only" || "$read_only" == "true" ]]; then
             response="## Unresolved in-scope findings
 
 - CLAUDE-1 and CODEX-1 remain unresolved.
@@ -164,7 +170,7 @@ if [[ "${FAKE_MALFORMED_AGENT:-}" == "$agent" &&
 fi
 
 if [[ "$agent" == "claude" ]]; then
-    if [[ "$phase" -lt 4 ]]; then
+    if [[ "$phase" -lt 4 || " $* " == *" --output-format stream-json "* ]]; then
         if [[ "${FAKE_DENIED_WRITE_AGENT:-}" == "claude" &&
               "${FAKE_DENIED_WRITE_PHASE:-}" == "$phase" ]]; then
             jq -cn '{type:"assistant",message:{content:[{type:"tool_use",name:"Bash",input:{command:"printf denied > file"}}]}}'
@@ -346,6 +352,127 @@ test_review_only_findings_result() {
     [[ "$(jq -r '.target_changes.modified' "$result_file")" == "false" ]] ||
         fail "review-only result must report an unchanged target"
     pass "review-only findings remain distinct in the result contract"
+}
+
+test_review_only_tty_uses_default_synthesis_agent_without_input() {
+    local target="$TEST_ROOT/review-only-tty-default-target"
+    local result_file="$TEST_ROOT/review-only-tty-default.json"
+    local output_file="$TEST_ROOT/review-only-tty-default.out"
+    local state_dir invocation_metadata status output
+    make_target "$target"
+
+    set +e
+    timeout 20 script -qefc \
+        "env PATH='$FAKE_BIN:$PATH' '$SCRIPT_UNDER_TEST' --review-only --max-iters 1 --result-file '$result_file' claude codex '$target'" \
+        /dev/null </dev/null > "$output_file" 2>&1
+    status=$?
+    set -e
+    output="$(cat "$output_file")"
+
+    [[ $status -eq 10 ]] || fail "review-only under a TTY must complete without stdin, got $status: $output"
+    [[ "$output" != *"Which agent should implement fixes"* ]] ||
+        fail "review-only must not emit the interactive Fixer question"
+    [[ "$output" == *"Synthesis Agent"* ]] ||
+        fail "review-only narration must describe the selected backend as the Synthesis Agent"
+    [[ "$(jq -r '.synthesis.requested_fixer' "$result_file")" == "codex" ]] ||
+        fail "review-only results must expose the default Synthesis Agent through the compatible Fixer field"
+    [[ "$(jq -r '.synthesis.executed_by' "$result_file")" == "codex" ]] ||
+        fail "review-only results must identify the default backend that performed synthesis"
+
+    state_dir="$(find "$AR_STATE_ROOT" -type d \
+        -name 'review-only-tty-default-target*' -print -quit)"
+    invocation_metadata="$(find "$state_dir" -name '*.invocation.json' \
+        -exec jq -c . {} \; | jq -sc '.')"
+    [[ "$(jq '[.[] | select(.phase == "phase_4" and .agent == "codex" and .execution_mode == "review-only" and .write_authorized == false)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
+        fail "Phase 4 invocation metadata must record the default read-only Synthesis Agent"
+    pass "review-only under a TTY defaults to Codex synthesis without reading stdin"
+}
+
+test_review_only_tty_honors_explicit_synthesis_agent_without_input() {
+    local target="$TEST_ROOT/review-only-tty-explicit-target"
+    local result_file="$TEST_ROOT/review-only-tty-explicit.json"
+    local output_file="$TEST_ROOT/review-only-tty-explicit.out"
+    local state_dir invocation_metadata status output
+    make_target "$target"
+
+    set +e
+    timeout 20 script -qefc \
+        "env PATH='$FAKE_BIN:$PATH' '$SCRIPT_UNDER_TEST' --review-only --max-iters 1 --fixer claude --result-file '$result_file' claude codex '$target'" \
+        /dev/null </dev/null > "$output_file" 2>&1
+    status=$?
+    set -e
+    output="$(cat "$output_file")"
+
+    [[ $status -eq 10 ]] || fail "explicit review-only synthesis under a TTY must complete, got $status: $output"
+    [[ "$output" != *"Which agent should implement fixes"* ]] ||
+        fail "explicit review-only must not emit the interactive Fixer question"
+    [[ "$(jq -r '.synthesis.requested_fixer' "$result_file")" == "claude" ]] ||
+        fail "an explicit review-only Synthesis Agent must override the default"
+    [[ "$(jq -r '.synthesis.executed_by' "$result_file")" == "claude" ]] ||
+        fail "the explicit review-only Synthesis Agent must perform Phase 4"
+
+    state_dir="$(find "$AR_STATE_ROOT" -type d \
+        -name 'review-only-tty-explicit-target*' -print -quit)"
+    invocation_metadata="$(find "$state_dir" -name '*.invocation.json' \
+        -exec jq -c . {} \; | jq -sc '.')"
+    [[ "$(jq '[.[] | select(.phase == "phase_4" and .agent == "claude" and .execution_mode == "review-only" and .write_authorized == false)] | length' <<< "$invocation_metadata")" -eq 1 ]] ||
+        fail "Phase 4 metadata must record the explicit read-only Synthesis Agent"
+    pass "review-only under a TTY honors an explicit Synthesis Agent without prompting"
+}
+
+test_apply_fixes_fixer_selection_retains_tty_and_noninteractive_contracts() {
+    local tty_target="$TEST_ROOT/apply-fixes-tty-target"
+    local tty_result="$TEST_ROOT/apply-fixes-tty.json"
+    local tty_output="$TEST_ROOT/apply-fixes-tty.out"
+    local noninteractive_target="$TEST_ROOT/apply-fixes-noninteractive-target"
+    local noninteractive_result="$TEST_ROOT/apply-fixes-noninteractive.json"
+    local status output
+    make_target "$tty_target"
+    make_target "$noninteractive_target"
+
+    set +e
+    printf 'c\n' | timeout 20 script -qefc \
+        "env PATH='$FAKE_BIN:$PATH' '$SCRIPT_UNDER_TEST' --apply-fixes --max-iters 1 --result-file '$tty_result' claude codex '$tty_target'" \
+        /dev/null > "$tty_output" 2>&1
+    status=$?
+    set -e
+    output="$(cat "$tty_output")"
+    [[ $status -eq 0 ]] || fail "interactive apply-fixes selection must complete, got $status: $output"
+    [[ "$output" == *"Which agent should implement fixes"* ]] ||
+        fail "apply-fixes without an explicit Fixer must still prompt on a TTY"
+    [[ "$(jq -r '.synthesis.executed_by' "$tty_result")" == "claude" ]] ||
+        fail "the interactive apply-fixes choice must remain authoritative"
+
+    PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --apply-fixes --max-iters 1 --result-file "$noninteractive_result" \
+        claude codex "$noninteractive_target" </dev/null >/dev/null 2>&1 ||
+        fail "non-interactive apply-fixes fallback run failed"
+    [[ "$(jq -r '.synthesis.executed_by' "$noninteractive_result")" == "codex" ]] ||
+        fail "non-interactive apply-fixes must retain the stable Codex fallback"
+    pass "apply-fixes retains interactive selection and the non-interactive Codex fallback"
+}
+
+test_skill_adapter_review_only_reaches_backends_under_a_tty() {
+    local target="$TEST_ROOT/skill-adapter-tty-target"
+    local output_file="$TEST_ROOT/skill-adapter-tty.out"
+    local status output
+    make_target "$target"
+    printf '%s\n' 'review me' >> "$target/app.sh"
+
+    set +e
+    timeout 30 script -qefc \
+        "cd '$target' && env AR_STATE_ROOT='$AR_STATE_ROOT' PATH='$FAKE_BIN:$PATH' '$SKILL_RUNNER' --cli '$SCRIPT_UNDER_TEST'" \
+        /dev/null </dev/null > "$output_file" 2>&1
+    status=$?
+    set -e
+    output="$(cat "$output_file")"
+
+    [[ $status -eq 10 ]] || fail "Skill Adapter review-only under a TTY must complete, got $status: $output"
+    [[ "$output" == *"Review result: Findings remaining"* ]] ||
+        fail "Skill Adapter must reach backend execution and interpret the completed machine result"
+    [[ "$output" == *"Synthesis Agent: codex"* ]] ||
+        fail "Skill Adapter must report the compatible default Phase 4 assignment"
+    pass "Skill Adapter review-only reaches backend execution under an outer TTY"
 }
 
 test_scope_conflicts_are_conservative_and_order_independent() {
@@ -669,6 +796,10 @@ test_clean_phase_1_result
 test_clean_synthesis_result_and_target_changes
 test_apply_fixes_findings_result
 test_review_only_findings_result
+test_review_only_tty_uses_default_synthesis_agent_without_input
+test_review_only_tty_honors_explicit_synthesis_agent_without_input
+test_apply_fixes_fixer_selection_retains_tty_and_noninteractive_contracts
+test_skill_adapter_review_only_reaches_backends_under_a_tty
 test_scope_conflicts_are_conservative_and_order_independent
 test_max_iterations_result
 test_circuit_open_result

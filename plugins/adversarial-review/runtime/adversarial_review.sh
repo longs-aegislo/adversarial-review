@@ -17,7 +17,7 @@
 #   -p, --prompt FILE       Additional Phase 1 review criteria file
 #   -v, --verbose           Verbose output
 #   -t, --timeout MIN       Timeout per agent call in minutes (default: 10)
-#   -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
+#   -f, --fixer AGENT       Phase 4 agent: claude | codex
 #   --slot-a AGENT          Backend for reviewer slot A: claude | codex
 #   --slot-b AGENT          Backend for reviewer slot B: claude | codex
 #   --target-dir PATH       Project to review
@@ -2115,9 +2115,11 @@ OPTIONS:
                             preserves the mandatory built-in output protocol
     -v, --verbose           Verbose output
     -t, --timeout MIN       Timeout per agent in minutes (default: 10)
-    -f, --fixer AGENT       Who implements Phase 4 fixes: claude | codex
-                            (if omitted, prompts interactively on a TTY;
-                            defaults to codex when non-interactive)
+    -f, --fixer AGENT       Phase 4 agent: claude | codex. In review-only,
+                            this is the Synthesis Agent and defaults to codex
+                            without prompting. In apply-fixes, this is the
+                            Fixer; if omitted, prompts on a TTY and defaults
+                            to codex when non-interactive.
     --slot-a AGENT          Backend for reviewer slot A: claude | codex
     --slot-b AGENT          Backend for reviewer slot B: claude | codex
     --target-dir PATH       Project directory to review
@@ -2434,7 +2436,7 @@ main() {
     fi
 
     if [[ -z "$FIXER" ]]; then
-        if [[ "$DRY_RUN" == "1" || ! -t 0 ]]; then
+        if [[ "$EXECUTION_MODE" == "review-only" || "$DRY_RUN" == "1" || ! -t 0 ]]; then
             FIXER="codex"
         else
             local choice
@@ -2459,7 +2461,7 @@ main() {
     fi
 
     if [[ "$EXECUTION_MODE" == "review-only" ]]; then
-        log_info "Phase 4 synthesis will run read-only with: $FIXER"
+        log_info "Phase 4 Synthesis Agent (read-only): $FIXER"
     else
         log_info "Phase 4 fixes will be implemented by: $FIXER"
     fi

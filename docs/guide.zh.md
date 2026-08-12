@@ -65,8 +65,7 @@
 # 克隆或复制到你的工作目录
 cd adversarial-review
 
-# 对目标项目运行（若 stdin 是交互终端，会询问由哪个智能体
-# 负责阶段四的修复实现）
+# 对目标项目运行（隐式 apply-fixes 在 stdin 为 TTY 时询问 Fixer）
 ./adversarial_review.sh claude codex ../my-project
 
 # 带选项运行
@@ -98,9 +97,10 @@ cd adversarial-review
     -p, --prompt FILE       为本次运行追加阶段一审查标准
     -v, --verbose           详细输出
     -t, --timeout MIN       每个智能体调用的超时时间，单位分钟（默认：10）
-    -f, --fixer AGENT       阶段四由谁来实施修复：claude | codex
-                            （省略时，在交互终端会询问；
-                            非交互场景默认使用 codex）
+    -f, --fixer AGENT       阶段四 Agent：claude | codex。review-only 下为
+                            Synthesis Agent，省略时不提示并默认 codex；
+                            apply-fixes 下为 Fixer，省略时在 TTY 上提示，
+                            非交互场景默认使用 codex。
     --slot-a AGENT          审查槽位 A 的后端：claude | codex
     --slot-b AGENT          审查槽位 B 的后端：claude | codex
     --target-dir PATH       要审查的项目目录
@@ -152,7 +152,10 @@ cd adversarial-review
 写权限并执行只读综合，还是获得写权限并应用修复；两者互斥，同时传入会在任何
 依赖检查或 Agent 调用之前报错退出。review-only 仍完整执行四个阶段，阶段四
 复用阶段一至三的只读 Backend 契约，分别报告尚未解决的 `IN_SCOPE` 与
-`PRE_EXISTING` findings，且不会声称已经修复。两者都省略时，行为仍与当前
+`PRE_EXISTING` findings，且不会声称已经修复。review-only 下，显式 `--fixer`
+选择 Synthesis Agent；否则无论是否分配 TTY，都会在不读取 stdin、不提示的情况下
+选择 Codex。apply-fixes 仅在未显式选择且 stdin 为 TTY 时询问 Fixer；非交互调用
+回退到 Codex。两者都省略时，行为仍与当前
 隐式的 apply-fixes 一致，并打印迁移提示；新增的自动化、Skill、Plugin 应显式
 传入其中一个 flag。这个兼容默认行为未来可能被移除。
 
