@@ -480,6 +480,23 @@ manifest、`compatibility.json`、release-note file/field、または installed 
 に依存します。Plugin API は experimental のままで、public universal Plugin directory への
 submission はこの release process の対象外です。
 
+### 任意のローカルテストゲート
+
+このリポジトリには GitHub Actions CI がありません。push 前にすべての
+`tests/test_*.sh` を自動実行するには、checkout ごとに一度、付属の pre-push
+hook をインストールします：
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+インストーラーは checkout 内のどのディレクトリからでも実行できます。追跡対象の
+hook を解決済み Git hooks ディレクトリへコピーし、内容が一致する再インストールは
+許可しますが、内容が異なる既存ファイル、シンボリックリンク、またはファイルではない
+hook path の置換は拒否します。hook は失敗した全テストスクリプトを報告してから push
+を拒否します。インストール済みローカルゲートを意図的に迂回する場合だけ
+`git push --no-verify` を使ってください。
+
 ## 研究背景
 
 このアプローチは以下の研究に基づいています：

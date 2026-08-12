@@ -91,7 +91,7 @@ base_ref=""
 slot_a=""
 slot_b=""
 dry_run=false
-execution_mode=review-only
+execution_mode=""
 fixer=""
 previous=""
 for argument in "$@"; do
@@ -102,9 +102,15 @@ for argument in "$@"; do
     [[ "$previous" == "--slot-b" ]] && slot_b="$argument"
     [[ "$previous" == "--fixer" ]] && fixer="$argument"
     [[ "$argument" == "--dry-run" ]] && dry_run=true
+    [[ "$argument" == "--review-only" ]] && execution_mode=review-only
     [[ "$argument" == "--apply-fixes" ]] && execution_mode=apply-fixes
     previous="$argument"
 done
+
+[[ -n "$execution_mode" ]] || {
+    printf '%s\n' 'missing explicit execution mode' >&2
+    exit 64
+}
 
 if [[ "$dry_run" == "true" ]]; then
     cat > "$result_file" <<JSON
@@ -200,6 +206,17 @@ $(cat "$output")"
         "response should report the machine-readable termination category and process status"
     [[ "$(wc -l < "$command_log" | tr -d ' ')" == "2" ]] ||
         fail "the staged CLI should receive exactly one dry-run and one real invocation"
+    local dry_run_command real_command
+    dry_run_command="$(sed -n '1p' "$command_log")"
+    real_command="$(sed -n '2p' "$command_log")"
+    assert_contains "$dry_run_command" "<--dry-run>" \
+        "the preview invocation must be an explicit dry-run"
+    assert_contains "$dry_run_command" "<--review-only>" \
+        "the preview invocation must explicitly select review-only mode"
+    assert_contains "$real_command" "<--review-only>" \
+        "the real invocation must explicitly select review-only mode"
+    [[ "$real_command" != *"<--dry-run>"* ]] ||
+        fail "the real invocation must not retain the dry-run flag"
 
     [[ -s "$backend_log" ]] || fail "backend authentication should still be checked before review"
     local backend_calls

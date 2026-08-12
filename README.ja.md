@@ -189,8 +189,10 @@ bash scripts/install-git-hooks.sh
 
 これは `scripts/git-hooks/pre-push` をこの checkout の `.git/hooks/pre-push`
 にコピーするだけで、このマシンのみに適用され、他の共同作業者と共有されず、
-他人の push をゲートすることもありません。意図的にスキップする場合は
-`git push --no-verify` を使ってください。
+他人の push をゲートすることもありません。インストーラーは checkout 内の
+どのディレクトリからでも実行でき、内容が異なる既存 hook の上書きを拒否します。
+インストール済みゲートを意図的にスキップする場合は `git push --no-verify` を
+使ってください。
 
 ## ライセンス
 

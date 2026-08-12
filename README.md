@@ -200,7 +200,9 @@ bash scripts/install-git-hooks.sh
 
 This copies `scripts/git-hooks/pre-push` into `.git/hooks/pre-push` for this
 checkout only; it is not shared with collaborators and does not gate anyone
-else's push. Skip it for an intentional push with `git push --no-verify`.
+else's push. The installer can be run from any directory in the checkout and
+refuses to overwrite a different existing hook. Skip the installed gate for an
+intentional push with `git push --no-verify`.
 
 ## License
 

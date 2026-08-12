@@ -173,7 +173,8 @@ bash scripts/install-git-hooks.sh
 
 这会把 `scripts/git-hooks/pre-push` 复制到本次 checkout 的 `.git/hooks/pre-push`，
 只作用于当前这台机器，不会随仓库共享，也不会拦截其他协作者的推送。
-如果确认要跳过检查，使用 `git push --no-verify`。
+安装脚本可以从该 checkout 的任意目录运行；如果目标位置已有内容不同的 hook，
+它会拒绝覆盖。如果确认要跳过已安装的门禁，使用 `git push --no-verify`。
 
 ## 许可证
 
