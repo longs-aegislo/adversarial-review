@@ -187,6 +187,23 @@ This is an experimental prototype. Ideas for improvement include additional
 review agents, accuracy-based voting, cost controls, and better artifact
 visualization.
 
+### Local test gate (optional)
+
+This repository has no GitHub Actions CI: `tests/test_*.sh` only runs when
+someone runs it. `git clone` never installs git hooks by itself, so to make
+`git push` run the full `tests/test_*.sh` suite locally first (aborting the
+push on any failure), install the tracked hook once per clone:
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+This copies `scripts/git-hooks/pre-push` into `.git/hooks/pre-push` for this
+checkout only; it is not shared with collaborators and does not gate anyone
+else's push. The installer can be run from any directory in the checkout and
+refuses to overwrite a different existing hook. Skip the installed gate for an
+intentional push with `git push --no-verify`.
+
 ## License
 
 MIT

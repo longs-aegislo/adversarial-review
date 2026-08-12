@@ -13,8 +13,8 @@ fail() {
     exit 1
 }
 
-RUNTIME_UTILITIES=(awk basename bash cat cmp cut dirname find git grep head jq
-    mkdir mktemp mv readlink rm sed shasum sort stat tail timeout tr wc)
+RUNTIME_UTILITIES=(awk basename bash cat cmp cut date dirname find git grep head jq
+    mkdir mktemp mv readlink rm sed shasum sleep sort stat tail timeout tr wc)
 
 link_utilities() {
     local destination="$1"
@@ -289,7 +289,7 @@ link_utilities "$MISSING_CLAUDE_BIN" "${RUNTIME_UTILITIES[@]}"
 cp "$REPO_ROOT/tests/fixtures/plugin-backends/codex" "$MISSING_CLAUDE_BIN/codex"
 chmod +x "$MISSING_CLAUDE_BIN/codex"
 MISSING_BACKEND_LOG="$PROFILE_ROOT/missing-backend.log"
-PREFLIGHT_PATH="$MISSING_CLAUDE_BIN:/usr/bin:/bin"
+PREFLIGHT_PATH="$MISSING_CLAUDE_BIN"
 [[ -z "$(PATH="$PREFLIGHT_PATH" command -v claude 2>/dev/null || true)" ]] ||
     fail "test environment unexpectedly exposes Claude in the one-backend PATH"
 set +e

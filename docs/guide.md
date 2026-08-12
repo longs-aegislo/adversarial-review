@@ -518,6 +518,23 @@ and CRLF fixtures, and macOS depends on community/manual smoke evidence. The
 Plugin API remains experimental, and public universal Plugin directory
 submission is not part of this release process.
 
+### Optional local test gate
+
+This repository has no GitHub Actions CI. To run every `tests/test_*.sh`
+script automatically before pushing, install the tracked pre-push hook once
+per checkout:
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+The installer works from any directory inside the checkout. It copies the
+tracked hook to this checkout's resolved Git hooks directory, permits an
+idempotent reinstall when the bytes match, and refuses to replace a different
+existing file, symlink, or non-file hook path. The hook reports every failing
+test script before rejecting the push. Use `git push --no-verify` only when
+intentionally bypassing the installed local gate.
+
 ## Research Background
 
 This approach is based on:

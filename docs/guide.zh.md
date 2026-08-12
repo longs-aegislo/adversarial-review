@@ -442,6 +442,20 @@ release-note 文件/字段或已安装 Codex CLI 与候选版本不匹配；应�
 绕过门禁。Linux 自动验证，Windows 通过 WSL 与 CRLF fixture 支持，macOS 依赖社区或人工
 smoke 证据。Plugin API 仍是 experimental；公共 universal Plugin directory 投稿不属于本发布流程。
 
+### 可选的本地测试门禁
+
+本仓库没有 GitHub Actions CI。若要在每次 push 前自动运行全部
+`tests/test_*.sh`，请在每个 checkout 中安装一次仓库自带的 pre-push hook：
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+安装器可以从 checkout 内任意目录运行。它会将仓库中的 hook 复制到本次 checkout
+解析出的 Git hooks 目录；内容一致时允许幂等重装，但若目标是内容不同的已有文件、
+符号链接或非文件路径则拒绝替换。hook 会报告所有失败的测试脚本后再阻止 push。
+只有在明确要绕过已安装的本地门禁时才使用 `git push --no-verify`。
+
 ## 研究背景
 
 这套方法基于以下研究：

@@ -175,6 +175,25 @@ Target Repo のファイルや、上記の review state/Artifacts には影響�
 これは実験的なプロトタイプです。レビューエージェントの追加、精度に基づく投票、
 コスト制御、成果物の可視化などを改善できます。
 
+### ローカルテストゲート（任意）
+
+このリポジトリには GitHub Actions CI がなく、`tests/test_*.sh` は誰かが手動で
+実行しない限り走りません。`git clone` は git hook を自動でインストールしない
+ため、`git push` の前にローカルで `tests/test_*.sh` 一式を実行し、失敗があれば
+push を中止させたい場合は、clone ごとに一度だけ付属の hook をインストールして
+ください。
+
+```bash
+bash scripts/install-git-hooks.sh
+```
+
+これは `scripts/git-hooks/pre-push` をこの checkout の `.git/hooks/pre-push`
+にコピーするだけで、このマシンのみに適用され、他の共同作業者と共有されず、
+他人の push をゲートすることもありません。インストーラーは checkout 内の
+どのディレクトリからでも実行でき、内容が異なる既存 hook の上書きを拒否します。
+インストール済みゲートを意図的にスキップする場合は `git push --no-verify` を
+使ってください。
+
 ## ライセンス
 
 MIT
