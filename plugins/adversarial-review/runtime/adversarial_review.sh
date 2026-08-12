@@ -1782,36 +1782,36 @@ Working directory: $target_dir
     local output_file="$ARTIFACTS_DIR/iter${iteration}_4_synthesis.md"
     RESULT_FINAL_SYNTHESIS_ARTIFACT="$output_file"
 
-    local fixer_agent="claude"
+    local phase_4_agent="claude"
     local backend_mode="workspace-write"
     [[ "$EXECUTION_MODE" == "review-only" ]] && backend_mode="read-only"
-    local fixer_rc=0
+    local phase_4_rc=0
     local target_before=""
     [[ "$backend_mode" == "read-only" ]] && \
         target_before="$(target_tree_fingerprint "$target_dir")"
     if [[ "$PHASE_4_AGENT" == "codex" ]]; then
-        fixer_agent="codex"
-        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$fixer_agent"
+        phase_4_agent="codex"
+        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$phase_4_agent"
         log_info "Running Phase 4 synthesis with Codex ($backend_mode)"
         run_backend "codex" "$context" "$output_file" "$target_dir" \
             "$backend_mode" "phase_4" ||
-            fixer_rc=$?
+            phase_4_rc=$?
     else
-        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$fixer_agent"
+        [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$phase_4_agent"
         log_info "Running Phase 4 synthesis with Claude ($backend_mode)"
         run_backend "claude" "$context" "$output_file" "$target_dir" \
             "$backend_mode" "phase_4" ||
-            fixer_rc=$?
+            phase_4_rc=$?
     fi
     if [[ "$backend_mode" == "read-only" ]] &&
        ! verify_review_target_unchanged "$iteration" "phase_4" "Phase 4" \
             "$target_dir" "$target_before"; then
         return "$PHASE_WRITE_BOUNDARY_VIOLATION"
     fi
-    if [[ $fixer_rc -ne 0 ]]; then
-        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
-            "agent exited with code $fixer_rc" "$output_file"
-        if [[ $fixer_rc -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
+    if [[ $phase_4_rc -ne 0 ]]; then
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$phase_4_agent" \
+            "agent exited with code $phase_4_rc" "$output_file"
+        if [[ $phase_4_rc -eq $PHASE_WRITE_BOUNDARY_VIOLATION ]]; then
             return "$PHASE_WRITE_BOUNDARY_VIOLATION"
         fi
         return "$PHASE_4_FAILED"
@@ -1822,7 +1822,7 @@ Working directory: $target_dir
     local status
     if ! status="$(parse_status_block "$output_file" "SYNTHESIS_STATUS")"; then
         RESULT_TERMINATION_REASON="malformed-agent-response"
-        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$phase_4_agent" \
             "missing or malformed SYNTHESIS_STATUS block" "$output_file"
         return "$PHASE_4_FAILED"
     fi
@@ -1848,13 +1848,13 @@ Working directory: $target_dir
     if [[ "$EXECUTION_MODE" == "review-only" ]] &&
        ! validate_review_only_synthesis "$output_file" "$status" \
             "$required_issue_ids"; then
-        record_agent_failure "$iteration" "phase_4" "Phase 4" "$fixer_agent" \
+        record_agent_failure "$iteration" "phase_4" "Phase 4" "$phase_4_agent" \
             "review-only synthesis is missing required scope sections or claims fixes" \
             "$output_file"
         return "$PHASE_4_FAILED"
     fi
 
-    add_to_history "$iteration" "phase_4" "$fixer_agent" "$status"
+    add_to_history "$iteration" "phase_4" "$phase_4_agent" "$status"
     update_tracking "in_scope_fixed" "$in_scope_fixed"
     update_tracking "pre_existing_fixed" "$pre_existing_fixed"
     update_tracking "pre_existing_flagged" "$pre_existing_flagged"
@@ -1863,7 +1863,7 @@ Working directory: $target_dir
     RESULT_PRE_EXISTING_FLAGGED="$pre_existing_flagged"
 
     local synthesis_summary=$(echo "$status" | jq -r '.summary // "(no summary)"')
-    log_info "Synthesis ($fixer_agent): $synthesis_summary"
+    log_info "Synthesis ($phase_4_agent): $synthesis_summary"
     log_info "Synthesis scope counts: $in_scope_fixed in-scope fixed, $pre_existing_fixed pre-existing fixed, $pre_existing_flagged pre-existing flagged"
 
     # Record for circuit breaker
