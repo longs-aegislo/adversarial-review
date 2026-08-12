@@ -130,7 +130,8 @@ MAX_ITERATIONS="${MAX_ITERATIONS:-3}"
 VERBOSE="${VERBOSE:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 TIMEOUT_MINUTES="${TIMEOUT_MINUTES:-10}"
-FIXER="${FIXER:-}"
+# FIXER remains the public environment-variable name for compatibility.
+PHASE_4_AGENT="${FIXER:-}"
 SLOT_A=""
 SLOT_B=""
 BASE_REF=""
@@ -403,7 +404,7 @@ write_result_file() {
         printf '  "reviewers": {"slot_a": %s, "slot_b": %s},\n' \
             "$(json_string_or_null "$SLOT_A")" "$(json_string_or_null "$SLOT_B")"
         printf '  "synthesis": {"requested_fixer": %s, "executed_by": %s},\n' \
-            "$(json_string_or_null "$FIXER")" \
+            "$(json_string_or_null "$PHASE_4_AGENT")" \
             "$(json_string_or_null "$RESULT_SYNTHESIS_EXECUTED_BY")"
         printf '  "scope": {"kind": %s, "requested_base_ref": %s, "resolved_base_commit": %s},\n' \
             "$(json_quote "$scope_kind")" "$(json_string_or_null "$requested_base")" \
@@ -725,12 +726,12 @@ get_timeout_cmd() {
 check_dependencies() {
     local missing=()
 
-    if [[ "$SLOT_A" == "claude" || "$SLOT_B" == "claude" || "$FIXER" == "claude" ]] &&
+    if [[ "$SLOT_A" == "claude" || "$SLOT_B" == "claude" || "$PHASE_4_AGENT" == "claude" ]] &&
        ! command -v claude &> /dev/null; then
         missing+=("claude CLI (npm install -g @anthropic-ai/claude-code)")
     fi
 
-    if [[ "$SLOT_A" == "codex" || "$SLOT_B" == "codex" || "$FIXER" == "codex" ]] &&
+    if [[ "$SLOT_A" == "codex" || "$SLOT_B" == "codex" || "$PHASE_4_AGENT" == "codex" ]] &&
        ! command -v codex &> /dev/null; then
         missing+=("codex CLI (npm install -g @openai/codex)")
     fi
@@ -1788,7 +1789,7 @@ Working directory: $target_dir
     local target_before=""
     [[ "$backend_mode" == "read-only" ]] && \
         target_before="$(target_tree_fingerprint "$target_dir")"
-    if [[ "$FIXER" == "codex" ]]; then
+    if [[ "$PHASE_4_AGENT" == "codex" ]]; then
         fixer_agent="codex"
         [[ "$DRY_RUN" == "1" ]] || RESULT_SYNTHESIS_EXECUTED_BY="$fixer_agent"
         log_info "Running Phase 4 synthesis with Codex ($backend_mode)"
@@ -2234,7 +2235,7 @@ main() {
                 ;;
             -f|--fixer)
                 [[ $# -ge 2 ]] || { log_error "Missing value for $1"; exit "$EXIT_INVALID_INVOCATION"; }
-                FIXER="$2"
+                PHASE_4_AGENT="$2"
                 shift 2
                 ;;
             --slot-a)
@@ -2435,21 +2436,21 @@ main() {
         log_info "Using additional review criteria: $custom_prompt"
     fi
 
-    if [[ -z "$FIXER" ]]; then
+    if [[ -z "$PHASE_4_AGENT" ]]; then
         if [[ "$EXECUTION_MODE" == "review-only" || "$DRY_RUN" == "1" || ! -t 0 ]]; then
-            FIXER="codex"
+            PHASE_4_AGENT="codex"
         else
             local choice
             read -r -p "$(echo -e "${BLUE}[INFO]${NC} Which agent should implement fixes in Phase 4? [c]laude / [x]codex (default: codex): ")" choice
             case "$choice" in
-                c|C|claude) FIXER="claude" ;;
-                *) FIXER="codex" ;;
+                c|C|claude) PHASE_4_AGENT="claude" ;;
+                *) PHASE_4_AGENT="codex" ;;
             esac
         fi
     fi
 
-    if [[ "$FIXER" != "claude" && "$FIXER" != "codex" ]]; then
-        log_error "Invalid --fixer value: $FIXER (must be 'claude' or 'codex')"
+    if [[ "$PHASE_4_AGENT" != "claude" && "$PHASE_4_AGENT" != "codex" ]]; then
+        log_error "Invalid --fixer value: $PHASE_4_AGENT (must be 'claude' or 'codex')"
         exit "$EXIT_INVALID_INVOCATION"
     fi
 
@@ -2461,9 +2462,9 @@ main() {
     fi
 
     if [[ "$EXECUTION_MODE" == "review-only" ]]; then
-        log_info "Phase 4 Synthesis Agent (read-only): $FIXER"
+        log_info "Phase 4 Synthesis Agent (read-only): $PHASE_4_AGENT"
     else
-        log_info "Phase 4 fixes will be implemented by: $FIXER"
+        log_info "Phase 4 fixes will be implemented by: $PHASE_4_AGENT"
     fi
 
     run_review_loop "$target_dir"

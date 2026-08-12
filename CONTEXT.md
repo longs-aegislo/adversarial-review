@@ -13,7 +13,11 @@
 - **Circuit breaker** (`lib/circuit_breaker.sh`) — stops the loop on stagnation: no progress after N iterations, persistent disagreement, or the same issues recurring.
 - **Artifacts** — every agent response, saved under `artifacts/iter{N}_{phase}_{agent}_{type}.md` (see CLAUDE.md's Artifacts Naming Convention).
 - **Raw transcript / `.raw.log`** — Codex's full `codex exec` stdout (reasoning summaries, tool calls, file dumps), saved alongside the extracted final-reply `.md` artifact but never fed into later prompts.
-- **Fixer** — the agent (`claude` or `codex`) chosen to perform Phase 4 synthesis; it implements fixes only in apply-fixes mode.
+- **Phase 4 Agent** — the selected backend (`claude` or `codex`) that performs
+  synthesis. In review-only it is presented as the **Synthesis Agent** and
+  remains read-only; in apply-fixes it is the **Fixer** and may receive write
+  authorization. The CLI option, `FIXER` environment variable, and schema
+  version 1 `requested_fixer` field retain their legacy names for compatibility.
 - **Review scope** — the boundary of source files Phase 1 is meant to review. By
   default this is every reviewable file in the target directory. With an
   explicit `--base <ref>`, it is instead the reviewable committed,

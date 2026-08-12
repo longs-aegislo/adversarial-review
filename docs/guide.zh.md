@@ -255,7 +255,7 @@ MAX_ITERATIONS=5      # 覆盖最大迭代次数
 TIMEOUT_MINUTES=15    # 每次智能体调用的超时时间
 VERBOSE=1             # 开启详细输出
 DRY_RUN=1             # 只展示会执行什么
-FIXER=codex           # 阶段四由谁实施修复：claude | codex
+FIXER=codex           # 阶段四 Agent：按模式为 Synthesis Agent 或 Fixer
 ```
 
 ## 工作原理
@@ -368,7 +368,7 @@ Review Scope 时才开始真实审查；空、无法解析或超过 500 个文�
 每个预览路径还必须属于所选 baseline 的 Git delta，因此低于数量上限的意外整仓 scope
 也会被拒绝。
 它只接受结果 schema version 1，并校验所有必填字段、跨字段约束以及进程／结果退出状态，
-绝不退回解析终端 prose 或 tracking 状态。摘要包含模式、scope/base、reviewer/Fixer 分配、
+绝不退回解析终端 prose 或 tracking 状态。摘要包含模式、scope/base、reviewer/阶段四 Agent 分配、
 终止原因、迭代次数、按 Finding Scope 区分的计数、修改文件、验证结果及
 State/Synthesis/Artifacts 路径；clean、findings、最大迭代、断路器打开、非法调用、
 Agent/backend 失败和写入策略违规都有独立且可行动的说明。apply-fixes 后，它分别列出机器结果中的

@@ -271,7 +271,7 @@ MAX_ITERATIONS=5      # 最大イテレーション数を上書き
 TIMEOUT_MINUTES=15    # エージェント呼び出しごとのタイムアウト
 VERBOSE=1             # 詳細出力を有効化
 DRY_RUN=1             # 実行内容のみ表示
-FIXER=codex           # フェーズ4の修正実装担当：claude | codex
+FIXER=codex           # フェーズ4 Agent：モード別に Synthesis Agent または Fixer
 ```
 
 ## 仕組み
@@ -396,7 +396,7 @@ same-model redundancy として説明します。その後、同じ値で dry-ru
 意図しないリポジトリ全体 scope は拒否されます。
 result schema version 1 のみを受け付け、必須フィールド、フィールド間の整合性、
 プロセス／結果終了ステータスを検証し、ターミナル prose や tracking 状態へフォールバックしません。
-モード、scope/base、reviewer/Fixer 割り当て、終了理由、反復回数、Finding Scope 別件数、
+モード、scope/base、reviewer/フェーズ4 Agent 割り当て、終了理由、反復回数、Finding Scope 別件数、
 変更ファイル、検証結果、State/Synthesis/Artifacts パスを表示し、clean、findings、最大反復、
 circuit open、不正な呼び出し、Agent/backend 失敗、書き込みポリシー違反をそれぞれ実行可能な
 説明として区別します。apply-fixes 後は機械結果の変更 path と Target Repo Git diff の全パスを

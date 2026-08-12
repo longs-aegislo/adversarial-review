@@ -426,9 +426,12 @@ test_apply_fixes_fixer_selection_retains_tty_and_noninteractive_contracts() {
     local tty_output="$TEST_ROOT/apply-fixes-tty.out"
     local noninteractive_target="$TEST_ROOT/apply-fixes-noninteractive-target"
     local noninteractive_result="$TEST_ROOT/apply-fixes-noninteractive.json"
+    local environment_target="$TEST_ROOT/apply-fixes-environment-target"
+    local environment_result="$TEST_ROOT/apply-fixes-environment.json"
     local status output
     make_target "$tty_target"
     make_target "$noninteractive_target"
+    make_target "$environment_target"
 
     set +e
     printf 'c\n' | timeout 20 script -qefc \
@@ -449,7 +452,14 @@ test_apply_fixes_fixer_selection_retains_tty_and_noninteractive_contracts() {
         fail "non-interactive apply-fixes fallback run failed"
     [[ "$(jq -r '.synthesis.executed_by' "$noninteractive_result")" == "codex" ]] ||
         fail "non-interactive apply-fixes must retain the stable Codex fallback"
-    pass "apply-fixes retains interactive selection and the non-interactive Codex fallback"
+
+    FIXER=claude PATH="$FAKE_BIN:$PATH" "$SCRIPT_UNDER_TEST" \
+        --apply-fixes --max-iters 1 --result-file "$environment_result" \
+        claude codex "$environment_target" </dev/null >/dev/null 2>&1 ||
+        fail "apply-fixes with the legacy FIXER environment variable failed"
+    [[ "$(jq -r '.synthesis.executed_by' "$environment_result")" == "claude" ]] ||
+        fail "the legacy FIXER environment variable must remain authoritative"
+    pass "apply-fixes retains TTY selection, non-interactive fallback, and FIXER compatibility"
 }
 
 test_skill_adapter_review_only_reaches_backends_under_a_tty() {

@@ -280,7 +280,7 @@ MAX_ITERATIONS=5      # Override max iterations
 TIMEOUT_MINUTES=15    # Timeout per agent call
 VERBOSE=1             # Enable verbose output
 DRY_RUN=1             # Show what would happen
-FIXER=codex           # Who implements Phase 4 fixes: claude | codex
+FIXER=codex           # Phase 4 Agent: Synthesis Agent or Fixer by mode
 ```
 
 ## How It Works
@@ -417,7 +417,7 @@ path must also occur in the selected baseline's Git delta, so an accidental
 whole-repository scope below that limit is rejected too. It accepts only result
 schema version 1 and validates every required field, cross-field invariant, and
 process/result exit status without falling back to terminal prose or tracking
-state. It reports mode, scope/base, reviewer/Fixer assignments, termination
+state. It reports mode, scope/base, reviewer/Phase 4 Agent assignments, termination
 reason, iterations, scoped counts, modified files, verification, and
 State/Synthesis/Artifacts paths. Clean, findings remaining, maximum iterations,
 circuit open, invalid invocation, Agent/backend failure, and write-policy
